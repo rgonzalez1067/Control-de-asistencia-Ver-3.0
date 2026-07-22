@@ -1,0 +1,40 @@
+{
+  "summary": "Iteration 3 — Phase 4 UI (Reports, Novelties, Team) + PWA prompt. Backend regression: 49/49 pytest cases pass (41 existing + 8 new for Phase 4 endpoints). Frontend E2E: Reports filters/stats/export, Novelties create/bulk-approve/individual-reject/delete, Team matrix + KPIs + days selector, PWA + employee role restrictions — all verified. One bug found: admin sidebar is missing a link to /equipo (Team page).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AppLayout.jsx (NAV_ADMIN)", "issue": "Admin sidebar has NO link to /equipo (nav-equipo missing). The Team route is protected by ADMIN_OR_SUP so admin CAN access it, but there is no way to navigate via sidebar — user has to type URL manually. NAV_SUPERVISOR includes /equipo but NAV_ADMIN skips it.", "selector": "[data-testid=\"nav-equipo\"] on admin login", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "All pages (dev-mode only)", "issues": ["Benign ResizeObserver-loop warnings from Radix UI (Select/Dialog) trigger the CRA dev error overlay. In production this overlay does not exist and users won't see it. Consider suppressing this specific warning globally via `window.addEventListener('error', e => { if(/ResizeObserver loop/.test(e.message)) e.stopImmediatePropagation(); }, true)` so dev experience is cleaner."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Add `{ to: '/equipo', icon: Users, label: 'Mi equipo' }` to NAV_ADMIN in /app/frontend/src/components/AppLayout.jsx so admin can navigate to Team page via sidebar (data-testid `nav-equipo`)."
+  ],
+  "critical_code_review_comments": [
+    "AppLayout.jsx: NAV_ADMIN missing /equipo entry — inconsistent with route protection which allows admin (ADMIN_OR_SUP).",
+    "ReportsPage.jsx line 64: fetchReports() sends only from_date/to_date/user_id/site_id — filters `type` and `status` are client-side only. Fine for correctness but the CSV export ignores type/status filters entirely (only date range). Consider passing them to the export endpoint or documenting that CSV = raw dataset.",
+    "InstallPWAPrompt.jsx: no cleanup for the 'appinstalled' listener (only 'beforeinstallprompt' is cleaned in the return). Minor memory-leak footgun on hot-reload.",
+    "NoveltiesPage.jsx: TypeError-prone if `user?.user_id` is undefined when isManager creates for someone else — Select default is `form.user_id || user?.user_id`, works but sends user_id only if isManager. OK, but empty user_id is stripped before POST so payload doesn't 400. Consider more explicit handling.",
+    "TeamPage.jsx line 32-104: heavy useMemo chain re-computes matrix on every teamRecords change. Acceptable for 17 users × 30 days, but could be slower for 100+ users."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (+8 tests in new TestPhase4Endpoints class)"
+  ],
+  "success_rate": {"backend": "100% (49/49)", "frontend": "~95% (all critical Phase 4 flows verified; only issue is missing admin sidebar link to /equipo)"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / admin123 (from /app/memory/test_credentials.md). Employee created on-the-fly with temp1234 and deleted after test.",
+  "seed_data_creation": "Created + deleted several TEST_ novelties (permission and vacation with future dates 2027-XX-XX), one TEST_p4emp employee user. All cleanup successful. However, some pre-existing TEST novelties from prior iterations were also cleaned during regression (they had TEST prefix in reason).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Phase 4 UI fully functional: /reportes has 6 working filters (from/to/user/site/type/status) + CSV export with Content-Disposition header + KPIs computed client-side over filtered set; /novedades supports create (with future dates), bulk approve/reject via sticky bulk-bar, individual approve/reject via decide-dialog, employee-scoped delete of pending; /equipo shows day×employee matrix (17 rows for admin excluding admins) + 4 KPIs + configurable days range (1/3/7/14/30). PWA prompt (InstallPWAPrompt.jsx) is silent in headless (no beforeinstallprompt) and doesn't break anything. IMPORTANT open item: admin has NO sidebar entry for /equipo (NAV_ADMIN missing it). Employee correctly locked out of /reportes and /equipo (redirects to /historial) and cannot see nav-usuarios/nav-reportes/nav-equipo. Backend 100% (49/49) including 8 new Phase 4 endpoint tests.",
+  "rca of the issue": "Missing nav-equipo for admin: root cause is in /app/frontend/src/components/AppLayout.jsx lines 14-23 (NAV_ADMIN). NAV_SUPERVISOR includes { to: '/equipo', icon: Users, label: 'Mi equipo' } but NAV_ADMIN omits it. Fix: spread /equipo into NAV_ADMIN or refactor to compose from a base list. Reproduction: login as rgonzalez@megasoft.com.ve/admin123 → look at left sidebar → note that Empleados/Sedes/Departamentos/Horarios/Reportes/Novedades/Ajustes are shown but 'Mi equipo' is not. Manually navigating to /equipo works because ProtectedRoute allows ADMIN_OR_SUP."
+}

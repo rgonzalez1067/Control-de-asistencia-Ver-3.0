@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppLayout from "@/components/AppLayout";
+import InstallPWAPrompt from "@/components/InstallPWAPrompt";
 import LoginPage from "@/pages/LoginPage";
 import HomeRedirect from "@/pages/HomeRedirect";
 import UsersPage from "@/pages/UsersPage";
@@ -15,7 +16,9 @@ import CarnetPage from "@/pages/CarnetPage";
 import OnboardingPage from "@/pages/OnboardingPage";
 import KioskUnlockPage from "@/pages/KioskUnlockPage";
 import KioskScanPage from "@/pages/KioskScanPage";
-import ComingSoon from "@/pages/ComingSoon";
+import ReportsPage from "@/pages/ReportsPage";
+import NoveltiesPage from "@/pages/NoveltiesPage";
+import TeamPage from "@/pages/TeamPage";
 
 const ADMIN = ["admin"];
 const ADMIN_OR_SUP = ["admin", "supervisor"];
@@ -58,11 +61,11 @@ function App() {
             <Route path="ajustes" element={<ProtectedRoute roles={ADMIN}><SettingsPage /></ProtectedRoute>} />
 
             {/* Admin + Supervisor */}
-            <Route path="reportes" element={<ProtectedRoute roles={ADMIN_OR_SUP}><ComingSoon title="Reportes" phase="Fase 4" description="Historial global de asistencia con filtros por fecha, sede y usuario. Exportación a CSV lista para RRHH." /></ProtectedRoute>} />
-            <Route path="equipo" element={<ProtectedRoute roles={ADMIN_OR_SUP}><ComingSoon title="Mi equipo" phase="Fase 4" description="Vista de supervisor con asistencia del equipo asignado y aprobación de novedades." /></ProtectedRoute>} />
+            <Route path="reportes" element={<ProtectedRoute roles={ADMIN_OR_SUP}><ReportsPage /></ProtectedRoute>} />
+            <Route path="equipo" element={<ProtectedRoute roles={ADMIN_OR_SUP}><TeamPage /></ProtectedRoute>} />
 
             {/* Todos los roles */}
-            <Route path="novedades" element={<ComingSoon title="Novedades" phase="Fase 4" description="Vacaciones, permisos y ausencias con flujo de aprobación bulk." />} />
+            <Route path="novedades" element={<NoveltiesPage />} />
             <Route path="carnet" element={<CarnetPage />} />
             <Route path="historial" element={<HistorialPage />} />
           </Route>
@@ -70,6 +73,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <Toaster position="top-right" richColors closeButton />
+        <InstallPWAPrompt />
       </BrowserRouter>
     </AuthProvider>
   );

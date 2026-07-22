@@ -673,6 +673,149 @@ class TestUsersPhotoEndpoint:
         assert r.status_code == 401
 
 
+# ---------------------------------------------------------------------------
+# Iteration 3 — Phase 4 UI-facing endpoints smoke tests
+# ---------------------------------------------------------------------------
+class TestPhase4Endpoints:
+    """Quick regression for endpoints used by new Reports/Novelties/Team pages."""
+
+    def test_reports_with_filters(self, api, auth_headers):
+        r = api.get(
+            f"{BASE_URL}/api/reports?from_date=2026-01-01&to_date=2026-12-31",
+            headers=auth_headers,
+        )
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_reports_without_filters(self, api, auth_headers):
+        r = api.get(f"{BASE_URL}/api/reports", headers=auth_headers)
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_reports_export_csv_content_disposition(self, api, admin_token):
+        h = {"Authorization": f"Bearer {admin_token}"}
+        r = requests.get(f"{BASE_URL}/api/reports/export", headers=h)
+        assert r.status_code == 200
+        # Should be attachment CSV
+        cd = r.headers.get("content-disposition", "").lower()
+        ct = r.headers.get("content-type", "").lower()
+        assert ("attachment" in cd) or ("csv" in ct), \
+            f"CSV export missing attachment/csv hint. CD={cd!r} CT={ct!r}"
+        assert "record_id" in r.text
+        assert "timestamp_utc" in r.text
+
+    def test_novelties_list(self, api, auth_headers):
+        r = api.get(f"{BASE_URL}/api/novelties", headers=auth_headers)
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_novelty_vacation_future_bulk_approve_delete(self, api, auth_headers):
+        # Create a vacation with future dates
+        rc = api.post(f"{BASE_URL}/api/novelties", headers=auth_headers, json={
+            "type": "vacation",
+            "start_date": "2027-01-05",
+            "end_date": "2027-01-10",
+            "reason": "TEST vacation iter3",
+        })
+        assert rc.status_code == 200
+        d = rc.json()
+        assert d["type"] == "vacation"
+        assert d["status"] == "pending"
+        nid = d["novelty_id"]
+
+        # Bulk approve
+        rd = api.post(f"{BASE_URL}/api/novelties/bulk-decide", headers=auth_headers,
+                      json={"novelty_ids": [nid], "decision": "approved",
+                            "comment": "TEST approve"})
+        assert rd.status_code == 200
+        assert rd.json()["updated"] == 1
+
+        # Verify status persisted
+        rl = api.get(f"{BASE_URL}/api/novelties", headers=auth_headers).json()
+        found = [n for n in rl if n["novelty_id"] == nid]
+        assert len(found) == 1
+        assert found[0]["status"] == "approved"
+
+        # Delete
+        rdel = api.delete(f"{BASE_URL}/api/novelties/{nid}", headers=auth_headers)
+        assert rdel.status_code == 200
+
+    def test_novelties_bulk_decide_reject_multiple(self, api, auth_headers):
+        # Create two pending novelties
+        ids = []
+        for i in range(2):
+            rc = api.post(f"{BASE_URL}/api/novelties", headers=auth_headers, json={
+                "type": "permission",
+                "start_date": f"2027-02-0{i+1}",
+                "end_date": f"2027-02-0{i+2}",
+                "reason": f"TEST bulk {i}",
+            })
+            assert rc.status_code == 200
+            ids.append(rc.json()["novelty_id"])
+
+        rd = api.post(f"{BASE_URL}/api/novelties/bulk-decide", headers=auth_headers,
+                      json={"novelty_ids": ids, "decision": "rejected"})
+        assert rd.status_code == 200
+        assert rd.json()["updated"] == 2
+
+        # Cleanup
+        for nid in ids:
+            api.delete(f"{BASE_URL}/api/novelties/{nid}", headers=auth_headers)
+
+    def test_attendance_team_days_7(self, api, auth_headers):
+        r = api.get(f"{BASE_URL}/api/attendance/team?days=7", headers=auth_headers)
+        assert r.status_code == 200
+        assert isinstance(r.json(), list)
+
+    def test_employee_sidebar_role_restrictions_via_api(self, api, auth_headers):
+        """Employee must NOT be able to fetch /reports or /attendance/team,
+        but MUST be able to CRUD their own novelties."""
+        email = f"TEST_p4emp_{int(time.time())}@example.com"
+        rc = api.post(f"{BASE_URL}/api/users", headers=auth_headers, json={
+            "email": email, "name": "TEST P4 Emp",
+            "role": "employee", "password": "temp1234",
+        })
+        assert rc.status_code == 200
+        uid = rc.json()["user_id"]
+
+        try:
+            rl = api.post(f"{BASE_URL}/api/auth/login",
+                          json={"email": email, "password": "temp1234"})
+            assert rl.status_code == 200
+            emp_h = {"Authorization": f"Bearer {rl.json()['token']}",
+                     "Content-Type": "application/json"}
+
+            # Reports forbidden
+            r1 = api.get(f"{BASE_URL}/api/reports", headers=emp_h)
+            assert r1.status_code == 403
+            # Team forbidden
+            r2 = api.get(f"{BASE_URL}/api/attendance/team", headers=emp_h)
+            assert r2.status_code == 403
+
+            # Employee CAN create own novelty (no user_id needed)
+            rc2 = api.post(f"{BASE_URL}/api/novelties", headers=emp_h, json={
+                "type": "permission",
+                "start_date": "2027-03-01",
+                "end_date": "2027-03-02",
+                "reason": "own",
+            })
+            assert rc2.status_code == 200
+            own_nid = rc2.json()["novelty_id"]
+            assert rc2.json()["user_id"] == uid
+
+            # Employee can list (should see only own)
+            rl2 = api.get(f"{BASE_URL}/api/novelties", headers=emp_h)
+            assert rl2.status_code == 200
+            for n in rl2.json():
+                assert n["user_id"] == uid
+
+            # Employee can delete own pending
+            rdel = api.delete(f"{BASE_URL}/api/novelties/{own_nid}", headers=emp_h)
+            assert rdel.status_code == 200
+        finally:
+            api.delete(f"{BASE_URL}/api/users/{uid}", headers=auth_headers)
+
+
 class TestKioskRosterOnboarded:
     """Roster must include face_descriptor and selfie for onboarded users."""
 
