@@ -640,7 +640,10 @@ async def sites_create(payload: SiteIn,
 @api.put("/sites/{site_id}")
 async def sites_update(site_id: str, payload: SiteIn,
                        _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
-    res = await db.sites.update_one({"site_id": site_id}, {"$set": payload.model_dump()})
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="Sin cambios")
+    res = await db.sites.update_one({"site_id": site_id}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Sede no encontrada")
     doc = await db.sites.find_one({"site_id": site_id})
@@ -697,8 +700,8 @@ async def departments_create(payload: DepartmentIn,
 @api.put("/departments/{department_id}")
 async def departments_update(department_id: str, payload: DepartmentIn,
                              _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
-    res = await db.departments.update_one({"department_id": department_id},
-                                          {"$set": payload.model_dump()})
+    updates = payload.model_dump(exclude_unset=True)
+    res = await db.departments.update_one({"department_id": department_id}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Departamento no encontrado")
     doc = await db.departments.find_one({"department_id": department_id})
@@ -736,8 +739,8 @@ async def schedules_create(payload: ScheduleIn,
 @api.put("/schedules/{schedule_id}")
 async def schedules_update(schedule_id: str, payload: ScheduleIn,
                            _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
-    res = await db.schedules.update_one({"schedule_id": schedule_id},
-                                        {"$set": payload.model_dump()})
+    updates = payload.model_dump(exclude_unset=True)
+    res = await db.schedules.update_one({"schedule_id": schedule_id}, {"$set": updates})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Horario no encontrado")
     doc = await db.schedules.find_one({"schedule_id": schedule_id})

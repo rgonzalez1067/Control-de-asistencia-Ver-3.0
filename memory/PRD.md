@@ -38,7 +38,25 @@ Todos los `password_hash` (bcrypt) intactos.
   - Onboarding con `getUserMedia` (selfie 480×480)
   - ProtectedRoute con soporte de `roles`
   - Testing 100% (32/32 backend + flujos frontend E2E)
-- **Fase 2 — Config maestra (Sedes/Deptos/Horarios/Settings)** ⏳ pendiente confirmación
+- **Fase 2 — Config maestra** ✅ (2026-07-22)
+  - Sedes CRUD (sin geocerca — geocerca removida del backend en `_register_attendance`)
+  - Departamentos CRUD con conteo de empleados
+  - Horarios como cards con bloques editables
+  - Ajustes de la empresa: nombre, timezone, logo (subida base64), método de identificación (face/pin/both), switch kiosk_enabled
+  - `sites_update` / `departments_update` / `schedules_update` con `exclude_unset=True` (no borra campos ausentes)
+- **Fase 3 — Kiosco + Carnet** ✅ (2026-07-22)
+  - `/kiosk` — desbloqueo con credenciales admin (sessionStorage) 
+  - `/kiosk/scan` — face-api.js@0.22.2 desde CDN + fallback PIN visual cuando WebGL no está disponible
+  - Confirmación con foto + botones "Entrada/Salida" 
+  - Modo PIN: picker de empleados con fotos + entrada de PIN
+  - `/carnet` — tarjeta digital editorial con selfie, cargo, sede, horario, ID
+- **Vista Employee** ✅ (2026-07-22)
+  - `/historial` — mis marcas con KPIs (hoy/mes), botones rápidos marcar entrada/salida (con geolocation opcional), justificación de tardanzas
+  - `HomeRedirect` — employees van a `/historial`, admin/supervisor al dashboard
+- **UsersPage** — avatar clickeable con badge verde si onboarded, diálogo `user-photo-dialog` que llama `/api/users/{id}/photo`
+
+- **Fase 4 — Reportería + Team + Novedades** ⏳ pendiente
+- **Fase 5 — PWA productivo + Deploy** ⏳ pendiente
 - **Fase 3 — Kiosco + Carnet (cámara + face-api)** ⏳
 - **Fase 4 — Reportería + Team + Novedades** ⏳
 - **Fase 5 — PWA productivo + Deploy** ⏳

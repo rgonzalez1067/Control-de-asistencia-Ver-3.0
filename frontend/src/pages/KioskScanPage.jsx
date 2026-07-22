@@ -105,8 +105,8 @@ export default function KioskScanPage() {
         intervalRef.current = setInterval(scan, DETECT_INTERVAL_MS);
       } catch (e) {
         console.error(e);
-        setPhase("error");
-        setStatus(e.message || "No se pudo iniciar el kiosco");
+        setPhase("faceUnavailable");
+        setStatus("Reconocimiento facial no disponible — usa PIN para marcar");
       }
     }
 
@@ -144,6 +144,7 @@ export default function KioskScanPage() {
       if (intervalRef.current) clearInterval(intervalRef.current);
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // refs que el loop necesita ver siempre actualizados
@@ -205,30 +206,48 @@ export default function KioskScanPage() {
       </header>
 
       <main className="relative grid place-items-center px-6 py-10">
-        <div className="relative w-full max-w-[720px] aspect-video rounded-3xl overflow-hidden bg-black shadow-2xl" data-testid="kiosk-video-wrap">
-          <video ref={videoRef} muted playsInline className="absolute inset-0 h-full w-full object-cover scale-x-[-1]" />
-
-          {/* Overlay scan animation */}
-          {phase === "ready" && (
-            <div className="pointer-events-none absolute inset-0">
-              <div className="absolute inset-10 border-2 border-dashed border-accent/70 rounded-3xl" />
-              <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-accent to-transparent animate-[kiosk-scan_2.4s_ease-in-out_infinite]" />
+        {phase === "faceUnavailable" ? (
+          <div className="w-full max-w-[720px] rounded-3xl border border-white/10 bg-white/5 backdrop-blur p-10 text-center" data-testid="kiosk-face-unavailable">
+            <div className="h-16 w-16 rounded-2xl bg-accent/20 grid place-items-center mx-auto mb-4">
+              <KeyRound className="h-8 w-8 text-accent" />
             </div>
-          )}
-
-          {/* Status pill */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 backdrop-blur border border-white/10 px-4 py-2 text-xs text-white/80 flex items-center gap-2" data-testid="kiosk-status">
-            {phase === "boot" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {phase === "ready" && <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
-            {phase === "error" && <span className="h-2 w-2 rounded-full bg-red-400" />}
-            <span>{status}</span>
+            <h2 className="text-2xl font-bold">Reconocimiento facial no disponible</h2>
+            <p className="text-white/60 text-sm mt-2 max-w-md mx-auto">
+              Tu navegador no soporta WebGL o los modelos no cargaron. Puedes seguir marcando asistencia con tu PIN.
+            </p>
+            <Button onClick={() => setShowPinList(true)}
+              className="mt-6 h-12 rounded-full bg-accent hover:bg-accent/90 text-primary font-semibold px-6"
+              data-testid="kiosk-face-unavailable-pin-btn">
+              <KeyRound className="h-4 w-4 mr-2" /> Marcar con PIN
+            </Button>
           </div>
-        </div>
+        ) : (
+          <>
+            <div className="relative w-full max-w-[720px] aspect-video rounded-3xl overflow-hidden bg-black shadow-2xl" data-testid="kiosk-video-wrap">
+              <video ref={videoRef} muted playsInline className="absolute inset-0 h-full w-full object-cover scale-x-[-1]" />
 
-        <p className="mt-6 text-center text-white/60 text-sm max-w-xl">
-          Mira directo a la cámara. Cuando el sistema te reconozca, confirma tu <b className="text-accent">entrada</b> o <b className="text-accent">salida</b>.
-          Si el rostro no funciona, usa el botón <b>Marcar con PIN</b>.
-        </p>
+              {/* Overlay scan animation */}
+              {phase === "ready" && (
+                <div className="pointer-events-none absolute inset-0">
+                  <div className="absolute inset-10 border-2 border-dashed border-accent/70 rounded-3xl" />
+                  <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-accent to-transparent animate-[kiosk-scan_2.4s_ease-in-out_infinite]" />
+                </div>
+              )}
+
+              {/* Status pill */}
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 backdrop-blur border border-white/10 px-4 py-2 text-xs text-white/80 flex items-center gap-2" data-testid="kiosk-status">
+                {phase === "boot" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {phase === "ready" && <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />}
+                <span>{status}</span>
+              </div>
+            </div>
+
+            <p className="mt-6 text-center text-white/60 text-sm max-w-xl">
+              Mira directo a la cámara. Cuando el sistema te reconozca, confirma tu <b className="text-accent">entrada</b> o <b className="text-accent">salida</b>.
+              Si el rostro no funciona, usa el botón <b>Marcar con PIN</b>.
+            </p>
+          </>
+        )}
       </main>
 
       {/* Style keyframes */}
