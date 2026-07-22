@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck } from "lucide-react";
+import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink } from "lucide-react";
 
 const TIMEZONES = [
   "America/Caracas", "America/Bogota", "America/Mexico_City", "America/Buenos_Aires",
@@ -18,6 +19,7 @@ const TIMEZONES = [
 ];
 
 export default function SettingsPage() {
+  const nav = useNavigate();
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -163,6 +165,28 @@ export default function SettingsPage() {
             </div>
             <Switch checked={!!form.kiosk_enabled} onCheckedChange={(v) => setForm((f) => ({ ...f, kiosk_enabled: v }))} data-testid="settings-kiosk-switch" />
           </div>
+
+          {form.kiosk_enabled && (
+            <button
+              type="button"
+              onClick={() => nav("/kiosk")}
+              data-testid="settings-kiosk-launch"
+              className="w-full text-left rounded-2xl bg-primary text-primary-foreground p-5 hover:bg-primary/90 transition-all group flex items-center gap-4 shadow-lg shadow-primary/20"
+            >
+              <div className="h-14 w-14 rounded-2xl bg-accent grid place-items-center shrink-0">
+                <ScanFace className="h-7 w-7 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold flex items-center gap-2">
+                  Activar el modo kiosco ahora
+                  <ExternalLink className="h-3.5 w-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </p>
+                <p className="text-xs opacity-80 mt-0.5">
+                  Abre la pantalla compartida donde los empleados marcan asistencia con rostro o PIN.
+                </p>
+              </div>
+            </button>
+          )}
         </CardContent>
       </Card>
 

@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 5 (frontend-only) — Mobile drawer + kiosk shortcuts fix. All acceptance criteria verified on iPhone viewport (390x844) and desktop (1920x900) for admin AND employee roles. 14/14 mobile assertions and 15/16 desktop assertions passed (1 flake caused by sticky footer overlap, retested and confirmed working). Employee 9/9. Feature is production-ready.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/ajustes (SettingsPage)",
+        "issues": [
+          "The sticky bottom bar (Descartar + Guardar cambios, class 'sticky bottom-4') overlaps the bottom of the settings-kiosk-launch card when the page is scrolled to the bottom. document.elementFromPoint at the card's center returns the sticky bar div, not the card. First Playwright click with force=True hit the sticky bar and did NOT navigate — only after scroll_into_view_if_needed + normal .click() did the launch fire. Real users may accidentally click 'Guardar cambios' when trying to press the big 'Activar el modo kiosco ahora' card. Suggest either (a) adding a spacer div (h-16 or h-20) at the end of the SettingsPage inner container, (b) removing 'sticky bottom-4' and letting the save bar flow normally, or (c) reducing sticky bar z-index/opacity so the card underneath remains clickable."
+        ]
+      },
+      {
+        "screen": "SheetContent (mobile-nav-drawer)",
+        "issues": [
+          "Radix Dialog warning in console: 'Missing Description or aria-describedby={undefined} for {DialogContent}'. Add <SheetDescription> inside the SheetHeader (or aria-describedby={undefined} explicit) to silence the a11y warning."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/test_reports/pytest/pytest_results.xml (unchanged from iter-4 — no backend tests re-run this iteration per request)"
+  ],
+  "action_items": [
+    "Optional UX: fix overlap between sticky 'Guardar cambios' bar and 'settings-kiosk-launch' card on /ajustes (add bottom spacer or remove sticky).",
+    "Optional A11y: add SheetDescription (or aria-describedby=undefined) to mobile-nav-drawer to silence Radix warning."
+  ],
+  "critical_code_review_comments": [
+    "AppLayout.jsx openKiosk() correctly uses react-router nav('/kiosk') and closes the drawer via setDrawerOpen(false) before navigating — good; avoids iOS PWA new-tab quirks.",
+    "AppLayout.jsx bottom nav uses items.slice(0,3) which for employees exposes carnet/historial/novedades and for admin exposes home/usuarios/equipo. Suggest re-ordering NAV_ADMIN so the 3 most-used routes for admin land in slice(0,3) (e.g. Dashboard, Reportes, Novedades) — 'Empleados' and 'Mi equipo' may be less frequent than Reports on mobile.",
+    "SheetContent side='left' opens correctly; drawer width w-72 (288px) fits comfortably on 390px iPhone viewport.",
+    "NavItem uses NavLink render-prop pattern correctly to expose isActive; the onClick={setDrawerOpen(false)} closure is fine.",
+    "menu-kiosk in the dropdown reuses openKiosk() which calls setDrawerOpen(false) — harmless side-effect on desktop but slightly non-idiomatic. Not a bug."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "not tested this iteration", "frontend": "38/38 assertions (100% after retest for sticky overlap flake)" },
+  "test_credentials": "Admin rgonzalez@megasoft.com.ve/admin123 (from /app/memory/test_credentials.md). Employee test_emp_1784690128@example.com/temp1234 created via POST /api/users, used for role-based visibility test, deleted via DELETE /api/users/user_e4f4abafb183 → {ok:true}.",
+  "seed_data_creation": "One TEST_ employee created and cleaned up. No residual test data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iter-5 kiosk-shortcut fix verified end-to-end. MOBILE (390x844) admin: mobile-menu-btn present in topbar, click opens mobile-nav-drawer showing all 9 admin nav items (Dashboard=home, Empleados=usuarios, Mi equipo=equipo, Sedes, Departamentos, Horarios, Reportes, Novedades, Ajustes) plus mobile-kiosk-btn with text 'Activar modo kiosco'; clicking a nav item closes the drawer AND navigates; bottom nav has exactly 4 <li> cells (3 shortcuts + mobile-more-btn labelled 'Más') and mobile-more-btn re-opens the drawer; mobile-kiosk-btn navigates to /kiosk which shows kiosk-unlock-form. DESKTOP (1920x900) admin: sidebar-nav shows 9 items + sidebar-kiosk-btn ('Modo kiosco'); user-menu-btn dropdown contains menu-kiosk ('Activar modo kiosco') and it navigates to /kiosk. Regression: /kiosk unlock form accepts admin creds and redirects to /kiosk/scan (verified). /ajustes settings-kiosk-switch state=checked drives visibility of settings-kiosk-launch card correctly (toggle off hides, toggle on shows). EMPLOYEE role: does NOT see mobile-kiosk-btn, sidebar-kiosk-btn, or menu-kiosk (verified all three absent). ONE UX issue: sticky 'Guardar cambios' bar overlaps settings-kiosk-launch bottom edge on desktop — Playwright required scroll_into_view+normal-click; real users clicking near the middle-bottom of the card may hit the save bar instead.",
+  "rca of the issue": "Original bug (iPhone showed only first 4 sidebar items up to 'Sedes') is fully resolved. Root cause was that AppLayout's mobile-only bottom nav rendered items.slice(0,4) with no way to reach items[4..8]. Fix (verified): (1) hamburger + Sheet drawer added to topbar exposing full items array on mobile; (2) bottom nav reduced to 3 shortcuts + explicit 'Más' button opening the same drawer; (3) admin-only kiosk shortcuts injected in 4 locations (mobile drawer, desktop sidebar, user dropdown, /ajustes launch card) all wired to nav('/kiosk'). Only residual issue is the /ajustes sticky-footer overlapping the launch card — cosmetic, not a functional regression of the fix."
+}
