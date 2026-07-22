@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 6 — Kiosk portrait + auto-detect entry/exit. Verified end-to-end backend (12/12 pytest) and frontend (iPad portrait 820x1180). New endpoint GET /api/kiosk/next-type/{user_id} works with 404 handling; POST /api/kiosk/attendance/check auto-detects in/out when type is 'auto' or omitted, and remains backward-compatible for explicit 'in'/'out'. Frontend layout is portrait (aspect ratio 4/3 = 1.333, exactly aspect-[3/4]); bottom nav shows lock+PIN buttons side-by-side; header clock live; PIN flow shows kiosk-pin-type-badge with 'Próxima: ENTRADA' on first mark and 'Próxima: SALIDA' on the second (auto-detect verified end-to-end via PIN); success overlay renders 'entrada registrada'. Old data-testid kiosk-pin-in/kiosk-pin-out have been removed cleanly (0 occurrences). PIN input, PIN confirm/cancel, PIN picker, PIN search — all functional. Regression check: /api/kiosk/roster, /api/kiosk/unlock, /api/kiosk/verify-pin still work.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "KioskScanPage",
+        "issues": [
+          "The Spanish date is displayed as 'Miércoles, 22 De Julio' — the CSS 'capitalize' class on the .font-serif-display <p> title-cases every word including the preposition 'de' which should stay lowercase in Spanish. Consider using a manual formatter (e.g., capitalize only weekday and month) or dropping the CSS 'capitalize' and relying on Intl output. Purely cosmetic; not a functional bug."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_kiosk_auto_type.py",
+    "/app/test_reports/pytest/iter6_kiosk_auto.xml"
+  ],
+  "action_items": [
+    "OPTIONAL COSMETIC: Fix 'De' → 'de' in the KioskScanPage date string (Spanish preposition should stay lowercase). Not a functional bug."
+  ],
+  "critical_code_review_comments": [
+    "server.py _resolve_next_type() is timezone-correct: it computes day_start from APP_TZ then converts back to UTC before comparing against timestamp — good.",
+    "KioskAttendanceIn.type Optional[Literal['in','out','auto']] with default 'auto' is safe; None branch (in the code `if effective_type in (None, 'auto')`) is defensive but never reached because pydantic will coerce missing field to default. Fine.",
+    "KioskScanPage.jsx confirmMark() correctly sends type='auto' so the race between UI-computed nextType and backend state is resolved server-side — excellent.",
+    "PinEnterDialog.useEffect resets pin on target change but does NOT cancel the in-flight /kiosk/next-type request. If a user cancels quickly and opens another user before first fetch resolves, the badge may briefly show the previous user's next_type. Minor race; not user-visible in practice.",
+    "KioskScanPage.jsx: the scan() interval keeps running while the matched Dialog is open (phaseRef.current === 'matched' → early return, good) but face-api still consumes CPU. This is fine for tablet kiosks.",
+    "Frontend: the 'capitalize' CSS on the date <p> title-cases Spanish prepositions ('De' instead of 'de'). Minor i18n cosmetic.",
+    "PinPickerDialog.max lists 60 users; roster with 17+ users is well within bounds. Not an issue.",
+    "kiosk-match-confirm and kiosk-pin-confirm both replace the previous dual buttons cleanly — no orphan data-testid references found (verified 0 occurrences of kiosk-pin-in/out and kiosk-match-in/out in DOM)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_kiosk_auto_type.py (new)"
+  ],
+  "success_rate": {
+    "backend": "12/12 (100%)",
+    "frontend": "11/11 assertions (100%) — portrait aspect, bottom nav, clock, PIN picker, PIN search, user select, pin-type badge (ENTRADA), single confirm+cancel buttons, no old data-testid, PIN verify+attendance, success overlay, auto-detect switch to SALIDA on 2nd attempt"
+  },
+  "test_credentials": "Admin rgonzalez@megasoft.com.ve/admin123 (from /app/memory/test_credentials.md). Test employee TEST_pinflow_1784692069@example.com (user_id=user_294f411d5c53) was created with PIN='1234' and onboarded selfie, used end-to-end for PIN kiosk flow, then DELETED (all attendance records also cleared via db.attendance.delete_many). Also several TEST_kioskauto_* users created and deleted in pytest.",
+  "seed_data_creation": "1 test employee with PIN + selfie + face_descriptor for the E2E PIN flow (user_294f411d5c53) — DELETED after test. 1 attendance record from Playwright PIN flow — DELETED via mongo. Backend pytest also creates and deletes its own TEST_ users transactionally.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iter-6 kiosk portrait+auto-detect passed 100%. Key selectors verified on iPad portrait (820x1180): kiosk-scan-page, kiosk-video-wrap (aspect 4/3), kiosk-status, kiosk-lock-btn, kiosk-pin-mode-btn (bottom nav side-by-side at y=1108), kiosk-pin-picker, kiosk-pin-search, kiosk-pin-user-{uid}, kiosk-pin-enter, kiosk-pin-type-badge ('Próxima: ENTRADA' / 'Próxima: SALIDA'), kiosk-pin-input, kiosk-pin-confirm, kiosk-pin-cancel, kiosk-success. Old kiosk-pin-in/out and kiosk-match-in/out are GONE (0 occurrences). Face recognition path (kiosk-match-dialog + kiosk-match-confirm + kiosk-match-type-badge) could NOT be tested in headless because face-api.js needs WebGL which isn't available — WebGL error visible in console. Manual browser test is recommended for the face-match dialog UI (dialog is coded identically to PIN dialog, single confirm button, so likely fine). Backend regression tests remain in /app/backend/tests/backend_test.py (already validated in previous iterations).",
+  "rca of the issue": "N/A — no bugs found. Feature works as spec'd."
+}

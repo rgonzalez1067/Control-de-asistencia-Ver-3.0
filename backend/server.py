@@ -258,7 +258,7 @@ class KioskPinIn(BaseModel):
 
 class KioskAttendanceIn(BaseModel):
     user_id: str
-    type: Literal["in", "out"]
+    type: Optional[Literal["in", "out", "auto"]] = "auto"
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     site_id: Optional[str] = None
@@ -800,8 +800,39 @@ async def kiosk_attendance_check(payload: KioskAttendanceIn) -> Dict[str, Any]:
     user = await db.users.find_one({"user_id": payload.user_id})
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return await _register_attendance(user, payload.type, payload.latitude, payload.longitude,
+
+    # Auto-detect: si no se especifica type o es "auto", el sistema decide
+    # basándose en la última marca del día del empleado.
+    effective_type = payload.type
+    if effective_type in (None, "auto"):
+        effective_type = await _resolve_next_type(payload.user_id)
+
+    return await _register_attendance(user, effective_type, payload.latitude, payload.longitude,
                                       payload.site_id, payload.selfie_base64, method="kiosk")
+
+
+async def _resolve_next_type(user_id: str) -> str:
+    """Determina la próxima marca (in/out) según la última del día en curso.
+    Sin marcas hoy o última fue "out" → "in". Última fue "in" → "out"."""
+    local_now = now_utc().astimezone(APP_TZ)
+    day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    last = await db.attendance.find_one(
+        {"user_id": user_id, "timestamp": {"$gte": day_start}},
+        sort=[("timestamp", -1)],
+        projection={"type": 1, "_id": 0},
+    )
+    if not last or last.get("type") == "out":
+        return "in"
+    return "out"
+
+
+@api.get("/kiosk/next-type/{user_id}")
+async def kiosk_next_type(user_id: str) -> Dict[str, str]:
+    """Retorna el próximo tipo de marca que corresponde al usuario en el día."""
+    user = await db.users.find_one({"user_id": user_id}, {"user_id": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"next_type": await _resolve_next_type(user_id)}
 
 
 @api.post("/kiosk/reenroll-face")
