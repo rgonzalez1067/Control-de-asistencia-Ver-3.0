@@ -37,7 +37,7 @@ export default function LoginPage() {
     const res = await login(email.trim(), password);
     setBusy(false);
     if (res.ok) {
-      toast.success(`Bienvenido, ${res.user.name.split(" ")[0]}`);
+      toast.success(`Bienvenido, ${res.user.name.split(" ")[0]}`, { duration: 1800 });
       nav(from, { replace: true });
     } else {
       toast.error(res.error);

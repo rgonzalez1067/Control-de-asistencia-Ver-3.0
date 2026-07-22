@@ -65,7 +65,10 @@ Todos los `password_hash` (bcrypt) intactos.
   - Deploy checklist en `/app/memory/DEPLOY_CHECKLIST.md`
   - Supresión de warnings `ResizeObserver loop` en dev overlay
 
-- Testing 49/49 backend, ~95% frontend (todos los flujos críticos verificados)
+- **Extras (2026‑07‑22)**:
+  - **Dashboard Ejecutivo** con backend `GET /api/stats/executive?days=N` (top‑5 tardanzas + ranking por departamento + prom. minutos tarde). Widget en dashboard con selector de rango (7/14/30/60/90) y **export PDF** (jsPDF + jsPDF-autoTable) con branding corporativo, KPIs y tablas.
+  - **Modo Oscuro** con `ThemeContext` + `ThemeToggle` en el header. Persiste en localStorage, respeta `prefers-color-scheme`. Paleta `.dark` refinada. Reemplazado en batch `bg-white/80 backdrop-blur → bg-card/80 backdrop-blur` y `text-primary → text-foreground` en headings para legibilidad.
+  - Testing: 57/57 backend (49 previos + 8 nuevos `TestExecutiveStats`), 100% frontend en flujos de widget + toggle.
 - **Fase 3 — Kiosco + Carnet (cámara + face-api)** ⏳
 - **Fase 4 — Reportería + Team + Novedades** ⏳
 - **Fase 5 — PWA productivo + Deploy** ⏳
