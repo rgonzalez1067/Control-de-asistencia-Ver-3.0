@@ -177,9 +177,10 @@ export default function KioskScanPage() {
     nav("/kiosk", { replace: true });
   }
 
-  const dateStr = clock.toLocaleDateString("es-VE", {
-    weekday: "long", day: "numeric", month: "long",
-  });
+  // Formato "Miércoles, 22 de julio" (weekday y mes capitalizados, "de" en minúscula).
+  const wk = clock.toLocaleDateString("es-VE", { weekday: "long" });
+  const mo = clock.toLocaleDateString("es-VE", { month: "long" });
+  const dateStr = `${wk.charAt(0).toUpperCase()}${wk.slice(1)}, ${clock.getDate()} de ${mo}`;
   const timeStr = clock.toLocaleTimeString("es-VE", {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
   });
@@ -258,7 +259,7 @@ export default function KioskScanPage() {
 
             {/* Info */}
             <div className="w-full max-w-md mt-6 text-center">
-              <p className="font-serif-display text-3xl text-accent capitalize leading-none">{dateStr}</p>
+              <p className="font-serif-display text-3xl text-accent leading-none">{dateStr}</p>
               <p className="text-white/60 text-sm mt-2 max-w-xs mx-auto">
                 Colócate frente a la cámara. Marcaremos automáticamente entrada o salida.
               </p>
