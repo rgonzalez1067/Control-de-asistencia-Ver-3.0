@@ -8,7 +8,7 @@ import {
   DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
-  Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle,
+  Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription,
 } from "@/components/ui/sheet";
 import {
   LayoutDashboard, Users, Building2, MapPin, CalendarClock,
@@ -133,6 +133,9 @@ export default function AppLayout() {
                         <p className="text-sm font-semibold">Asistencia</p>
                       </div>
                     </SheetTitle>
+                    <SheetDescription className="sr-only">
+                      Menú de navegación de la aplicación
+                    </SheetDescription>
                   </SheetHeader>
                   <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto" data-testid="mobile-nav">
                     {items.map((it) => (

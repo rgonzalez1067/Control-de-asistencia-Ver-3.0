@@ -190,7 +190,7 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <div className="flex items-center gap-2 justify-end sticky bottom-4">
+      <div className="flex items-center gap-2 justify-end sticky bottom-4 rounded-2xl bg-card/90 backdrop-blur border border-border/60 shadow-xl shadow-primary/10 px-3 py-2">
         <Button variant="outline" onClick={load} className="rounded-full" data-testid="settings-reset">
           <RefreshCw className="h-4 w-4 mr-1.5" /> Descartar
         </Button>
@@ -198,6 +198,8 @@ export default function SettingsPage() {
           <Save className="h-4 w-4 mr-1.5" /> {saving ? "Guardando…" : "Guardar cambios"}
         </Button>
       </div>
+      {/* Spacer para que el sticky no tape la última tarjeta */}
+      <div className="h-4" />
     </div>
   );
 }
