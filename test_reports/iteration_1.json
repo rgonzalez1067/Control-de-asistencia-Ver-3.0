@@ -1,0 +1,41 @@
+{
+  "summary": "First test iteration for MegaSoft Asistencia (Fase 1). Executed 32 backend pytest cases covering all 47 endpoints across auth, users, settings, sites, departments, schedules, kiosk, attendance, novelties, stats, reports and onboarding. Executed Playwright end-to-end for login → dashboard → users CRUD → logout → unauth redirect. All backend tests pass (100%). All frontend flows pass (100%).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/users", "issue": "Email is silently lowercased in the response — expected behavior but caller/UI must be aware to match compare (test script had to adjust)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard", "issues": ["Recharts warning 'width(-1) and height(-1) of chart should be greater than 0' at initial mount (transient, not blocking). Consider setting explicit minWidth/minHeight on the ResponsiveContainer parent to silence it."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(Optional) Fix Recharts container width warning on DashboardHome by setting an explicit min-height on the ResponsiveContainer wrapper.",
+    "(Optional) The /api/users/import endpoint could return per-row created user_ids so the UI/tests can clean up without re-listing all users."
+  ],
+  "critical_code_review_comments": [
+    "server.py CORS: allow_credentials=False is fine because JWT is sent via Authorization header. However, login also sets an httpOnly cookie 'access_token' — that cookie is unusable from JS AND from cross-origin requests because credentials aren't allowed. Either drop the cookie entirely or set allow_credentials=True with explicit origins.",
+    "server.py uses deprecated FastAPI @app.on_event('startup'/'shutdown'). Migrate to lifespan context manager to avoid future breakage.",
+    "server.py auth_register hard-codes role='admin' regardless of payload.role — comment says 'the first one is admin', which is safe, but the RegisterIn.role field is silently ignored (dead field).",
+    "settings_get response replaces _id string 'company' with id='company' — acceptable but inconsistent with other resources (site_id, department_id...). Consider naming settings_id or removing the id field entirely since there's only one settings doc.",
+    "reports_list & reports_export accept from_date/to_date without validation — an invalid date string (e.g. 'foo') raises 500 (uncaught ValueError from datetime.fromisoformat). Wrap in try/except and return 400 with a clear message.",
+    "attendance/_register_attendance computes is_late using local_now.replace(...) but if the expected time is later than 'now' (early check-in) delta is negative and is_late=False, which is correct — good. But schedules with multiple blocks only check the first block; document or extend this behavior.",
+    "kiosk/reenroll-face parses face_descriptor JSON but silently swallows parse errors — should return 400 to help clients debug.",
+    "novelties/bulk-decide status transitions from 'pending' only — no explicit check for user permission on the specific novelty (a supervisor can approve any pending novelty, not only their team's). Consider filtering by team_ids for supervisors.",
+    "MongoDB _id present in some responses is properly stripped via strip_mongo_id — good. Verified in tests.",
+    "UsersPage.jsx: downloadTemplate() uses fetch() outside of the shared axios client which bypasses interceptors; if token refresh logic is added later it will not apply. Consider centralizing authenticated downloads."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (32/32)", "frontend": "100% (all critical flows)"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / admin123 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests create/delete TEST_ prefixed users, sites, departments, schedules, novelties within each test. Cleanup script ran once to remove leaked TEST_* users from the first failed run (4 users). Final DB state matches original: 17 users, 15+ departments, 5+ schedules, 2+ sites.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend and frontend are healthy for Fase 1 (Auth + Users CRUD + Onboarding). All 47 endpoints wired via /api prefix. Login returns {token, user}; sensitive fields stripped in list/get. UsersPage supports search, role filter, CSV import/template, CRUD with dialogs. Sidebar admin routes and dropdown user-menu with data-testids work correctly. IMPORTANT for future scripts: DropdownMenu (Radix) items are rendered in a portal, and a click with force=True on 'user-menu-btn' may not open the menu — use a normal click. The Recharts warning about container width is a known non-blocking noise.",
+  "rca of the issue": "N/A — no bugs found. One test assertion had to be updated because the API normalizes email to lowercase (expected behavior, sanity-checked)."
+}
