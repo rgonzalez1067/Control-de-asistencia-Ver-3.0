@@ -89,7 +89,7 @@ export default function SedesPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <Badge variant="secondary" className="rounded-full mb-3">Configuración</Badge>
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary flex items-center gap-2">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground flex items-center gap-2">
             Sedes <span className="text-xl font-normal text-muted-foreground">· {items.length}</span>
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
@@ -105,7 +105,7 @@ export default function SedesPage() {
         </Button>
       </div>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur">
+      <Card className="border-border/70 bg-card/80 backdrop-blur">
         <CardContent className="p-3 sm:p-4">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -120,7 +120,7 @@ export default function SedesPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur overflow-hidden">
+      <Card className="border-border/70 bg-card/80 backdrop-blur overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -138,10 +138,10 @@ export default function SedesPage() {
                 <TableRow key={s.site_id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 rounded-full bg-primary/10 text-primary grid place-items-center">
+                      <div className="h-9 w-9 rounded-full bg-primary/10 text-foreground grid place-items-center">
                         <MapPin className="h-4 w-4" />
                       </div>
-                      <p className="text-sm font-medium text-primary">{s.name}</p>
+                      <p className="text-sm font-medium text-foreground">{s.name}</p>
                     </div>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">{s.address || "—"}</TableCell>

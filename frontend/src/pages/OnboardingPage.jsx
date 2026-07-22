@@ -99,7 +99,7 @@ export default function OnboardingPage() {
           <Badge variant="secondary" className="rounded-full mb-3">
             Registro biométrico
           </Badge>
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground">
             Registra tu rostro
             <span className="block font-serif-display text-primary/60 text-2xl mt-1">
               en menos de 15 segundos.
@@ -117,23 +117,23 @@ export default function OnboardingPage() {
               { icon: Camera, t: "Mira directo a la cámara", d: "Neutral, sin expresiones exageradas." },
             ].map((it) => (
               <li key={it.t} className="flex items-start gap-3">
-                <div className="h-9 w-9 rounded-xl bg-primary/10 text-primary grid place-items-center shrink-0">
+                <div className="h-9 w-9 rounded-xl bg-primary/10 text-foreground grid place-items-center shrink-0">
                   <it.icon className="h-4 w-4" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-primary">{it.t}</p>
+                  <p className="text-sm font-medium text-foreground">{it.t}</p>
                   <p className="text-xs text-muted-foreground">{it.d}</p>
                 </div>
               </li>
             ))}
           </ul>
 
-          <div className="mt-6 rounded-xl border border-border/70 bg-white/60 backdrop-blur px-4 py-3 text-xs text-muted-foreground max-w-md">
-            Sesión de: <b className="text-primary">{user?.name}</b> · {user?.email}
+          <div className="mt-6 rounded-xl border border-border/70 bg-card/60 backdrop-blur px-4 py-3 text-xs text-muted-foreground max-w-md">
+            Sesión de: <b className="text-foreground">{user?.name}</b> · {user?.email}
           </div>
         </div>
 
-        <Card className="border-border/70 bg-white/80 backdrop-blur">
+        <Card className="border-border/70 bg-card/80 backdrop-blur">
           <CardContent className="p-4 sm:p-6">
             <div className="relative aspect-square w-full max-w-[420px] mx-auto rounded-3xl overflow-hidden bg-primary/95 shadow-xl shadow-primary/20">
               {/* video preview */}

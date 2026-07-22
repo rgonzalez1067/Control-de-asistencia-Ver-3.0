@@ -65,7 +65,7 @@ export default function LoginPage() {
           {/* header */}
           <div className="relative flex items-center gap-3">
             <div className="h-11 w-11 rounded-2xl bg-accent grid place-items-center shadow-lg shadow-accent/30">
-              <ShieldCheck className="h-5 w-5 text-primary" />
+              <ShieldCheck className="h-5 w-5 text-foreground" />
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">MegaSoft</p>
@@ -131,7 +131,7 @@ export default function LoginPage() {
             <div className="h-9 w-9 rounded-xl bg-primary grid place-items-center">
               <ShieldCheck className="h-4 w-4 text-accent" />
             </div>
-            <p className="text-sm font-semibold text-primary">MegaSoft Asistencia</p>
+            <p className="text-sm font-semibold text-foreground">MegaSoft Asistencia</p>
           </div>
 
           <div className="w-full max-w-md">
@@ -139,7 +139,7 @@ export default function LoginPage() {
               <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground mb-3">
                 Acceso corporativo
               </p>
-              <h2 className="text-3xl font-bold text-primary">Inicia sesión</h2>
+              <h2 className="text-3xl font-bold text-foreground">Inicia sesión</h2>
               <p className="text-sm text-muted-foreground mt-1.5">
                 Usa el correo y contraseña de tu cuenta de empleado.
               </p>

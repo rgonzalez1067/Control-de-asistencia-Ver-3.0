@@ -816,6 +816,71 @@ class TestPhase4Endpoints:
             api.delete(f"{BASE_URL}/api/users/{uid}", headers=auth_headers)
 
 
+# ---------------------------------------------------------------------------
+# Iteration 4 — Executive Dashboard endpoint /api/stats/executive
+# ---------------------------------------------------------------------------
+class TestExecutiveStats:
+    """GET /api/stats/executive?days=N — admin+supervisor only.
+    Must return top_late (<=5) and department_ranking (<=8) with expected fields."""
+
+    REQUIRED_TOP_FIELDS = {"user_id", "name", "cedula", "position",
+                           "department_name", "late_count", "total_minutes"}
+    REQUIRED_DEPT_FIELDS = {"department_name", "total_ins", "late", "late_pct"}
+
+    def _assert_shape(self, d, days):
+        assert d["days"] == days
+        for k in ["since", "generated_at", "total_check_ins", "total_late",
+                  "late_pct", "avg_late_minutes", "top_late", "department_ranking"]:
+            assert k in d, f"missing key {k}"
+        assert isinstance(d["top_late"], list)
+        assert len(d["top_late"]) <= 5
+        assert isinstance(d["department_ranking"], list)
+        assert len(d["department_ranking"]) <= 8
+        for item in d["top_late"]:
+            missing = self.REQUIRED_TOP_FIELDS - set(item.keys())
+            assert not missing, f"top_late item missing keys: {missing}"
+        for item in d["department_ranking"]:
+            missing = self.REQUIRED_DEPT_FIELDS - set(item.keys())
+            assert not missing, f"department_ranking item missing keys: {missing}"
+
+    def test_executive_default_30(self, api, auth_headers):
+        r = api.get(f"{BASE_URL}/api/stats/executive", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        self._assert_shape(d, 30)
+
+    @pytest.mark.parametrize("days", [7, 14, 30, 60, 90])
+    def test_executive_multiple_ranges(self, api, auth_headers, days):
+        r = api.get(f"{BASE_URL}/api/stats/executive?days={days}", headers=auth_headers)
+        assert r.status_code == 200, r.text
+        d = r.json()
+        self._assert_shape(d, days)
+        assert isinstance(d["total_check_ins"], int)
+        assert isinstance(d["total_late"], int)
+        assert d["total_late"] <= d["total_check_ins"]
+
+    def test_executive_employee_forbidden(self, api, auth_headers):
+        email = f"TEST_execemp_{int(time.time())}@example.com"
+        rc = api.post(f"{BASE_URL}/api/users", headers=auth_headers, json={
+            "email": email, "name": "TEST Exec Emp",
+            "role": "employee", "password": "pw12345"
+        })
+        assert rc.status_code == 200
+        uid = rc.json()["user_id"]
+        try:
+            rl = api.post(f"{BASE_URL}/api/auth/login",
+                          json={"email": email, "password": "pw12345"})
+            emp_h = {"Authorization": f"Bearer {rl.json()['token']}"}
+            r = api.get(f"{BASE_URL}/api/stats/executive", headers=emp_h)
+            assert r.status_code == 403
+        finally:
+            api.delete(f"{BASE_URL}/api/users/{uid}", headers=auth_headers)
+
+    def test_executive_unauth(self, api):
+        r = requests.get(f"{BASE_URL}/api/stats/executive")
+        assert r.status_code == 401
+
+
 class TestKioskRosterOnboarded:
     """Roster must include face_descriptor and selfie for onboarded users."""
 

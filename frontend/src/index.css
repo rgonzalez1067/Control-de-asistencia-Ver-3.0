@@ -53,25 +53,33 @@ code {
         --radius: 0.75rem;
     }
     .dark {
-        --background: 216 35% 8%;
-        --foreground: 216 25% 96%;
-        --card: 216 32% 12%;
-        --card-foreground: 216 25% 96%;
-        --popover: 216 32% 12%;
-        --popover-foreground: 216 25% 96%;
-        --primary: 45 92% 60%;
-        --primary-foreground: 213 65% 17%;
+        /* Mantenemos --primary navy para conservar el branding del sidebar / botones */
+        --background: 216 40% 6%;
+        --foreground: 210 30% 96%;
+        --card: 216 32% 10%;
+        --card-foreground: 210 30% 96%;
+        --popover: 216 34% 12%;
+        --popover-foreground: 210 30% 96%;
+        --primary: 213 65% 22%;
+        --primary-foreground: 45 92% 65%;
         --secondary: 216 30% 16%;
-        --secondary-foreground: 216 25% 96%;
-        --muted: 216 30% 16%;
-        --muted-foreground: 216 15% 65%;
+        --secondary-foreground: 210 30% 96%;
+        --muted: 216 25% 14%;
+        --muted-foreground: 216 15% 68%;
         --accent: 45 92% 60%;
         --accent-foreground: 213 65% 17%;
-        --destructive: 0 78% 55%;
+        --destructive: 0 78% 60%;
         --destructive-foreground: 0 0% 100%;
-        --border: 216 30% 20%;
-        --input: 216 30% 20%;
+        --success: 152 58% 46%;
+        --warning: 38 92% 60%;
+        --border: 216 25% 20%;
+        --input: 216 25% 20%;
         --ring: 45 92% 60%;
+        --chart-1: 213 65% 55%;
+        --chart-2: 152 58% 50%;
+        --chart-3: 45 92% 60%;
+        --chart-4: 0 78% 60%;
+        --chart-5: 262 55% 65%;
     }
 }
 
@@ -121,4 +129,10 @@ code {
       radial-gradient(circle at 25% 15%, rgba(14,42,71,0.06) 0px, transparent 45%),
       radial-gradient(circle at 80% 85%, rgba(247,201,72,0.10) 0px, transparent 40%),
       linear-gradient(180deg, hsl(218 40% 99%) 0%, hsl(216 30% 96%) 100%);
+}
+.dark .bg-soft-grid {
+    background-image:
+      radial-gradient(circle at 25% 15%, rgba(247,201,72,0.05) 0px, transparent 45%),
+      radial-gradient(circle at 80% 85%, rgba(23,62,107,0.35) 0px, transparent 45%),
+      linear-gradient(180deg, hsl(216 40% 7%) 0%, hsl(216 45% 5%) 100%);
 }

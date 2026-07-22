@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 4 — Executive Dashboard (/api/stats/executive) + Dark Mode. Backend: 57/57 pytest cases pass (49 pre-existing + 8 new TestExecutiveStats). Frontend: executive-widget renders on admin dashboard with top-5 tardanzas and 5-department ranking, days selector default '30 días' and all 5 options (7/14/30/60/90) work, PDF button triggers file download 'resumen_ejecutivo_30d_YYYY-MM-DD.pdf' + 'PDF descargado' toast, no console errors. Dark mode toggle flips document.documentElement.classList 'dark', persists in localStorage['megasoft.theme'], survives reload, and toggles back to light. All 4 target pages (/reportes, /usuarios, /historial, /equipo) have 0 hardcoded 'bg-white/80 backdrop-blur'. Employee correctly sees theme-toggle but NOT executive-widget (HomeRedirect sends them to /historial).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dashboard (immediately after login)", "issues": ["The Sonner welcome toast 'Bienvenido, [name]' appears at top-right and briefly overlaps the theme-toggle button (~4-5s). During that window the click is intercepted by the toast (Playwright must use JS click or wait). Real users are unaffected but the overlap is visually clumsy. Consider positioning the toast slightly lower or shortening its duration to <2.5s."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional UX polish: reduce welcome-toast duration or move it away from top-right so it does not overlap the theme-toggle button.",
+    "Still pending from iter 3: add nav-equipo entry to NAV_ADMIN in AppLayout.jsx (admin cannot navigate to /equipo via sidebar — must type URL)."
+  ],
+  "critical_code_review_comments": [
+    "ExecutiveWidget.jsx line 156: uses `bg-white/80 dark:bg-card/80` — technically correct (dark override) but inconsistent with the rest of the codebase which uses only `bg-card/80` (semantic token works in both themes). Consider refactoring for consistency.",
+    "ThemeContext.jsx: no cleanup / listener for `prefers-color-scheme` changes at runtime. Once mounted, the theme is fixed until user toggles. If the OS theme flips while the tab is open, MegaSoft won't follow. Minor since users normally set persistent preference.",
+    "server.py /api/stats/executive: reads all users + all departments into dicts upfront (async for), then iterates attendance. Fine at 17 users but O(users) memory. If catalog grows to 10k+, consider projecting only needed users via the attendance user_ids set.",
+    "server.py /api/stats/executive: `avg_late_minutes` divides by total_late but 0-guard is present — good. But `late_pct` in dept_ranking uses total_ins (not total_check_ins in period) so a dept with 0 ins in period is omitted entirely from the ranking (correct behavior actually, just noting)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (+8 tests in new TestExecutiveStats class covering default 30d, parametrized 7/14/30/60/90, employee 403, unauth 401)"
+  ],
+  "success_rate": {"backend": "100% (57/57)", "frontend": "100% (all iter-4 flows verified)"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / admin123 (from /app/memory/test_credentials.md). One test employee TEST_theme_<ts>@example.com created + deleted during frontend test.",
+  "seed_data_creation": "Created and deleted one TEST_theme_<ts>@example.com user during Playwright employee-role test. No leftover data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Iteration 4 (Executive Dashboard + Dark Mode) fully verified. Backend regression 57/57 (all previous 49 + 8 new /api/stats/executive tests). Playwright confirmed: (1) executive-widget shows with executive-days default '30 días' + executive-pdf-btn triggering PDF download and 'PDF descargado' toast; (2) executive-top-1..5 render top 5 lates with counts+minutes; (3) executive-dept-ranking renders bars per dept; (4) executive-days select has 5 options 7/14/30/60/90 and switching to '7 días' updates the widget without unmounting; (5) theme-toggle in AppLayout topbar flips 'dark' class + persists to localStorage 'megasoft.theme', reload retains, second click reverts to light; (6) /reportes /usuarios /historial /equipo have 0 occurrences of hardcoded 'bg-white/80 backdrop-blur'; (7) employee logs in and lands on /historial (HomeRedirect), sees theme-toggle, does NOT see executive-widget even when navigating to /. Only nit: welcome toast overlaps theme-toggle for ~4s post-login (Playwright workaround = JS .click() on the button). Pending from iter 3 (unchanged): admin sidebar still lacks nav-equipo link.",
+  "rca of the issue": "N/A — no critical issues found in iter-4 features. The 'design nit' (welcome toast overlapping theme-toggle) is caused by Sonner's default top-right position colliding with the theme-toggle placement to the immediate left of user-menu-btn. Toast has pointer-events:auto during its animation window (~4s) which makes automated force-clicks fail. Fix would be to (a) set toast position=top-center, (b) shorten duration to 2000ms, or (c) add pointer-events:none to the toast wrapper."
+}

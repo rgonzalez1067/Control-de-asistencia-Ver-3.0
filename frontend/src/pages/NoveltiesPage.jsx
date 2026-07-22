@@ -136,7 +136,7 @@ export default function NoveltiesPage() {
           <Badge variant="secondary" className="rounded-full mb-3">
             {isManager ? "Aprobaciones" : "Mis solicitudes"}
           </Badge>
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary flex items-center gap-3">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground flex items-center gap-3">
             <Bell className="h-8 w-8 text-primary/70" /> Novedades
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
@@ -193,7 +193,7 @@ export default function NoveltiesPage() {
         </div>
       )}
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur">
+      <Card className="border-border/70 bg-card/80 backdrop-blur">
         <CardContent className="p-0">
           {loading && <p className="p-8 text-center text-sm text-muted-foreground">Cargando…</p>}
           {!loading && filtered.length === 0 && (
@@ -343,7 +343,7 @@ function NoveltyRow({ n, user, isManager, isMine, isSelected, onToggle, onDelete
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-primary truncate">
+          <p className="text-sm font-semibold text-foreground truncate">
             {isManager && user ? user.name : t.label}
           </p>
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${t.tint}`}>

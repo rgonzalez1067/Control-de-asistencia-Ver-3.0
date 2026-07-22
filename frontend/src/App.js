@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/context/AuthContext";
+import { ThemeProvider } from "@/context/ThemeContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppLayout from "@/components/AppLayout";
 import InstallPWAPrompt from "@/components/InstallPWAPrompt";
@@ -25,8 +26,9 @@ const ADMIN_OR_SUP = ["admin", "supervisor"];
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <ThemeProvider>
+      <AuthProvider>
+        <BrowserRouter>
         <Routes>
           {/* Public / kiosk */}
           <Route path="/login" element={<LoginPage />} />
@@ -76,6 +78,7 @@ function App() {
         <InstallPWAPrompt />
       </BrowserRouter>
     </AuthProvider>
+    </ThemeProvider>
   );
 }
 

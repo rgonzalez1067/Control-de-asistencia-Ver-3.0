@@ -97,7 +97,7 @@ export default function HistorialPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <Badge variant="secondary" className="rounded-full mb-3">Mi actividad</Badge>
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary flex items-center gap-3">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground flex items-center gap-3">
             <History className="h-8 w-8 text-primary/70" /> Mi historial
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
@@ -123,7 +123,7 @@ export default function HistorialPage() {
         <StatCard label="Tardanzas del mes" value={stats.monthlyLate} tint="text-amber-600" />
       </div>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur overflow-hidden">
+      <Card className="border-border/70 bg-card/80 backdrop-blur overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -213,9 +213,9 @@ export default function HistorialPage() {
   );
 }
 
-function StatCard({ label, value, tint = "text-primary" }) {
+function StatCard({ label, value, tint = "text-foreground" }) {
   return (
-    <Card className="border-border/70 bg-white/80 backdrop-blur">
+    <Card className="border-border/70 bg-card/80 backdrop-blur">
       <CardContent className="pt-5">
         <p className={`text-3xl font-bold tracking-tight ${tint}`}>{value}</p>
         <p className="text-xs text-muted-foreground mt-1">{label}</p>

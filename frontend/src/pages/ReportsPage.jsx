@@ -119,7 +119,7 @@ export default function ReportsPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <Badge variant="secondary" className="rounded-full mb-3">Analítica</Badge>
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary flex items-center gap-3">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground flex items-center gap-3">
             <FileBarChart2 className="h-8 w-8 text-primary/70" /> Reportes de asistencia
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
@@ -141,7 +141,7 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur">
+      <Card className="border-border/70 bg-card/80 backdrop-blur">
         <CardContent className="p-4 sm:p-5">
           <div className="flex items-center gap-2 mb-4 text-xs uppercase tracking-wider text-muted-foreground">
             <Filter className="h-3.5 w-3.5" /> Filtros
@@ -218,7 +218,7 @@ export default function ReportsPage() {
         <MiniStat icon={CheckCircle2} tint="text-fuchsia-600" label="Con justificación" value={stats.just} />
       </div>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur overflow-hidden">
+      <Card className="border-border/70 bg-card/80 backdrop-blur overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -246,7 +246,7 @@ export default function ReportsPage() {
                     <TableCell className="text-sm font-mono">{dfTime.format(d)}</TableCell>
                     <TableCell>
                       <div>
-                        <p className="text-sm font-medium text-primary leading-tight">{u.name || r.user_id}</p>
+                        <p className="text-sm font-medium text-foreground leading-tight">{u.name || r.user_id}</p>
                         <p className="text-[11px] text-muted-foreground leading-tight">{u.cedula || u.email}</p>
                       </div>
                     </TableCell>
@@ -296,10 +296,10 @@ export default function ReportsPage() {
 
 function MiniStat({ icon: Icon, label, value, tint }) {
   return (
-    <Card className="border-border/70 bg-white/80 backdrop-blur">
+    <Card className="border-border/70 bg-card/80 backdrop-blur">
       <CardContent className="pt-5">
         <Icon className={`h-5 w-5 mb-1 ${tint}`} />
-        <p className="text-3xl font-bold text-primary tracking-tight">{value}</p>
+        <p className="text-3xl font-bold text-foreground tracking-tight">{value}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
       </CardContent>
     </Card>

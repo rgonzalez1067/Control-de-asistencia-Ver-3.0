@@ -50,7 +50,7 @@ export default function CarnetPage() {
     <div className="p-4 sm:p-8 max-w-5xl mx-auto" data-testid="carnet-page">
       <div className="mb-6">
         <Badge variant="secondary" className="rounded-full mb-3">Identificación</Badge>
-        <h1 className="text-3xl sm:text-4xl font-bold text-primary flex items-center gap-3">
+        <h1 className="text-3xl sm:text-4xl font-bold text-foreground flex items-center gap-3">
           <IdCard className="h-8 w-8 text-primary/70" /> Mi carnet
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">
@@ -75,7 +75,7 @@ export default function CarnetPage() {
                   <img src={company.logo_base64} alt="logo" className="h-9 w-9 rounded-lg object-contain bg-white/10 p-1" />
                 ) : (
                   <div className="h-9 w-9 rounded-lg bg-accent grid place-items-center">
-                    <ShieldCheck className="h-4 w-4 text-primary" />
+                    <ShieldCheck className="h-4 w-4 text-foreground" />
                   </div>
                 )}
                 <div>
@@ -83,7 +83,7 @@ export default function CarnetPage() {
                   <p className="text-xs font-semibold leading-tight mt-0.5">{company.name || "MegaSoft"}</p>
                 </div>
               </div>
-              <span className="text-[9px] uppercase tracking-[0.25em] px-2 py-1 rounded-full bg-accent text-primary font-bold">
+              <span className="text-[9px] uppercase tracking-[0.25em] px-2 py-1 rounded-full bg-accent text-foreground font-bold">
                 {roleLabel}
               </span>
             </div>
@@ -100,7 +100,7 @@ export default function CarnetPage() {
                 {!selfie && (
                   <button
                     onClick={() => nav("/onboarding")}
-                    className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-accent text-primary text-[10px] font-semibold px-3 py-1 shadow-lg hover:scale-105 transition-transform"
+                    className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-accent text-foreground text-[10px] font-semibold px-3 py-1 shadow-lg hover:scale-105 transition-transform"
                     data-testid="carnet-cta-onboarding"
                   >
                     <Camera className="h-3 w-3 inline mr-1" /> Añadir foto
@@ -126,9 +126,9 @@ export default function CarnetPage() {
 
         {/* Right column */}
         <div className="space-y-4">
-          <Card className="border-border/70 bg-white/80 backdrop-blur">
+          <Card className="border-border/70 bg-card/80 backdrop-blur">
             <CardContent className="pt-5">
-              <h3 className="text-sm font-semibold text-primary mb-3">Datos personales</h3>
+              <h3 className="text-sm font-semibold text-foreground mb-3">Datos personales</h3>
               <dl className="grid grid-cols-2 gap-y-3 text-sm">
                 <dt className="text-muted-foreground">Nombre</dt><dd>{user?.name}</dd>
                 <dt className="text-muted-foreground">Correo</dt><dd className="text-xs">{user?.email}</dd>
@@ -142,9 +142,9 @@ export default function CarnetPage() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/70 bg-white/80 backdrop-blur">
+          <Card className="border-border/70 bg-card/80 backdrop-blur">
             <CardContent className="pt-5 space-y-3">
-              <h3 className="text-sm font-semibold text-primary">Rostro biométrico</h3>
+              <h3 className="text-sm font-semibold text-foreground">Rostro biométrico</h3>
               {selfie ? (
                 <p className="text-xs text-muted-foreground">
                   Ya tienes tu rostro registrado. Puedes actualizarlo en cualquier momento.

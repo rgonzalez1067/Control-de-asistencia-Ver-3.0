@@ -45,13 +45,13 @@ export default function InstallPWAPrompt() {
   return (
     <div
       data-testid="pwa-install-prompt"
-      className="fixed bottom-4 right-4 z-40 max-w-sm rounded-2xl border border-primary/20 bg-white/95 backdrop-blur shadow-2xl px-4 py-3 pr-3 flex items-start gap-3 animate-in slide-in-from-bottom-4"
+      className="fixed bottom-4 right-4 z-40 max-w-sm rounded-2xl border border-primary/20 bg-card/95 backdrop-blur shadow-2xl px-4 py-3 pr-3 flex items-start gap-3 animate-in slide-in-from-bottom-4"
     >
       <div className="h-10 w-10 rounded-xl bg-primary text-primary-foreground grid place-items-center shrink-0">
         <Smartphone className="h-5 w-5 text-accent" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-primary">Instala MegaSoft</p>
+        <p className="text-sm font-semibold text-foreground">Instala MegaSoft</p>
         <p className="text-xs text-muted-foreground mt-0.5">
           Añádela a tu inicio para abrirla como app y marcar más rápido.
         </p>

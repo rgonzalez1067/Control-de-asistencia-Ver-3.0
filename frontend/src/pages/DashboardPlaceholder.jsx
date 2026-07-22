@@ -29,7 +29,7 @@ export default function DashboardPlaceholder() {
 
   return (
     <div className="min-h-screen bg-soft-grid">
-      <header className="bg-white/80 backdrop-blur border-b border-border/70 sticky top-0 z-10">
+      <header className="bg-card/80 backdrop-blur border-b border-border/70 sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-primary grid place-items-center">
@@ -37,12 +37,12 @@ export default function DashboardPlaceholder() {
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">MegaSoft</p>
-              <p className="text-sm font-semibold text-primary">Asistencia Web</p>
+              <p className="text-sm font-semibold text-foreground">Asistencia Web</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium text-primary" data-testid="user-name">{user?.name}</p>
+              <p className="text-sm font-medium text-foreground" data-testid="user-name">{user?.name}</p>
               <p className="text-xs text-muted-foreground capitalize">{user?.role} · {user?.email}</p>
             </div>
             <Button
@@ -63,7 +63,7 @@ export default function DashboardPlaceholder() {
           <Badge variant="secondary" className="mb-3 rounded-full">
             Fase 0 completa · Listo para revisión
           </Badge>
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground">
             Setup y backend migrados con éxito
             <span className="block font-serif-display text-primary/60 text-2xl mt-1">
               esperando tu OK para arrancar Fase 1.
@@ -78,15 +78,15 @@ export default function DashboardPlaceholder() {
         </div>
 
         <section className="mb-12">
-          <h2 className="text-base font-semibold text-primary mb-4">Módulos disponibles en el backend</h2>
+          <h2 className="text-base font-semibold text-foreground mb-4">Módulos disponibles en el backend</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="modules-grid">
             {MODULES.map((m) => (
               <div
                 key={m.name}
-                className="rounded-2xl border border-border/70 bg-white/70 backdrop-blur px-4 py-4 hover:border-primary/40 transition-colors"
+                className="rounded-2xl border border-border/70 bg-card/70 backdrop-blur px-4 py-4 hover:border-primary/40 transition-colors"
               >
-                <m.icon className="h-5 w-5 text-primary mb-2" />
-                <p className="text-sm font-semibold text-primary">{m.name}</p>
+                <m.icon className="h-5 w-5 text-foreground mb-2" />
+                <p className="text-sm font-semibold text-foreground">{m.name}</p>
                 <p className="text-xs text-muted-foreground mt-0.5">{m.desc}</p>
               </div>
             ))}
@@ -94,7 +94,7 @@ export default function DashboardPlaceholder() {
         </section>
 
         <section>
-          <h2 className="text-base font-semibold text-primary mb-4">Hoja de ruta de la migración</h2>
+          <h2 className="text-base font-semibold text-foreground mb-4">Hoja de ruta de la migración</h2>
           <div className="space-y-3" data-testid="phases-list">
             {PHASES.map((p) => (
               <Card

@@ -110,7 +110,7 @@ export default function TeamPage() {
           <Badge variant="secondary" className="rounded-full mb-3">
             {isAdmin ? "Vista supervisora" : "Mi equipo"}
           </Badge>
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary flex items-center gap-3">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground flex items-center gap-3">
             <Users className="h-8 w-8 text-primary/70" /> Asistencia del equipo
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
@@ -137,15 +137,15 @@ export default function TeamPage() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="team-kpis">
-        <MiniStat icon={Users} tint="text-primary" label="Miembros" value={kpis.team} />
+        <MiniStat icon={Users} tint="text-foreground" label="Miembros" value={kpis.team} />
         <MiniStat icon={LogIn} tint="text-emerald-600" label="Entradas hoy" value={kpis.inToday} />
         <MiniStat icon={AlertTriangle} tint="text-amber-600" label="Tarde en el período" value={kpis.late} />
         <MiniStat icon={LogOutIcon} tint="text-fuchsia-600" label="Sin marcar hoy" value={kpis.absentToday} />
       </div>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur">
+      <Card className="border-border/70 bg-card/80 backdrop-blur">
         <CardHeader className="pb-2">
-          <CardTitle className="text-base text-primary">Detalle diario · últimos {days} día(s)</CardTitle>
+          <CardTitle className="text-base text-foreground">Detalle diario · últimos {days} día(s)</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -158,7 +158,7 @@ export default function TeamPage() {
                       <div className="text-[11px] text-muted-foreground uppercase tracking-wide">
                         {d.toLocaleDateString("es-VE", { weekday: "short", timeZone: TZ }).slice(0, 3)}
                       </div>
-                      <div className="text-sm font-semibold text-primary">{dfDay.format(d)}</div>
+                      <div className="text-sm font-semibold text-foreground">{dfDay.format(d)}</div>
                     </TableHead>
                   ))}
                 </TableRow>
@@ -174,14 +174,14 @@ export default function TeamPage() {
                 )}
                 {!loading && matrix.map(({ user: m, days: byDay }) => (
                   <TableRow key={m.user_id} data-testid={`team-row-${m.user_id}`}>
-                    <TableCell className="sticky left-0 bg-white/80">
+                    <TableCell className="sticky left-0 bg-card/80">
                       <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-full bg-primary/10 text-primary grid place-items-center text-xs font-semibold overflow-hidden">
+                        <div className="h-9 w-9 rounded-full bg-primary/10 text-foreground grid place-items-center text-xs font-semibold overflow-hidden">
                           {m.picture ? <img src={m.picture} alt="" className="h-full w-full object-cover" /> :
                             m.name.split(" ").slice(0, 2).map((p) => p[0]).join("")}
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-primary leading-tight">{m.name}</p>
+                          <p className="text-sm font-medium text-foreground leading-tight">{m.name}</p>
                           <p className="text-[11px] text-muted-foreground leading-tight flex items-center gap-1">
                             <Building2 className="h-3 w-3" /> {deptMap[m.department_id] || m.position || "—"}
                           </p>
@@ -201,7 +201,7 @@ export default function TeamPage() {
                           )}
                           {hasAny && (
                             <div className={"inline-block rounded-lg px-2 py-1 " + (cell.is_late ? "bg-amber-100" : "bg-emerald-50")}>
-                              <div className="text-[11px] font-mono text-primary">
+                              <div className="text-[11px] font-mono text-foreground">
                                 {firstIn ? dfTime.format(firstIn) : "—"} / {lastOut ? dfTime.format(lastOut) : "—"}
                               </div>
                               {cell.is_late && (
@@ -232,10 +232,10 @@ export default function TeamPage() {
 
 function MiniStat({ icon: Icon, label, value, tint }) {
   return (
-    <Card className="border-border/70 bg-white/80 backdrop-blur">
+    <Card className="border-border/70 bg-card/80 backdrop-blur">
       <CardContent className="pt-5">
         <Icon className={`h-5 w-5 mb-1 ${tint}`} />
-        <p className="text-3xl font-bold text-primary tracking-tight">{value}</p>
+        <p className="text-3xl font-bold text-foreground tracking-tight">{value}</p>
         <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
       </CardContent>
     </Card>

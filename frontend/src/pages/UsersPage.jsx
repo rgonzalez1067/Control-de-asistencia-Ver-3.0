@@ -197,7 +197,7 @@ export default function UsersPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <Badge variant="secondary" className="rounded-full mb-3">Gestión</Badge>
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary flex items-center gap-2">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground flex items-center gap-2">
             Empleados
             <span className="text-xl font-normal text-muted-foreground">·</span>
             <span className="text-xl font-normal text-muted-foreground">{users.length}</span>
@@ -242,7 +242,7 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur">
+      <Card className="border-border/70 bg-card/80 backdrop-blur">
         <CardContent className="p-3 sm:p-4 flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[220px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -271,7 +271,7 @@ export default function UsersPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur overflow-hidden">
+      <Card className="border-border/70 bg-card/80 backdrop-blur overflow-hidden">
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
@@ -302,7 +302,7 @@ export default function UsersPage() {
                         <button
                           onClick={() => openPhoto(u)}
                           data-testid={`user-photo-${u.user_id}`}
-                          className="relative h-9 w-9 rounded-full bg-primary/10 text-primary grid place-items-center text-xs font-semibold overflow-hidden hover:ring-2 hover:ring-primary/40 transition"
+                          className="relative h-9 w-9 rounded-full bg-primary/10 text-foreground grid place-items-center text-xs font-semibold overflow-hidden hover:ring-2 hover:ring-primary/40 transition"
                           title={u.onboarded ? "Ver foto registrada" : "Sin foto — click para ver"}
                         >
                           {(u.name || "?").split(" ").slice(0, 2).map((p) => p[0]).join("")}
@@ -311,7 +311,7 @@ export default function UsersPage() {
                           )}
                         </button>
                         <div>
-                          <p className="text-sm font-medium text-primary leading-tight">{u.name}</p>
+                          <p className="text-sm font-medium text-foreground leading-tight">{u.name}</p>
                           <p className="text-xs text-muted-foreground leading-tight">{u.email}</p>
                         </div>
                       </div>

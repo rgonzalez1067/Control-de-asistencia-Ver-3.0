@@ -993,6 +993,77 @@ async def novelties_bulk_decide(payload: NoveltyDecideIn,
 # ==================================================================
 # STATS / REPORTS (3 endpoints)
 # ==================================================================
+@api.get("/stats/executive")
+async def stats_executive(days: int = 30,
+                          _: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, Any]:
+    """Métricas ejecutivas: top tardanzas, ranking por depto, promedio minutos tarde."""
+    since = now_utc() - timedelta(days=days)
+    q = {"timestamp": {"$gte": since}, "type": "in"}
+
+    users = {u["user_id"]: u async for u in db.users.find({}, {
+        "user_id": 1, "name": 1, "email": 1, "cedula": 1,
+        "department_id": 1, "position": 1, "picture": 1, "_id": 0,
+    })}
+    depts = {d["department_id"]: d["name"] async for d in db.departments.find({}, {"department_id": 1, "name": 1, "_id": 0})}
+
+    per_user: Dict[str, Dict[str, Any]] = {}
+    per_dept_late: Dict[str, int] = {}
+    per_dept_total: Dict[str, int] = {}
+    total_ins = 0
+    total_late = 0
+    total_late_minutes = 0
+
+    async for r in db.attendance.find(q, {"user_id": 1, "is_late": 1, "late_minutes": 1, "_id": 0}):
+        total_ins += 1
+        uid = r.get("user_id")
+        user = users.get(uid, {})
+        dept_id = user.get("department_id") or "__none"
+        per_dept_total[dept_id] = per_dept_total.get(dept_id, 0) + 1
+        if r.get("is_late"):
+            total_late += 1
+            total_late_minutes += int(r.get("late_minutes") or 0)
+            u = per_user.setdefault(uid, {
+                "user_id": uid,
+                "name": user.get("name", uid),
+                "cedula": user.get("cedula"),
+                "position": user.get("position"),
+                "department_name": depts.get(user.get("department_id") or "", "Sin departamento"),
+                "late_count": 0,
+                "total_minutes": 0,
+            })
+            u["late_count"] += 1
+            u["total_minutes"] += int(r.get("late_minutes") or 0)
+            per_dept_late[dept_id] = per_dept_late.get(dept_id, 0) + 1
+
+    top_late = sorted(per_user.values(),
+                      key=lambda x: (x["late_count"], x["total_minutes"]),
+                      reverse=True)[:5]
+
+    dept_ranking = []
+    for dept_id, total in per_dept_total.items():
+        late = per_dept_late.get(dept_id, 0)
+        dept_ranking.append({
+            "department_id": None if dept_id == "__none" else dept_id,
+            "department_name": depts.get(dept_id, "Sin departamento"),
+            "total_ins": total,
+            "late": late,
+            "late_pct": round((late / total) * 100, 1) if total else 0,
+        })
+    dept_ranking.sort(key=lambda x: x["late_pct"], reverse=True)
+
+    return {
+        "days": days,
+        "since": since.isoformat(),
+        "generated_at": now_utc().isoformat(),
+        "total_check_ins": total_ins,
+        "total_late": total_late,
+        "late_pct": round((total_late / total_ins) * 100, 1) if total_ins else 0,
+        "avg_late_minutes": round(total_late_minutes / total_late, 1) if total_late else 0,
+        "top_late": top_late,
+        "department_ranking": dept_ranking[:8],
+    }
+
+
 @api.get("/stats/dashboard")
 async def stats_dashboard(_: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, Any]:
     total_users = await db.users.count_documents({})

@@ -70,7 +70,7 @@ export default function SchedulesPage() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <Badge variant="secondary" className="rounded-full mb-3">Configuración</Badge>
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary flex items-center gap-2">
+          <h1 className="text-3xl sm:text-4xl font-bold text-foreground flex items-center gap-2">
             Horarios <span className="text-xl font-normal text-muted-foreground">· {items.length}</span>
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
@@ -88,15 +88,15 @@ export default function SchedulesPage() {
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" data-testid="schedules-grid">
         {items.map((s) => (
-          <Card key={s.schedule_id} className="border-border/70 bg-white/80 backdrop-blur">
+          <Card key={s.schedule_id} className="border-border/70 bg-card/80 backdrop-blur">
             <CardContent className="p-5">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-2xl bg-primary/10 text-primary grid place-items-center">
+                  <div className="h-10 w-10 rounded-2xl bg-primary/10 text-foreground grid place-items-center">
                     <CalendarClock className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="text-base font-semibold text-primary">{s.name}</p>
+                    <p className="text-base font-semibold text-foreground">{s.name}</p>
                     <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
                       <MapPin className="h-3 w-3" /> {siteName[s.site_id] || "Sin sede"}
                     </p>
@@ -115,7 +115,7 @@ export default function SchedulesPage() {
               <div className="mt-4 space-y-1.5">
                 {(s.blocks || []).map((b, i) => (
                   <div key={i} className="flex items-center justify-between text-sm bg-muted/40 rounded-lg px-3 py-1.5">
-                    <span className="font-mono text-primary">{b.start} — {b.end}</span>
+                    <span className="font-mono text-foreground">{b.start} — {b.end}</span>
                     <span className="text-[11px] text-muted-foreground">Bloque {i + 1}</span>
                   </div>
                 ))}
@@ -123,7 +123,7 @@ export default function SchedulesPage() {
 
               <div className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Timer className="h-3.5 w-3.5" />
-                Tolerancia: <b className="text-primary">{s.tolerance_minutes} min</b>
+                Tolerancia: <b className="text-foreground">{s.tolerance_minutes} min</b>
               </div>
             </CardContent>
           </Card>

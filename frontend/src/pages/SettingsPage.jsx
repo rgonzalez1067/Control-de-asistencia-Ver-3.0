@@ -66,7 +66,7 @@ export default function SettingsPage() {
     <div className="p-4 sm:p-8 max-w-4xl mx-auto space-y-6" data-testid="settings-page">
       <div>
         <Badge variant="secondary" className="rounded-full mb-3">Configuración</Badge>
-        <h1 className="text-3xl sm:text-4xl font-bold text-primary flex items-center gap-3">
+        <h1 className="text-3xl sm:text-4xl font-bold text-foreground flex items-center gap-3">
           <Settings2 className="h-8 w-8 text-primary/70" /> Ajustes de la empresa
         </h1>
         <p className="text-muted-foreground mt-1 text-sm">
@@ -74,9 +74,9 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur">
+      <Card className="border-border/70 bg-card/80 backdrop-blur">
         <CardHeader>
-          <CardTitle className="text-base text-primary">Identidad corporativa</CardTitle>
+          <CardTitle className="text-base text-foreground">Identidad corporativa</CardTitle>
           <CardDescription>Se muestra en el login, el kiosco y el carnet digital.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6 sm:grid-cols-[1fr_180px]">
@@ -121,9 +121,9 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur">
+      <Card className="border-border/70 bg-card/80 backdrop-blur">
         <CardHeader>
-          <CardTitle className="text-base text-primary flex items-center gap-2">
+          <CardTitle className="text-base text-foreground flex items-center gap-2">
             <ShieldCheck className="h-4 w-4" /> Identificación en el kiosco
           </CardTitle>
           <CardDescription>Define cómo los empleados se identifican al marcar asistencia en el kiosco compartido.</CardDescription>
@@ -146,10 +146,10 @@ export default function SettingsPage() {
                     "text-left rounded-2xl border-2 px-4 py-3 transition-all " +
                     (active
                       ? "border-primary bg-primary/5 shadow-sm"
-                      : "border-border/60 bg-white/40 hover:border-primary/40")
+                      : "border-border/60 bg-card/40 hover:border-primary/40")
                   }
                 >
-                  <p className="text-sm font-semibold text-primary">{opt.label}</p>
+                  <p className="text-sm font-semibold text-foreground">{opt.label}</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">{opt.hint}</p>
                 </button>
               );
@@ -158,7 +158,7 @@ export default function SettingsPage() {
 
           <div className="flex items-center justify-between rounded-xl bg-muted/30 px-4 py-3">
             <div>
-              <p className="text-sm font-medium text-primary">Modo kiosco habilitado</p>
+              <p className="text-sm font-medium text-foreground">Modo kiosco habilitado</p>
               <p className="text-xs text-muted-foreground">Permite la ruta pública <code>/kiosk</code> con desbloqueo por admin.</p>
             </div>
             <Switch checked={!!form.kiosk_enabled} onCheckedChange={(v) => setForm((f) => ({ ...f, kiosk_enabled: v }))} data-testid="settings-kiosk-switch" />

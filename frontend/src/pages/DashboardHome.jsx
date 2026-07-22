@@ -6,6 +6,7 @@ import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid,
 } from "recharts";
 import { Users2, Clock3, AlertTriangle, Inbox, TrendingUp } from "lucide-react";
+import ExecutiveWidget from "@/pages/ExecutiveWidget";
 
 const num = (n) => new Intl.NumberFormat("es-VE").format(n ?? 0);
 
@@ -22,7 +23,7 @@ export default function DashboardHome() {
   const kpis = useMemo(() => {
     if (!stats) return [];
     return [
-      { icon: Users2, label: "Empleados", value: stats.total_users, hint: `${stats.onboarded_users} con rostro registrado`, tint: "text-primary" },
+      { icon: Users2, label: "Empleados", value: stats.total_users, hint: `${stats.onboarded_users} con rostro registrado`, tint: "text-foreground" },
       { icon: Clock3, label: "Marcas de entrada hoy", value: stats.check_ins_today, hint: "check-ins registrados", tint: "text-emerald-600" },
       { icon: AlertTriangle, label: "Tarde hoy", value: stats.late_today, hint: "fuera de tolerancia", tint: "text-amber-600" },
       { icon: Inbox, label: "Novedades pendientes", value: stats.pending_novelties, hint: "esperando decisión", tint: "text-fuchsia-600" },
@@ -33,7 +34,7 @@ export default function DashboardHome() {
     <div className="p-4 sm:p-8 max-w-7xl mx-auto space-y-8" data-testid="dashboard-home">
       <div>
         <Badge variant="secondary" className="rounded-full mb-3">Panel administrativo</Badge>
-        <h1 className="text-3xl sm:text-4xl font-bold text-primary">
+        <h1 className="text-3xl sm:text-4xl font-bold text-foreground">
           Resumen operativo
           <span className="block font-serif-display text-primary/60 text-2xl mt-1">
             todo lo que pasa hoy en la empresa.
@@ -49,7 +50,7 @@ export default function DashboardHome() {
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4" data-testid="dashboard-kpis">
         {kpis.map((k) => (
-          <Card key={k.label} className="border-border/70 bg-white/80 backdrop-blur">
+          <Card key={k.label} className="border-border/70 bg-card/80 backdrop-blur">
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <k.icon className={`h-5 w-5 ${k.tint}`} />
@@ -57,7 +58,7 @@ export default function DashboardHome() {
               </div>
             </CardHeader>
             <CardContent>
-              <p className="text-3xl font-bold text-primary tracking-tight">{num(k.value)}</p>
+              <p className="text-3xl font-bold text-foreground tracking-tight">{num(k.value)}</p>
               <p className="text-xs text-muted-foreground mt-0.5">{k.label}</p>
               <p className="text-[11px] text-muted-foreground/80 mt-2">{k.hint}</p>
             </CardContent>
@@ -65,9 +66,9 @@ export default function DashboardHome() {
         ))}
       </div>
 
-      <Card className="border-border/70 bg-white/80 backdrop-blur">
+      <Card className="border-border/70 bg-card/80 backdrop-blur">
         <CardHeader>
-          <CardTitle className="text-base text-primary">Actividad — últimos 7 días</CardTitle>
+          <CardTitle className="text-base text-foreground">Actividad — últimos 7 días</CardTitle>
           <CardDescription>Entradas totales vs. entradas fuera de tolerancia.</CardDescription>
         </CardHeader>
         <CardContent className="h-72 pl-0" data-testid="dashboard-chart">
@@ -101,9 +102,11 @@ export default function DashboardHome() {
         </CardContent>
       </Card>
 
-      <div className="rounded-2xl border border-amber-200/70 bg-amber-50/60 px-5 py-4 text-sm text-amber-900">
-        <b>Fase 1 en curso.</b> Ya puedes gestionar empleados y registrar tu rostro.
-        Las secciones de sedes, departamentos y kiosco llegan en las próximas fases.
+      <ExecutiveWidget />
+
+      <div className="rounded-2xl border border-amber-200/70 bg-amber-50/60 px-5 py-4 text-sm text-amber-900 dark:bg-amber-950/20 dark:border-amber-900/40 dark:text-amber-200">
+        <b>Fase 4 en producción.</b> Aprovecha el resumen ejecutivo para tus reuniones semanales
+        y el modo oscuro del header cuando trabajes de noche.
       </div>
     </div>
   );

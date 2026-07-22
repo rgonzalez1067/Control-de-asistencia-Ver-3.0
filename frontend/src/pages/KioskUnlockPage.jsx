@@ -49,7 +49,7 @@ export default function KioskUnlockPage() {
         <CardContent className="pt-8 pb-6 space-y-6">
           <div className="flex flex-col items-center text-center">
             <div className="h-16 w-16 rounded-2xl bg-accent grid place-items-center shadow-lg shadow-accent/30 mb-4">
-              <ScanFace className="h-8 w-8 text-primary" />
+              <ScanFace className="h-8 w-8 text-foreground" />
             </div>
             <p className="text-xs uppercase tracking-[0.3em] text-white/50">MegaSoft · Modo</p>
             <h1 className="text-3xl font-bold mt-1">Kiosco compartido</h1>
@@ -87,7 +87,7 @@ export default function KioskUnlockPage() {
             <Button
               type="submit"
               disabled={busy}
-              className="w-full h-12 rounded-full bg-accent hover:bg-accent/90 text-primary font-semibold shadow-lg shadow-accent/20"
+              className="w-full h-12 rounded-full bg-accent hover:bg-accent/90 text-foreground font-semibold shadow-lg shadow-accent/20"
               data-testid="kiosk-unlock-btn"
             >
               {busy ? "Desbloqueando…" : (<><LockKeyhole className="h-4 w-4 mr-2" /> Desbloquear kiosco <ArrowRight className="h-4 w-4 ml-2" /></>)}

@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
+import ThemeToggle from "@/components/ThemeToggle";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
   DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
@@ -62,7 +63,7 @@ export default function AppLayout() {
       <aside className="hidden lg:flex w-64 shrink-0 flex-col bg-primary text-primary-foreground">
         <div className="px-6 py-6 flex items-center gap-3 border-b border-white/10">
           <div className="h-10 w-10 rounded-xl bg-accent grid place-items-center">
-            <ShieldCheck className="h-5 w-5 text-primary" />
+            <ShieldCheck className="h-5 w-5 text-foreground" />
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-[0.25em] text-white/60">MegaSoft</p>
@@ -99,19 +100,20 @@ export default function AppLayout() {
 
       {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-border/70">
+        <header className="sticky top-0 z-20 bg-card/80 backdrop-blur border-b border-border/70">
           <div className="h-16 px-4 sm:px-8 flex items-center justify-between gap-4">
             <div className="lg:hidden flex items-center gap-2">
               <div className="h-9 w-9 rounded-xl bg-primary grid place-items-center">
                 <ShieldCheck className="h-4 w-4 text-accent" />
               </div>
-              <p className="text-sm font-semibold text-primary">MegaSoft</p>
+              <p className="text-sm font-semibold text-foreground">MegaSoft</p>
             </div>
             <div className="hidden lg:block">
               <p className="text-xs text-muted-foreground">Bienvenido</p>
-              <p className="text-sm font-semibold text-primary" data-testid="topbar-name">{user?.name}</p>
+              <p className="text-sm font-semibold text-foreground" data-testid="topbar-name">{user?.name}</p>
             </div>
             <div className="flex items-center gap-3">
+              <ThemeToggle />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -152,7 +154,7 @@ export default function AppLayout() {
         </main>
 
         {/* Mobile bottom nav */}
-        <nav className="lg:hidden sticky bottom-0 z-20 bg-white/95 backdrop-blur border-t border-border/70 px-2 py-2">
+        <nav className="lg:hidden sticky bottom-0 z-20 bg-card/95 backdrop-blur border-t border-border/70 px-2 py-2">
           <ul className="grid grid-cols-4 gap-1">
             {items.slice(0, 4).map((it) => (
               <li key={it.to}>
@@ -161,7 +163,7 @@ export default function AppLayout() {
                   end={it.to === "/"}
                   className={({ isActive }) =>
                     "flex flex-col items-center gap-0.5 py-1.5 rounded-xl text-[10px] transition-colors " +
-                    (isActive ? "text-primary bg-primary/5" : "text-muted-foreground hover:text-primary")
+                    (isActive ? "text-foreground bg-primary/5" : "text-muted-foreground hover:text-primary")
                   }
                 >
                   <it.icon className="h-5 w-5" />

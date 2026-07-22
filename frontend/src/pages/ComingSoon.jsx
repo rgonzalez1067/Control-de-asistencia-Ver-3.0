@@ -9,7 +9,7 @@ export default function ComingSoon({ title, phase, description }) {
   return (
     <div className="p-8 max-w-3xl mx-auto" data-testid="coming-soon">
       <Badge variant="secondary" className="rounded-full mb-3">Próximamente</Badge>
-      <h1 className="text-3xl sm:text-4xl font-bold text-primary">
+      <h1 className="text-3xl sm:text-4xl font-bold text-foreground">
         {title}
         <span className="block font-serif-display text-primary/50 text-2xl mt-1">
           disponible en la {phase}.
@@ -18,10 +18,10 @@ export default function ComingSoon({ title, phase, description }) {
       <p className="mt-4 text-muted-foreground max-w-xl">{description}</p>
       <Card className="mt-8 border-dashed border-2 border-primary/20 bg-white/60">
         <CardContent className="py-10 grid place-items-center">
-          <div className="h-12 w-12 rounded-2xl bg-primary/10 text-primary grid place-items-center mb-3">
+          <div className="h-12 w-12 rounded-2xl bg-primary/10 text-foreground grid place-items-center mb-3">
             <Sparkles className="h-6 w-6" />
           </div>
-          <p className="text-sm text-muted-foreground">Sesión: <b className="text-primary">{user?.name}</b></p>
+          <p className="text-sm text-muted-foreground">Sesión: <b className="text-foreground">{user?.name}</b></p>
         </CardContent>
       </Card>
     </div>

@@ -186,7 +186,7 @@ export default function KioskScanPage() {
       <header className="relative flex items-center justify-between px-6 py-4 border-b border-white/5">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-accent grid place-items-center">
-            <ScanFace className="h-5 w-5 text-primary" />
+            <ScanFace className="h-5 w-5 text-foreground" />
           </div>
           <div>
             <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">MegaSoft · Kiosco</p>
@@ -216,7 +216,7 @@ export default function KioskScanPage() {
               Tu navegador no soporta WebGL o los modelos no cargaron. Puedes seguir marcando asistencia con tu PIN.
             </p>
             <Button onClick={() => setShowPinList(true)}
-              className="mt-6 h-12 rounded-full bg-accent hover:bg-accent/90 text-primary font-semibold px-6"
+              className="mt-6 h-12 rounded-full bg-accent hover:bg-accent/90 text-foreground font-semibold px-6"
               data-testid="kiosk-face-unavailable-pin-btn">
               <KeyRound className="h-4 w-4 mr-2" /> Marcar con PIN
             </Button>
@@ -271,7 +271,7 @@ export default function KioskScanPage() {
                 ? <img alt="user" src={current.selfie_base64} className="h-full w-full object-cover" data-testid="kiosk-match-photo" />
                 : <div className="h-full w-full bg-muted grid place-items-center"><UserCircle2 className="h-16 w-16 text-muted-foreground" /></div>}
             </div>
-            <p className="text-xl font-semibold text-primary" data-testid="kiosk-match-name">{current?.name}</p>
+            <p className="text-xl font-semibold text-foreground" data-testid="kiosk-match-name">{current?.name}</p>
             <p className="text-xs text-muted-foreground mt-0.5">{current?.position || "—"}</p>
             <p className="text-[10px] text-muted-foreground/70 mt-2">
               Confianza: {(1 - (current?.distance ?? 0)) * 100 | 0}%
@@ -351,7 +351,7 @@ function PinPickerDialog({ open, roster, onCancel, onPick }) {
                 {u.selfie_base64 ? <img src={u.selfie_base64} alt="" className="h-full w-full object-cover" /> : <UserCircle2 className="h-6 w-6 text-muted-foreground" />}
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-primary truncate">{u.name}</p>
+                <p className="text-sm font-medium text-foreground truncate">{u.name}</p>
                 <p className="text-[11px] text-muted-foreground">{u.cedula || "—"}</p>
               </div>
             </button>
