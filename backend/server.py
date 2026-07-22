@@ -377,8 +377,6 @@ async def auth_register(payload: RegisterIn, response: Response) -> Dict[str, An
     }
     await db.users.insert_one(user)
     token = create_access_token(user["user_id"], user["role"])
-    response.set_cookie("access_token", token, httponly=True, samesite="lax",
-                        max_age=JWT_ACCESS_MINUTES * 60, path="/")
     return {"token": token, "user": sanitize_user(user)}
 
 
@@ -389,8 +387,6 @@ async def auth_login(payload: LoginIn, response: Response) -> Dict[str, Any]:
     if not user or not verify_password(payload.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     token = create_access_token(user["user_id"], user["role"])
-    response.set_cookie("access_token", token, httponly=True, samesite="lax",
-                        max_age=JWT_ACCESS_MINUTES * 60, path="/")
     return {"token": token, "user": sanitize_user(user)}
 
 
@@ -403,6 +399,21 @@ async def auth_me(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str,
 async def auth_logout(response: Response) -> Dict[str, bool]:
     response.delete_cookie("access_token", path="/")
     return {"ok": True}
+
+
+def _parse_date_range(from_date: Optional[str], to_date: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not from_date and not to_date:
+        return None
+    rng: Dict[str, Any] = {}
+    try:
+        if from_date:
+            rng["$gte"] = datetime.fromisoformat(from_date).replace(tzinfo=APP_TZ).astimezone(timezone.utc)
+        if to_date:
+            rng["$lt"] = (datetime.fromisoformat(to_date).replace(tzinfo=APP_TZ)
+                          + timedelta(days=1)).astimezone(timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Formato de fecha inválido (usa YYYY-MM-DD)")
+    return rng
 
 
 @api.post("/auth/change-password")
@@ -1004,13 +1015,8 @@ async def reports_list(from_date: Optional[str] = Query(None),
         q["user_id"] = user_id
     if site_id:
         q["site_id"] = site_id
-    if from_date or to_date:
-        rng: Dict[str, Any] = {}
-        if from_date:
-            rng["$gte"] = datetime.fromisoformat(from_date).replace(tzinfo=APP_TZ).astimezone(timezone.utc)
-        if to_date:
-            rng["$lt"] = (datetime.fromisoformat(to_date).replace(tzinfo=APP_TZ)
-                          + timedelta(days=1)).astimezone(timezone.utc)
+    rng = _parse_date_range(from_date, to_date)
+    if rng:
         q["timestamp"] = rng
     docs = await db.attendance.find(q, {"selfie_base64": 0}).sort("timestamp", -1).limit(5000).to_list(5000)
     return [strip_mongo_id(d) for d in docs]
@@ -1021,13 +1027,8 @@ async def reports_export(from_date: Optional[str] = Query(None),
                          to_date: Optional[str] = Query(None),
                          _: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> StreamingResponse:
     q: Dict[str, Any] = {}
-    if from_date or to_date:
-        rng: Dict[str, Any] = {}
-        if from_date:
-            rng["$gte"] = datetime.fromisoformat(from_date).replace(tzinfo=APP_TZ).astimezone(timezone.utc)
-        if to_date:
-            rng["$lt"] = (datetime.fromisoformat(to_date).replace(tzinfo=APP_TZ)
-                          + timedelta(days=1)).astimezone(timezone.utc)
+    rng = _parse_date_range(from_date, to_date)
+    if rng:
         q["timestamp"] = rng
     users = {u["user_id"]: u async for u in db.users.find({}, {"user_id": 1, "name": 1, "email": 1, "cedula": 1})}
     buf = io.StringIO()

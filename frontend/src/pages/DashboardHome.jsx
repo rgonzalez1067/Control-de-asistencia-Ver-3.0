@@ -72,7 +72,7 @@ export default function DashboardHome() {
         </CardHeader>
         <CardContent className="h-72 pl-0" data-testid="dashboard-chart">
           {stats && (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={200} minHeight={200}>
               <AreaChart data={stats.series_7d || []} margin={{ left: 12, right: 20, top: 8 }}>
                 <defs>
                   <linearGradient id="gIn" x1="0" y1="0" x2="0" y2="1">

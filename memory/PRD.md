@@ -29,8 +29,16 @@ Todos los `password_hash` (bcrypt) intactos.
   - Base de datos restaurada desde `db_backup.tar.gz`
   - Login funcional con `rgonzalez@megasoft.com.ve / admin123`
   - PWA manifest + service worker básico
-- **Fase 1 — Auth + Usuarios** ⏳ pendiente confirmación
-- **Fase 2 — Config maestra (Sedes/Deptos/Horarios/Settings)** ⏳
+- **Fase 1 — Auth + Usuarios** ✅ (2026-07-22)
+  - Login rediseñado (editorial dual-panel, dark corporate + amber accent)
+  - AppLayout con sidebar (desktop) + bottom nav (mobile) + dropdown de usuario
+  - Dashboard admin real con KPIs y gráfica de 7 días (Recharts)
+  - CRUD completo de empleados: crear, editar, eliminar, resetear password
+  - Import CSV con plantilla descargable
+  - Onboarding con `getUserMedia` (selfie 480×480)
+  - ProtectedRoute con soporte de `roles`
+  - Testing 100% (32/32 backend + flujos frontend E2E)
+- **Fase 2 — Config maestra (Sedes/Deptos/Horarios/Settings)** ⏳ pendiente confirmación
 - **Fase 3 — Kiosco + Carnet (cámara + face-api)** ⏳
 - **Fase 4 — Reportería + Team + Novedades** ⏳
 - **Fase 5 — PWA productivo + Deploy** ⏳
