@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 7 — 3 new features: admin selfie capture + admin/self PIN management + kiosk 'No me reconoció' re-enroll. Backend: 14/14 new tests + 57/57 regression = 71/71 PASS. Frontend E2E: UsersPage dropdown (user-selfie-{id}, user-pin-{id}), user-form-pin in CREATE dialog (numeric-only + slice-to-8 filter verified), set-pin-dialog with match/mismatch UX, CarnetPage 'Mi PIN del kiosco' card with carnet-pin-btn (full save→toast→backend-verified update flow), KioskScanPage kiosk-reenroll-btn → picker → PIN dialog (wrong PIN=401 toast, correct PIN opens selfie-capture-dialog), and regression kiosk-pin-mode-btn/kiosk-lock-btn present. Bonus: previous iter's cosmetic 'De' → 'de' i18n issue is FIXED (shows 'Miércoles, 22 de julio' correctly).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter7_features.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter7_features.xml",
+    "/app/test_reports/pytest/iter7_regression.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py users_create() correctly validates pin via `payload.pin.isdigit() and 4<=len<=8` before hashing; pin is popped from doc so it isn't persisted plaintext — good.",
+    "sanitize_user() excludes both password_hash and pin_code_hash from responses — verified in test.",
+    "kiosk_reenroll_face endpoint takes FormData (Form(...) params) and requires pin_code_hash to exist AND validate — user without configured PIN → 401 (verified in test_reenroll_user_without_pin_401).",
+    "users_selfie() correctly guards `user['user_id']!=user_id and role!='admin'` → 403 for non-admin cross-user selfie set (verified).",
+    "users_set_pin() same guard pattern; also validates 4-8 digits (verified).",
+    "SelfieCaptureDialog.jsx: getUserMedia cleanup on unmount is correct (stops tracks). Mirror scaling (scale-x-[-1] on video AND ctx.translate/scale on capture) is applied consistently — no flipped saved images.",
+    "SetPinDialog.jsx: `valid = pin.length>=4 && pin.length<=8 && pin===confirm` disables save on mismatch AND shows 'Los PINs no coinciden' inline — great UX (verified).",
+    "UsersPage.jsx user-form-pin uses `e.target.value.replace(/\\D/g,'').slice(0,8)` for numeric-only 8-max input — verified filters 'ab12cd34'→'1234' and '123456789012'→'12345678'.",
+    "PinPickerDialog now accepts title/description/testId props with sensible defaults — reused cleanly for both kiosk-pin-picker (marcar) and kiosk-reenroll-picker (reemplazar rostro). No duplication.",
+    "CarnetPage.jsx exposes SetPinDialog for self-service; endpoint /users/{uid}/pin allows self, so employee login → carnet-pin-btn → save works without admin auth (verified end-to-end).",
+    "KioskScanPage kiosk-reenroll flow: picker → PIN → capture → POST /kiosk/reenroll-face (FormData). On wrong PIN the pin dialog stays open with 'PIN incorrecto' toast — good UX for retry.",
+    "Cosmetic i18n fix confirmed: dateStr now uses proper Spanish lowercase 'de/julio' (previous iter6 issue with .capitalize CSS is gone).",
+    "MINOR (not blocking): the /api/kiosk/reenroll-face endpoint accepts optional face_descriptor as JSON-string, silently swallows exceptions on parse error (line 856-857) — safe but could log a warning. Not user-visible."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter7_features.py (new — 14 tests covering all 3 new features)"
+  ],
+  "success_rate": {
+    "backend": "71/71 (100%) — 14 iter7 + 57 regression",
+    "frontend": "18/18 (100%) — UsersPage dropdown items, PIN dialog match/mismatch, selfie dialog open, user-form-pin filters (2), CarnetPage carnet-pin-btn + save flow + backend verified new PIN + old PIN rejected, KioskScanPage reenroll-btn + picker + user pick + wrong PIN toast + correct PIN → selfie dialog, regression kiosk-pin-mode-btn + kiosk-lock-btn"
+  },
+  "test_credentials": "Admin rgonzalez@megasoft.com.ve/admin123 (from /app/memory/test_credentials.md). Test employee TEST_iter7_1784724376@example.com (uid user_9db9d0449fd3) created with pin=4321, selfie via admin endpoint, then PIN changed to 9876 via CarnetPage self-service; DELETED at cleanup along with 2 orphan TEST_csv_* users left over from a previous iteration.",
+  "seed_data_creation": "1 TEST employee (with pin+selfie+face_descriptor) — created and DELETED. 3 total TEST_ users cleaned up at teardown. No residual test data in database. Verified 0 TEST_ users remaining post-cleanup.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "All 3 iter7 features work end-to-end. Camera-dependent parts of SelfieCaptureDialog were verified structurally (dialog opens, selfie-video element present, error/loading text shown, cancel/capture buttons present) — actual capture (canvas.toDataURL) requires WebRTC video and cannot execute in headless Playwright without --use-fake-device flag; capture()→onConfirm(dataUrl)→POST is a pure JS flow that will work in real browsers. In the kiosk reenroll flow, the confirmed path is: reenroll-btn → kiosk-reenroll-picker → kiosk-pin-user-{id} → kiosk-reenroll-pin (with kiosk-reenroll-pin-input + kiosk-reenroll-pin-confirm) → selfie-capture-dialog. Wrong PIN triggers 401 + toast 'PIN incorrecto' + dialog stays open. Correct PIN closes PIN dialog and opens selfie-capture-dialog. Endpoint POST /api/kiosk/reenroll-face is a public (no-auth) FormData endpoint gated only by PIN — verified in test_iter7_features.py::TestKioskReenrollFace. Also verified via curl that the CarnetPage self-service PIN update actually persisted (verify-pin with new PIN=200, with old PIN=401). Cleanup of TEST_ users is idempotent — safe to re-run.",
+  "rca of the issue": "N/A — no bugs found. All 3 features + 47 regression endpoints work as spec'd."
+}

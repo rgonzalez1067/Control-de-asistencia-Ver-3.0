@@ -26,8 +26,10 @@ import {
 import { toast } from "sonner";
 import {
   Search, Plus, MoreVertical, Pencil, Trash2, KeyRound, Upload,
-  Download, ShieldCheck, BadgeCheck, CircleUserRound, Image as ImageIcon, UserCircle2,
+  Download, ShieldCheck, BadgeCheck, CircleUserRound, Image as ImageIcon, UserCircle2, Camera,
 } from "lucide-react";
+import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
+import SetPinDialog from "@/components/SetPinDialog";
 
 const ROLE_LABEL = {
   admin: { label: "Admin", cls: "bg-primary text-primary-foreground" },
@@ -37,7 +39,8 @@ const ROLE_LABEL = {
 
 const EMPTY_USER = {
   email: "", name: "", cedula: "", role: "employee", position: "",
-  department_id: "", site_id: "", supervisor_id: "", schedule_id: "", password: "",
+  department_id: "", site_id: "", supervisor_id: "", schedule_id: "",
+  password: "", pin: "",
 };
 
 export default function UsersPage() {
@@ -53,6 +56,9 @@ export default function UsersPage() {
   const [resetTarget, setResetTarget] = useState(null);
   const [importing, setImporting] = useState(false);
   const [photoTarget, setPhotoTarget] = useState(null); // {user_id, name, selfie_base64, loading}
+  const [selfieTarget, setSelfieTarget] = useState(null); // {user_id, name} — capture in behalf
+  const [selfieSaving, setSelfieSaving] = useState(false);
+  const [pinTarget, setPinTarget] = useState(null);       // {user_id, name}
   const fileRef = useRef(null);
 
   async function loadAll() {
@@ -101,7 +107,7 @@ export default function UsersPage() {
     try {
       // sanea "" -> undefined en selects opcionales
       const payload = { ...form };
-      ["department_id", "site_id", "supervisor_id", "schedule_id", "position", "cedula"].forEach(
+      ["department_id", "site_id", "supervisor_id", "schedule_id", "position", "cedula", "pin"].forEach(
         (k) => { if (!payload[k]) delete payload[k]; }
       );
       if (editing.mode === "create") {
@@ -175,6 +181,21 @@ export default function UsersPage() {
     } catch (e) {
       setPhotoTarget({ user_id: u.user_id, name: u.name, loading: false, selfie_base64: null });
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    }
+  }
+
+  async function saveAdminSelfie(dataUrl) {
+    if (!selfieTarget) return;
+    setSelfieSaving(true);
+    try {
+      await api.post(`/users/${selfieTarget.user_id}/selfie`, { selfie_base64: dataUrl });
+      toast.success(`Rostro registrado para ${selfieTarget.name.split(" ")[0]}`);
+      setSelfieTarget(null);
+      loadAll();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally {
+      setSelfieSaving(false);
     }
   }
 
@@ -348,6 +369,13 @@ export default function UsersPage() {
                           <DropdownMenuItem onClick={() => openPhoto(u)}>
                             <ImageIcon className="h-4 w-4 mr-2" /> Ver foto
                           </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setSelfieTarget({ user_id: u.user_id, name: u.name })} data-testid={`user-selfie-${u.user_id}`}>
+                            <Camera className="h-4 w-4 mr-2" /> {u.onboarded ? "Reemplazar rostro" : "Registrar rostro"}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => setPinTarget({ user_id: u.user_id, name: u.name })} data-testid={`user-pin-${u.user_id}`}>
+                            <KeyRound className="h-4 w-4 mr-2" /> Definir PIN
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => setEditing({ mode: "edit", form: { ...EMPTY_USER, ...u } })}>
                             <Pencil className="h-4 w-4 mr-2" /> Editar
                           </DropdownMenuItem>
@@ -424,6 +452,22 @@ export default function UsersPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <SelfieCaptureDialog
+        open={!!selfieTarget}
+        onOpenChange={(v) => !v && setSelfieTarget(null)}
+        title={`Rostro de ${selfieTarget?.name || ""}`}
+        description="El empleado debe mirar directo a la cámara con buena luz."
+        onConfirm={saveAdminSelfie}
+        saving={selfieSaving}
+      />
+
+      <SetPinDialog
+        open={!!pinTarget}
+        onOpenChange={(v) => !v && setPinTarget(null)}
+        userId={pinTarget?.user_id}
+        userName={pinTarget?.name}
+      />
     </div>
   );
 }
@@ -530,10 +574,22 @@ function UserFormDialog({ state, onCancel, onSave, departments, sites, schedules
             </Select>
           </div>
           {!isEdit && (
-            <div className="space-y-1.5 sm:col-span-2">
-              <Label>Contraseña temporal <span className="text-muted-foreground/60">(opcional)</span></Label>
-              <Input {...bind("password")} type="text" placeholder="Se genera automáticamente si se deja vacío" data-testid="user-form-password" />
-            </div>
+            <>
+              <div className="space-y-1.5">
+                <Label>Contraseña temporal <span className="text-muted-foreground/60">(opcional)</span></Label>
+                <Input {...bind("password")} type="text" placeholder="Se genera automáticamente si se deja vacío" data-testid="user-form-password" />
+              </div>
+              <div className="space-y-1.5">
+                <Label>PIN kiosco <span className="text-muted-foreground/60">(opcional)</span></Label>
+                <Input
+                  value={form.pin || ""}
+                  onChange={(e) => setForm((f) => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 8) }))}
+                  inputMode="numeric"
+                  placeholder="4-8 dígitos · el empleado podrá cambiarlo"
+                  data-testid="user-form-pin"
+                />
+              </div>
+            </>
           )}
         </div>
 

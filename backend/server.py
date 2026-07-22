@@ -182,6 +182,7 @@ class UserIn(BaseModel):
     schedule_id: Optional[str] = None
     picture: Optional[str] = None
     password: Optional[str] = None
+    pin: Optional[str] = None
 
 
 class UserUpdate(BaseModel):
@@ -465,6 +466,11 @@ async def users_create(payload: UserIn,
     if payload.password:
         doc["password_hash"] = hash_password(payload.password)
         doc.pop("password", None)
+    if payload.pin:
+        if not payload.pin.isdigit() or not (4 <= len(payload.pin) <= 8):
+            raise HTTPException(status_code=400, detail="PIN debe ser 4-8 dígitos")
+        doc["pin_code_hash"] = hash_password(payload.pin)
+        doc.pop("pin", None)
     await db.users.insert_one(doc)
     return sanitize_user(doc)
 

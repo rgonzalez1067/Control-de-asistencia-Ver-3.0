@@ -10,8 +10,9 @@ import {
 import { toast } from "sonner";
 import {
   ScanFace, LogIn, LogOut as LogOutIcon, Loader2, LockKeyhole,
-  KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight,
+  KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight, RefreshCcw,
 } from "lucide-react";
+import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 
 const FACEAPI_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
 const MODELS_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
@@ -50,6 +51,11 @@ export default function KioskScanPage() {
   const [current, setCurrent] = useState(null);   // {user, nextType, distance, marked?}
   const [pinFor, setPinFor] = useState(null);
   const [showPinList, setShowPinList] = useState(false);
+  // Re-enroll flow: usuario intenta reemplazar su selfie tras no ser reconocido
+  const [reenrollPick, setReenrollPick] = useState(false);       // muestra picker
+  const [reenrollTarget, setReenrollTarget] = useState(null);    // usuario elegido (para PIN)
+  const [reenrollCapture, setReenrollCapture] = useState(null);  // {user_id, name, pin} lista para capturar
+  const [reenrollSaving, setReenrollSaving] = useState(false);
   const [clock, setClock] = useState(new Date());
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -177,6 +183,29 @@ export default function KioskScanPage() {
     nav("/kiosk", { replace: true });
   }
 
+  async function saveReenroll(dataUrl) {
+    if (!reenrollCapture) return;
+    setReenrollSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("user_id", reenrollCapture.user_id);
+      fd.append("pin", reenrollCapture.pin);
+      fd.append("selfie_base64", dataUrl);
+      await api.post("/kiosk/reenroll-face", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      toast.success(`Rostro de ${reenrollCapture.name.split(" ")[0]} actualizado`);
+      // recargar roster para actualizar el matcher
+      try {
+        const { data } = await api.get("/kiosk/roster");
+        setRoster(data);
+      } catch (_) { /* noop */ }
+      setReenrollCapture(null);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setReenrollSaving(false); }
+  }
+
   // Formato "Miércoles, 22 de julio" (weekday y mes capitalizados, "de" en minúscula).
   const wk = clock.toLocaleDateString("es-VE", { weekday: "long" });
   const mo = clock.toLocaleDateString("es-VE", { month: "long" });
@@ -263,6 +292,15 @@ export default function KioskScanPage() {
               <p className="text-white/60 text-sm mt-2 max-w-xs mx-auto">
                 Colócate frente a la cámara. Marcaremos automáticamente entrada o salida.
               </p>
+              <button
+                type="button"
+                onClick={() => setReenrollPick(true)}
+                className="mt-4 text-xs text-white/50 hover:text-accent underline underline-offset-4 decoration-dotted transition-colors inline-flex items-center gap-1.5"
+                data-testid="kiosk-reenroll-btn"
+              >
+                <RefreshCcw className="h-3 w-3" />
+                No me reconoció · Reemplazar mi rostro con PIN
+              </button>
             </div>
           </>
         )}
@@ -369,11 +407,91 @@ export default function KioskScanPage() {
         onCancel={() => setPinFor(null)}
         onSuccess={(u) => { setPinFor(null); confirmMark(u); }}
       />
+
+      {/* Re-enroll: paso 1 — selección de usuario */}
+      <PinPickerDialog
+        open={reenrollPick}
+        roster={roster}
+        title="¿Quién eres?"
+        description="Selecciónate para reemplazar tu foto."
+        testId="kiosk-reenroll-picker"
+        onCancel={() => setReenrollPick(false)}
+        onPick={(u) => { setReenrollPick(false); setReenrollTarget(u); }}
+      />
+
+      {/* Re-enroll: paso 2 — PIN */}
+      <ReenrollPinDialog
+        target={reenrollTarget}
+        onCancel={() => setReenrollTarget(null)}
+        onSuccess={(u, pin) => { setReenrollTarget(null); setReenrollCapture({ ...u, pin }); }}
+      />
+
+      {/* Re-enroll: paso 3 — captura + POST */}
+      <SelfieCaptureDialog
+        open={!!reenrollCapture}
+        onOpenChange={(v) => !v && setReenrollCapture(null)}
+        title={`Nuevo rostro de ${reenrollCapture?.name || ""}`}
+        description="Mira directo a la cámara con buena luz. Reemplazará tu foto anterior."
+        onConfirm={saveReenroll}
+        saving={reenrollSaving}
+      />
     </div>
   );
 }
 
-function PinPickerDialog({ open, roster, onCancel, onPick }) {
+/** Dialog especializado para el re-enroll — pide el PIN sin la opción de marcar */
+function ReenrollPinDialog({ target, onCancel, onSuccess }) {
+  const [pin, setPin] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { setPin(""); }, [target]);
+
+  async function verify() {
+    if (!pin || pin.length < 4) { toast.error("Ingresa tu PIN"); return; }
+    setBusy(true);
+    try {
+      await api.post("/kiosk/verify-pin", { user_id: target.user_id, pin });
+      onSuccess(target, pin);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "PIN incorrecto");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Dialog open={!!target} onOpenChange={(v) => !v && onCancel()}>
+      <DialogContent className="max-w-sm" data-testid="kiosk-reenroll-pin">
+        <DialogHeader className="items-center text-center">
+          <DialogTitle>Confirma con tu PIN</DialogTitle>
+          <DialogDescription>
+            {target?.name?.split(" ")[0]}, ingresa tu PIN para reemplazar tu rostro registrado.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          type="password"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
+          placeholder="••••"
+          className="text-3xl text-center h-16 tracking-widest font-mono"
+          data-testid="kiosk-reenroll-pin-input"
+          autoFocus
+        />
+        <DialogFooter className="flex-row gap-2 sm:justify-stretch">
+          <Button variant="outline" onClick={onCancel} className="h-14 rounded-full flex-1 text-base">
+            <X className="h-4 w-4 mr-1.5" /> Cancelar
+          </Button>
+          <Button onClick={verify} disabled={busy}
+            className="h-14 rounded-full flex-1 text-base font-semibold bg-primary hover:bg-primary/90"
+            data-testid="kiosk-reenroll-pin-confirm">
+            Continuar <ArrowRight className="h-4 w-4 ml-1.5" />
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PinPickerDialog({ open, roster, onCancel, onPick, title, description, testId }) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const n = q.toLowerCase().trim();
@@ -386,10 +504,10 @@ function PinPickerDialog({ open, roster, onCancel, onPick }) {
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
-      <DialogContent className="max-w-md sm:max-w-lg" data-testid="kiosk-pin-picker">
+      <DialogContent className="max-w-md sm:max-w-lg" data-testid={testId || "kiosk-pin-picker"}>
         <DialogHeader>
-          <DialogTitle>Selecciona tu nombre</DialogTitle>
-          <DialogDescription>Después te pediremos el PIN.</DialogDescription>
+          <DialogTitle>{title || "Selecciona tu nombre"}</DialogTitle>
+          <DialogDescription>{description || "Después te pediremos el PIN."}</DialogDescription>
         </DialogHeader>
         <div className="relative mb-3">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

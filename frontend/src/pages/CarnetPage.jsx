@@ -5,8 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ShieldCheck, IdCard, Camera, Building2, MapPin, CalendarClock, UserCircle2 } from "lucide-react";
+import { ShieldCheck, IdCard, Camera, Building2, MapPin, CalendarClock, UserCircle2, KeyRound } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import SetPinDialog from "@/components/SetPinDialog";
 
 export default function CarnetPage() {
   const { user } = useAuth();
@@ -16,6 +17,7 @@ export default function CarnetPage() {
   const [schedule, setSchedule] = useState(null);
   const [company, setCompany] = useState({});
   const [selfie, setSelfie] = useState(user?.selfie_base64 || null);
+  const [pinDialogOpen, setPinDialogOpen] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -159,8 +161,35 @@ export default function CarnetPage() {
               </Button>
             </CardContent>
           </Card>
+
+          <Card className="border-border/70 bg-card/80 backdrop-blur">
+            <CardContent className="pt-5 space-y-3">
+              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <KeyRound className="h-4 w-4 text-accent" /> Mi PIN del kiosco
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Úsalo para marcar sin rostro o para reintentar tu foto en el kiosco si no te reconoce.
+                Un PIN de 4 a 8 dígitos que solo tú conoces.
+              </p>
+              <Button
+                onClick={() => setPinDialogOpen(true)}
+                variant="outline"
+                className="w-full rounded-full"
+                data-testid="carnet-pin-btn"
+              >
+                <KeyRound className="h-4 w-4 mr-1.5" /> Crear o cambiar mi PIN
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
+
+      <SetPinDialog
+        open={pinDialogOpen}
+        onOpenChange={setPinDialogOpen}
+        userId={user?.user_id}
+        userName={user?.name}
+      />
     </div>
   );
 }
