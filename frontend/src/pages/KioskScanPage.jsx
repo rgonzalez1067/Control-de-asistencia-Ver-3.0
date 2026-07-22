@@ -16,8 +16,13 @@ import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 
 const FACEAPI_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
 const MODELS_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
-const MATCH_THRESHOLD = 0.55;
-const DETECT_INTERVAL_MS = 700;
+
+// ── Validación de rostro (endurecida para reducir falsos positivos) ──
+// Distancia euclidiana; menor = más parecido. En face-api el máximo es ~1.
+const MATCH_THRESHOLD = 0.48;       // Antes 0.55 — rechaza matches débiles
+const MATCH_MARGIN = 0.06;          // El 2do candidato debe estar ≥ 0.06 más lejos que el 1ro
+const REQUIRED_CONSECUTIVE = 3;     // Mismo usuario detectado en N frames seguidos
+const DETECT_INTERVAL_MS = 500;     // Un poco más rápido para acumular frames sin frustrar al usuario
 
 /** Carga face-api.js una sola vez desde CDN. */
 function loadFaceApi() {
@@ -47,7 +52,7 @@ export default function KioskScanPage() {
   const [phase, setPhase] = useState("boot");
   const [status, setStatus] = useState("Cargando reconocimiento facial…");
   const [roster, setRoster] = useState([]);
-  const [matcher, setMatcher] = useState(null);
+  const [labeled, setLabeled] = useState([]);      // [{user_id, descriptor: Float32Array}]
   const [current, setCurrent] = useState(null);   // {user, nextType, distance, marked?}
   const [pinFor, setPinFor] = useState(null);
   const [showPinList, setShowPinList] = useState(false);
@@ -63,11 +68,13 @@ export default function KioskScanPage() {
   const clockRef = useRef(null);
   const busyRef = useRef(false);
   const phaseRef = useRef(phase);
-  const matcherRef = useRef(matcher);
+  const labeledRef = useRef(labeled);
   const rosterRef = useRef(roster);
+  // Contador de frames consecutivos para el mismo user (evita falsos positivos)
+  const consecutiveRef = useRef({ userId: null, count: 0 });
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
-  useEffect(() => { matcherRef.current = matcher; }, [matcher]);
+  useEffect(() => { labeledRef.current = labeled; }, [labeled]);
   useEffect(() => { rosterRef.current = roster; }, [roster]);
 
   useEffect(() => {
@@ -88,16 +95,16 @@ export default function KioskScanPage() {
         if (cancelled) return;
         setRoster(data);
 
-        const labeled = [];
+        const labeledList = [];
         for (const u of data) {
           if (Array.isArray(u.face_descriptor) && u.face_descriptor.length > 0) {
-            const d = Float32Array.from(u.face_descriptor);
-            labeled.push(new faceapi.LabeledFaceDescriptors(u.user_id, [d]));
+            labeledList.push({
+              user_id: u.user_id,
+              descriptor: Float32Array.from(u.face_descriptor),
+            });
           }
         }
-        if (labeled.length > 0) {
-          setMatcher(new faceapi.FaceMatcher(labeled, MATCH_THRESHOLD));
-        }
+        setLabeled(labeledList);
 
         setStatus("Iniciando cámara…");
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -111,7 +118,7 @@ export default function KioskScanPage() {
           await videoRef.current.play().catch(() => null);
         }
         setPhase("ready");
-        setStatus(labeled.length === 0
+        setStatus(labeledList.length === 0
           ? "Sin rostros registrados — usa PIN"
           : "Mira a la cámara para marcar");
 
@@ -125,7 +132,9 @@ export default function KioskScanPage() {
 
     async function scan() {
       if (busyRef.current || !videoRef.current || !window.faceapi) return;
-      if (phaseRef.current !== "ready" || !matcherRef.current) return;
+      if (phaseRef.current !== "ready") return;
+      const labeledArr = labeledRef.current;
+      if (!labeledArr || labeledArr.length === 0) return;
       busyRef.current = true;
       try {
         const faceapi = window.faceapi;
@@ -134,11 +143,54 @@ export default function KioskScanPage() {
           .detectSingleFace(videoRef.current, opts)
           .withFaceLandmarks()
           .withFaceDescriptor();
-        if (!det) { busyRef.current = false; return; }
-        const best = matcherRef.current.findBestMatch(det.descriptor);
-        if (best.label === "unknown") { busyRef.current = false; return; }
-        const matched = rosterRef.current.find((u) => u.user_id === best.label);
+        if (!det) {
+          // no cara visible: reinicia contador
+          consecutiveRef.current = { userId: null, count: 0 };
+          busyRef.current = false;
+          return;
+        }
+
+        // Distancia euclidiana contra TODOS los descriptores + top-2
+        const distances = labeledArr.map((ld) => ({
+          user_id: ld.user_id,
+          distance: faceapi.euclideanDistance(det.descriptor, ld.descriptor),
+        }));
+        distances.sort((a, b) => a.distance - b.distance);
+        const best = distances[0];
+        const second = distances[1];
+
+        // Regla 1: umbral estricto
+        if (!best || best.distance >= MATCH_THRESHOLD) {
+          consecutiveRef.current = { userId: null, count: 0 };
+          busyRef.current = false;
+          return;
+        }
+
+        // Regla 2: margen entre 1º y 2º candidato — evita gemelos/parecidos
+        if (second && (second.distance - best.distance) < MATCH_MARGIN) {
+          consecutiveRef.current = { userId: null, count: 0 };
+          setStatus("Rostro ambiguo — acércate un poco o usa PIN");
+          busyRef.current = false;
+          return;
+        }
+
+        // Regla 3: mismo usuario en N frames consecutivos
+        if (consecutiveRef.current.userId === best.user_id) {
+          consecutiveRef.current.count += 1;
+        } else {
+          consecutiveRef.current = { userId: best.user_id, count: 1 };
+        }
+        if (consecutiveRef.current.count < REQUIRED_CONSECUTIVE) {
+          const conf = Math.max(0, Math.round((1 - best.distance) * 100));
+          setStatus(`Verificando… ${consecutiveRef.current.count}/${REQUIRED_CONSECUTIVE}  (${conf}%)`);
+          busyRef.current = false;
+          return;
+        }
+
+        // ¡Match confirmado!
+        const matched = rosterRef.current.find((u) => u.user_id === best.user_id);
         if (!matched) { busyRef.current = false; return; }
+        consecutiveRef.current = { userId: null, count: 0 };
         // Consultar próximo tipo (in/out) al backend
         try {
           const { data: nt } = await api.get(`/kiosk/next-type/${matched.user_id}`);
@@ -195,10 +247,17 @@ export default function KioskScanPage() {
         headers: { "Content-Type": "multipart/form-data" },
       });
       toast.success(`Rostro de ${reenrollCapture.name.split(" ")[0]} actualizado`);
-      // recargar roster para actualizar el matcher
+      // recargar roster + reconstruir descriptores para el matcher endurecido
       try {
         const { data } = await api.get("/kiosk/roster");
         setRoster(data);
+        const rebuilt = [];
+        for (const u of data) {
+          if (Array.isArray(u.face_descriptor) && u.face_descriptor.length > 0) {
+            rebuilt.push({ user_id: u.user_id, descriptor: Float32Array.from(u.face_descriptor) });
+          }
+        }
+        setLabeled(rebuilt);
       } catch (_) { /* noop */ }
       setReenrollCapture(null);
     } catch (e) {

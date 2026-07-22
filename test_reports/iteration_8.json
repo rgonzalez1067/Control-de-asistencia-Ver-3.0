@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 8 — face-matching hardening in /kiosk/scan. Verified via (a) static code review of KioskScanPage.jsx confirming the 3 constants (MATCH_THRESHOLD=0.48, MATCH_MARGIN=0.06, REQUIRED_CONSECUTIVE=3) and the 3-rule sequence threshold→margin→consecutive in scan(); (b) 9 Python unit tests that simulate the exact algorithm and validate clear-match / ambiguous / weak / boundary / bug-scenario cases; (c) 5 kiosk backend endpoints smoke test (roster, next-type, kiosk/attendance/check auto, reenroll-face 401 without pin, kiosk/unlock); (d) full backend regression 83/83 PASS; (e) frontend E2E: kiosk unlock → /kiosk/scan mounts, face-api loads (kiosk-status='Mira a la cámara para marcar'), PIN picker shows 16 users, PIN enter dialog opens with 'Próxima: ENTRADA' badge, kiosk-lock-btn + kiosk-reenroll-btn present.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter8_kiosk_matching.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_iter7_features.py",
+    "/app/test_reports/pytest/iter8_matching.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "KioskScanPage.jsx — the 3-rule sequence (lines 163-188) is implemented in the correct order (threshold → margin → consecutive). consecutiveRef properly resets on all 5 required transitions: no-face (148), threshold-fail (164), ambiguous (171), user-switch (181, via new object), and successful match (193).",
+    "faceapi.FaceMatcher is NOT referenced anywhere in the file — replaced by manual faceapi.euclideanDistance on line 156 with a sort + top-2 pattern. Correct implementation.",
+    "labeledRef is kept in sync via useEffect on line 77 so scan() always sees the latest descriptors — needed for saveReenroll to affect subsequent detections without re-mount.",
+    "saveReenroll (238-266) recomputes the labeled array after roster reload — the new selfie is immediately effective for matching. Correct.",
+    "MINOR (not blocking): scan() catches any transient face-api errors and swallows them silently (line 203) — could log at warn level for observability, but not a bug.",
+    "MINOR (UX): the status pill message 'Verificando… N/3 (XX%)' relies on best.distance from the LAST verifying frame (not aggregated confidence). Cosmetic; consider averaging across frames for a smoother indicator. Not blocking.",
+    "SECURITY OK: /api/kiosk/reenroll-face still enforces PIN — verified via test_reenroll_face_requires_pin (401 when user has no pin_code_hash). Iter7 regression intact."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter8_kiosk_matching.py (new — 14 tests: 9 pure-logic simulation + 5 kiosk endpoint regression)"
+  ],
+  "success_rate": {
+    "backend": "97/97 (100%) — 14 iter8 + 83 prior regression",
+    "frontend": "10/10 (100%) — unlock, scan-page mount, face-api load, kiosk-status text, PIN picker (16 users), PIN enter dialog, type badge, lock button, reenroll button, date i18n"
+  },
+  "test_credentials": "Admin rgonzalez@megasoft.com.ve / admin123 (from /app/memory/test_credentials.md).",
+  "seed_data_creation": "2 throwaway TEST_iter8_* users created inside test_kiosk_attendance_check_auto and test_reenroll_face_requires_pin — both DELETED at test-cleanup via api.delete in the finally block. No residual test data.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The face-matching bug fix is a pure client-side change. The 3 rules (threshold=0.48, margin=0.06, 3 consecutive frames) are correctly wired in KioskScanPage.jsx scan(). Playwright cannot exercise real face-api matching (no real webcam faces to compare) but the Python simulation in /app/backend/tests/test_iter8_kiosk_matching.py::TestMatchingLogic reproduces the exact algorithm and covers: clear match confirms in 3 frames, ambiguous never confirms, weak match rejected, threshold boundary (0.48 rejected as strict >=), margin boundary (0.06 exactly is NOT ambiguous — passes), reset on no-face / user-switch / ambiguous mid-sequence, and the reported bug scenario (two similar faces distance 0.34 vs 0.37 → NEVER matches even after 50 frames). Backend was NOT modified. All iter7 features intact (kiosk-reenroll flow, PIN self-service, admin selfie capture).",
+  "rca of the issue": "Original bug: two employees with slight resemblance triggered cross-matching because (a) old threshold 0.55 was too permissive and (b) the top-1 candidate was selected regardless of how close the top-2 was, and (c) a single frame could fire the modal. Fix (all 3 layers verified): threshold→0.48 rejects weak matches; margin 0.06 rejects ambiguous (validated: 0.34 vs 0.37 stays ambiguous forever); 3 consecutive frames prevents transient misclassifications. Any single failure in any layer resets the consecutive counter so the algorithm is FAIL-CLOSED (safe by default)."
+}
