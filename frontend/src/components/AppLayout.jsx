@@ -14,6 +14,7 @@ import {
 const NAV_ADMIN = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard" },
   { to: "/usuarios", icon: Users, label: "Empleados" },
+  { to: "/equipo", icon: Users, label: "Mi equipo" },
   { to: "/sedes", icon: MapPin, label: "Sedes" },
   { to: "/departamentos", icon: Building2, label: "Departamentos" },
   { to: "/horarios", icon: CalendarClock, label: "Horarios" },

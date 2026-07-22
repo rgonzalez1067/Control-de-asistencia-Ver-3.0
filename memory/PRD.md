@@ -55,8 +55,17 @@ Todos los `password_hash` (bcrypt) intactos.
   - `HomeRedirect` — employees van a `/historial`, admin/supervisor al dashboard
 - **UsersPage** — avatar clickeable con badge verde si onboarded, diálogo `user-photo-dialog` que llama `/api/users/{id}/photo`
 
-- **Fase 4 — Reportería + Team + Novedades** ⏳ pendiente
-- **Fase 5 — PWA productivo + Deploy** ⏳ pendiente
+- **Fase 4 — Reportería + Team + Novedades** ✅ (2026-07-22)
+  - ReportsPage: 6 filtros (from/to/user/site/type/status), 4 KPIs, tabla con badges y export CSV
+  - NoveltiesPage: tabs (pendientes/historial/todas), crear con selector empleado (admin), aprobación bulk sticky, decisión individual con comentario, delete propio para employees
+  - TeamPage: matriz día×empleado con horas de primera entrada / última salida, KPIs, selector 1/3/7/14/30 días. Admin ve todos los no-admin; supervisor sólo su equipo (`supervisor_id`)
+  - Fix: `NAV_ADMIN` ahora incluye "Mi equipo" en sidebar
+- **Fase 5 — PWA productivo** ✅ parcial (2026-07-22)
+  - `InstallPWAPrompt` — banner discreto tras `beforeinstallprompt`, con dismiss persistente en localStorage
+  - Deploy checklist en `/app/memory/DEPLOY_CHECKLIST.md`
+  - Supresión de warnings `ResizeObserver loop` en dev overlay
+
+- Testing 49/49 backend, ~95% frontend (todos los flujos críticos verificados)
 - **Fase 3 — Kiosco + Carnet (cámara + face-api)** ⏳
 - **Fase 4 — Reportería + Team + Novedades** ⏳
 - **Fase 5 — PWA productivo + Deploy** ⏳
