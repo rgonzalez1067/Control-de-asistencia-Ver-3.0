@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 2 — Regression + new features testing after geofence removal, optional Sites lat/lng, GET /api/users/{id}/photo, and new frontend pages (/kiosk, /kiosk/scan, /sedes, /departamentos, /horarios, /ajustes, /historial, /carnet, /usuarios photo dialog). 41 backend pytest cases (100% pass) and 10+ Playwright E2E flows executed successfully. All 47 existing endpoints continue to work. Face-api reconocimiento facial no probado (requiere WebGL/cámara) — pero PIN fallback verificado end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/kiosk/scan", "issues": ["Face-api WebGL crash silencioso en el contenedor (headless): 'Initialization of backend webgl failed / WebGL is not supported on this device'. Es esperado según diseño; el fallback PIN cubre el flujo. Sugerencia: capturar el error y ocultar el video wrap para que el usuario vea solo el CTA de PIN cuando WebGL no está disponible."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) On /kiosk/scan detect WebGL/face-api failure and switch UI automatically to PIN-only mode (currently the video canvas remains visible with a scanning animation while nothing can be recognized).",
+    "(Optional) Backend: SiteIn.model_dump() in sites_update replaces all fields with None values because model_dump() includes unset optionals — see server.py line 643. If a client sends only {name, address}, existing latitude/longitude/radius_meters get overwritten to null. Tests pass because the new spec removes geofence, but if you ever re-introduce coords you'd want exclude_unset=True on the update.",
+    "(Optional) The /sedes and /departamentos existing rows count in the UI was reported as 0 by the automated test tbody row selector — the shadcn Table uses a nested structure. Not a bug (data is present), but consider adding data-testid on individual table rows (e.g. sede-row-{id}) to make automation more robust."
+  ],
+  "critical_code_review_comments": [
+    "server.py sites_update uses payload.model_dump() (no exclude_none/exclude_unset). PUT with only {name, address} will set latitude/longitude/radius_meters back to None because those are optional-None defaults. Currently OK because geocerca fue eliminada, pero es un footgun latente.",
+    "server.py schedules_update and departments_update also use payload.model_dump() sin exclude_unset — same footgun.",
+    "KioskScanPage.jsx carga face-api.js desde CDN (https://cdn.jsdelivr.net) sin fallback local; si el entorno bloquea la CDN el kiosco solo puede operar en modo PIN. Considera empaquetar face-api en el bundle (via yarn add face-api.js) para robustez.",
+    "KioskScanPage.jsx no muestra un mensaje al usuario cuando WebGL falla — el estado sigue mostrando 'Acércate a la cámara para marcar' aunque no hay reconocimiento posible. Añadir un banner 'Reconocimiento facial no disponible — usa PIN'.",
+    "/api/users/{user_id}/photo requiere autenticación (get_current_user) — bien; devuelve selfie_base64 completo (puede ser MB) sin caching header. Considerar `Cache-Control: private, max-age=300` o un endpoint separado que devuelva solo el hash.",
+    "Frontend: HistorialPage refresca 51 filas después de un check-in (ver test) — cada check-in dispara un fetch completo; ok para volúmenes pequeños pero considera paginación server-side para usuarios con >1000 marcas.",
+    "SedesPage/DepartmentsPage: tabla usa shadcn Table sin data-testid por fila, dificulta el testing E2E. Añadir data-testid={`sede-row-${sid}`} y data-testid={`dept-row-${did}`}."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (added TestGeofenceRemoved, TestSitesOptionalLatLng, TestUsersPhotoEndpoint, TestKioskRosterOnboarded — 9 new test methods)"
+  ],
+  "success_rate": {"backend": "100% (41/41)", "frontend": "100% (all critical flows verified)"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / admin123 (from /app/memory/test_credentials.md). Employee: created on-the-fly with password pw12345, deleted after test.",
+  "seed_data_creation": "Created and deleted: TEST_SEDE_UI, TEST_DEPT_UI, and one TEST employee via UI/API during tests. All cleanup successful. Also cleaned a leftover test_csv_* user from a previous CSV import test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend 100% healthy across 41 pytest cases including 9 new tests for iteration-2 features (geofence removed, sites optional lat/lng, GET /api/users/{id}/photo, kiosk roster shape). Frontend flows all pass: /kiosk unlock without login, /kiosk/scan loads and PIN fallback opens roster picker with photos (face-api WebGL fails in headless — expected), /usuarios avatar click opens user-photo-dialog, /sedes CRUD without lat/lng, /departamentos CRUD, /horarios list, /ajustes identification_method switch face↔pin persists, /historial check-in adds row and hist-justify-dialog opens, /carnet shows selfie for onboarded admin. Employee flow (create → login → HomeRedirect to /historial → no nav-usuarios → /usuarios redirects away). Important: face-api tests are intentionally skipped since the container has no WebGL — the design correctly falls back to PIN.",
+  "rca of the issue": "N/A — no bugs found in this iteration. Face-api WebGL failure at kiosk is expected behavior in headless environment; PIN fallback works end-to-end. The design comment about future-proofing sites/departments/schedules PUT (exclude_unset) is a code-quality suggestion, not a bug."
+}

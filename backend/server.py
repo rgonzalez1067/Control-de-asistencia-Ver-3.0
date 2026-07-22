@@ -213,11 +213,12 @@ class DepartmentIn(BaseModel):
 
 
 class SiteIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
     name: str
     address: Optional[str] = None
-    latitude: float
-    longitude: float
-    radius_meters: int = 100
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    radius_meters: Optional[int] = None
 
 
 class SiteResolveIn(BaseModel):
@@ -528,6 +529,21 @@ async def users_set_pin(user_id: str, payload: PinIn,
     return {"ok": True}
 
 
+@api.get("/users/{user_id}/photo")
+async def users_get_photo(user_id: str,
+                          _: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    u = await db.users.find_one({"user_id": user_id},
+                                {"selfie_base64": 1, "onboarded": 1, "name": 1, "_id": 0})
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {
+        "user_id": user_id,
+        "name": u.get("name"),
+        "onboarded": u.get("onboarded", False),
+        "selfie_base64": u.get("selfie_base64"),
+    }
+
+
 @api.get("/users/import/template")
 async def users_import_template(_: Dict[str, Any] = Depends(require_roles("admin"))) -> StreamingResponse:
     buf = io.StringIO()
@@ -816,10 +832,8 @@ async def _register_attendance(user: Dict[str, Any], type_: str,
     elif user.get("site_id"):
         site = await db.sites.find_one({"site_id": user["site_id"]})
 
-    within = False
-    if site and latitude is not None and longitude is not None:
-        dist = haversine_m(latitude, longitude, site["latitude"], site["longitude"])
-        within = dist <= site.get("radius_meters", 100)
+    # Geocerca deshabilitada — la ubicación se registra sólo con fines de auditoría.
+    within = None
 
     # Cálculo de tardanza (solo para "in")
     is_late, late_min = False, 0

@@ -4,17 +4,31 @@ import { AuthProvider } from "@/context/AuthContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppLayout from "@/components/AppLayout";
 import LoginPage from "@/pages/LoginPage";
-import DashboardHome from "@/pages/DashboardHome";
+import HomeRedirect from "@/pages/HomeRedirect";
 import UsersPage from "@/pages/UsersPage";
+import SedesPage from "@/pages/SedesPage";
+import DepartmentsPage from "@/pages/DepartmentsPage";
+import SchedulesPage from "@/pages/SchedulesPage";
+import SettingsPage from "@/pages/SettingsPage";
+import HistorialPage from "@/pages/HistorialPage";
+import CarnetPage from "@/pages/CarnetPage";
 import OnboardingPage from "@/pages/OnboardingPage";
+import KioskUnlockPage from "@/pages/KioskUnlockPage";
+import KioskScanPage from "@/pages/KioskScanPage";
 import ComingSoon from "@/pages/ComingSoon";
+
+const ADMIN = ["admin"];
+const ADMIN_OR_SUP = ["admin", "supervisor"];
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          {/* Public / kiosk */}
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/kiosk" element={<KioskUnlockPage />} />
+          <Route path="/kiosk/scan" element={<KioskScanPage />} />
 
           {/* Onboarding sin layout (pantalla completa dedicada) */}
           <Route
@@ -34,24 +48,23 @@ function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<DashboardHome />} />
-            <Route
-              path="usuarios"
-              element={
-                <ProtectedRoute roles={["admin"]}>
-                  <UsersPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route path="sedes" element={<ComingSoon title="Sedes" phase="Fase 2" description="Aquí podrás crear y editar las sedes con geocerca, coordenadas y resolución automática desde Google Maps." />} />
-            <Route path="departamentos" element={<ComingSoon title="Departamentos" phase="Fase 2" description="Gestión de departamentos y estructura organizativa." />} />
-            <Route path="horarios" element={<ComingSoon title="Horarios" phase="Fase 2" description="Turnos con bloques configurables, tolerancia y asignación por sede." />} />
-            <Route path="reportes" element={<ComingSoon title="Reportes" phase="Fase 4" description="Historial de asistencias con filtros por fecha, sede y usuario. Exportación a CSV lista para RRHH." />} />
+            <Route index element={<HomeRedirect />} />
+
+            {/* Admin */}
+            <Route path="usuarios" element={<ProtectedRoute roles={ADMIN}><UsersPage /></ProtectedRoute>} />
+            <Route path="sedes" element={<ProtectedRoute roles={ADMIN}><SedesPage /></ProtectedRoute>} />
+            <Route path="departamentos" element={<ProtectedRoute roles={ADMIN}><DepartmentsPage /></ProtectedRoute>} />
+            <Route path="horarios" element={<ProtectedRoute roles={ADMIN}><SchedulesPage /></ProtectedRoute>} />
+            <Route path="ajustes" element={<ProtectedRoute roles={ADMIN}><SettingsPage /></ProtectedRoute>} />
+
+            {/* Admin + Supervisor */}
+            <Route path="reportes" element={<ProtectedRoute roles={ADMIN_OR_SUP}><ComingSoon title="Reportes" phase="Fase 4" description="Historial global de asistencia con filtros por fecha, sede y usuario. Exportación a CSV lista para RRHH." /></ProtectedRoute>} />
+            <Route path="equipo" element={<ProtectedRoute roles={ADMIN_OR_SUP}><ComingSoon title="Mi equipo" phase="Fase 4" description="Vista de supervisor con asistencia del equipo asignado y aprobación de novedades." /></ProtectedRoute>} />
+
+            {/* Todos los roles */}
             <Route path="novedades" element={<ComingSoon title="Novedades" phase="Fase 4" description="Vacaciones, permisos y ausencias con flujo de aprobación bulk." />} />
-            <Route path="ajustes" element={<ComingSoon title="Ajustes de la empresa" phase="Fase 2" description="Método de identificación (rostro/PIN), habilitar kiosco, logo corporativo y zona horaria." />} />
-            <Route path="equipo" element={<ComingSoon title="Mi equipo" phase="Fase 4" description="Vista de supervisor con asistencia del equipo asignado." />} />
-            <Route path="carnet" element={<ComingSoon title="Mi carnet" phase="Fase 3" description="Tarjeta digital con tu foto, cargo y sede — lista para mostrar en el ingreso." />} />
-            <Route path="historial" element={<ComingSoon title="Mi historial" phase="Fase 4" description="Todas tus marcas de entrada/salida con justificaciones y estado de tolerancia." />} />
+            <Route path="carnet" element={<CarnetPage />} />
+            <Route path="historial" element={<HistorialPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

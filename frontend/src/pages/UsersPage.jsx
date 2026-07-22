@@ -26,7 +26,7 @@ import {
 import { toast } from "sonner";
 import {
   Search, Plus, MoreVertical, Pencil, Trash2, KeyRound, Upload,
-  Download, Users, ShieldCheck, BadgeCheck, CircleUserRound,
+  Download, ShieldCheck, BadgeCheck, CircleUserRound, Image as ImageIcon, UserCircle2,
 } from "lucide-react";
 
 const ROLE_LABEL = {
@@ -52,6 +52,7 @@ export default function UsersPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [photoTarget, setPhotoTarget] = useState(null); // {user_id, name, selfie_base64, loading}
   const fileRef = useRef(null);
 
   async function loadAll() {
@@ -163,6 +164,17 @@ export default function UsersPage() {
     } finally {
       setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function openPhoto(u) {
+    setPhotoTarget({ user_id: u.user_id, name: u.name, loading: true, selfie_base64: null });
+    try {
+      const { data } = await api.get(`/users/${u.user_id}/photo`);
+      setPhotoTarget({ ...data, loading: false });
+    } catch (e) {
+      setPhotoTarget({ user_id: u.user_id, name: u.name, loading: false, selfie_base64: null });
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
   }
 
@@ -287,9 +299,17 @@ export default function UsersPage() {
                   <TableRow key={u.user_id} data-testid={`user-row-${u.user_id}`}>
                     <TableCell>
                       <div className="flex items-center gap-3">
-                        <div className="h-9 w-9 rounded-full bg-primary/10 text-primary grid place-items-center text-xs font-semibold">
+                        <button
+                          onClick={() => openPhoto(u)}
+                          data-testid={`user-photo-${u.user_id}`}
+                          className="relative h-9 w-9 rounded-full bg-primary/10 text-primary grid place-items-center text-xs font-semibold overflow-hidden hover:ring-2 hover:ring-primary/40 transition"
+                          title={u.onboarded ? "Ver foto registrada" : "Sin foto — click para ver"}
+                        >
                           {(u.name || "?").split(" ").slice(0, 2).map((p) => p[0]).join("")}
-                        </div>
+                          {u.onboarded && (
+                            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-500 border-2 border-white" />
+                          )}
+                        </button>
                         <div>
                           <p className="text-sm font-medium text-primary leading-tight">{u.name}</p>
                           <p className="text-xs text-muted-foreground leading-tight">{u.email}</p>
@@ -325,6 +345,9 @@ export default function UsersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openPhoto(u)}>
+                            <ImageIcon className="h-4 w-4 mr-2" /> Ver foto
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setEditing({ mode: "edit", form: { ...EMPTY_USER, ...u } })}>
                             <Pencil className="h-4 w-4 mr-2" /> Editar
                           </DropdownMenuItem>
@@ -379,6 +402,28 @@ export default function UsersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!photoTarget} onOpenChange={(v) => !v && setPhotoTarget(null)}>
+        <DialogContent className="max-w-md" data-testid="user-photo-dialog">
+          <DialogHeader>
+            <DialogTitle>Foto registrada</DialogTitle>
+            <DialogDescription>{photoTarget?.name}</DialogDescription>
+          </DialogHeader>
+          <div className="aspect-square w-full rounded-2xl overflow-hidden bg-muted grid place-items-center">
+            {photoTarget?.loading ? (
+              <p className="text-sm text-muted-foreground">Cargando…</p>
+            ) : photoTarget?.selfie_base64 ? (
+              <img src={photoTarget.selfie_base64} alt={photoTarget.name}
+                   className="h-full w-full object-cover" data-testid="user-photo-img" />
+            ) : (
+              <div className="text-center">
+                <UserCircle2 className="h-16 w-16 text-muted-foreground/60 mx-auto" />
+                <p className="text-sm text-muted-foreground mt-2">Este empleado no tiene rostro registrado.</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

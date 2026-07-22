@@ -11,7 +11,18 @@ import time
 import pytest
 import requests
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://asistencia-web-1.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL",
+                          "https://asistencia-web-1.preview.emergentagent.com").rstrip("/")
+
+# Read frontend/.env if REACT_APP_BACKEND_URL missing in environment
+if "REACT_APP_BACKEND_URL" not in os.environ:
+    _envp = "/app/frontend/.env"
+    if os.path.exists(_envp):
+        with open(_envp) as _f:
+            for _line in _f:
+                if _line.startswith("REACT_APP_BACKEND_URL="):
+                    BASE_URL = _line.split("=", 1)[1].strip().rstrip("/")
+                    break
 ADMIN_EMAIL = "rgonzalez@megasoft.com.ve"
 ADMIN_PASSWORD = "admin123"
 
@@ -526,3 +537,171 @@ class TestOnboarding:
         assert rg.json().get("onboarded") is True
 
         api.delete(f"{BASE_URL}/api/users/{uid}", headers=auth_headers)
+
+
+# ---------------------------------------------------------------------------
+# Iteration 2 — Geofence removed, Sites optional lat/lng, Users photo endpoint
+# ---------------------------------------------------------------------------
+class TestGeofenceRemoved:
+    """POST /api/attendance/check must not compute within_geofence (should be None)."""
+
+    def test_attendance_check_within_geofence_is_none(self, api, auth_headers):
+        r = api.post(f"{BASE_URL}/api/attendance/check", headers=auth_headers,
+                     json={"type": "in", "latitude": 10, "longitude": -66})
+        assert r.status_code == 200
+        d = r.json()
+        # Field may be null or absent — both are acceptable per spec.
+        assert d.get("within_geofence") is None, \
+            f"Expected within_geofence=None (geofence removed) but got {d.get('within_geofence')}"
+        # Coords should still be persisted for audit
+        assert d.get("latitude") == 10
+        assert d.get("longitude") == -66
+
+    def test_attendance_check_without_coords(self, api, auth_headers):
+        """type-only attendance should also work (geocerca removida)."""
+        r = api.post(f"{BASE_URL}/api/attendance/check", headers=auth_headers,
+                     json={"type": "out"})
+        assert r.status_code == 200
+        d = r.json()
+        assert d["type"] == "out"
+        assert d.get("within_geofence") is None
+
+
+class TestSitesOptionalLatLng:
+    """SiteIn now has optional latitude/longitude/radius_meters."""
+
+    def test_create_site_without_lat_lng(self, api, auth_headers):
+        rc = api.post(f"{BASE_URL}/api/sites", headers=auth_headers, json={
+            "name": "TEST Sede NoGeo", "address": "Prueba sin coords"
+        })
+        assert rc.status_code == 200, f"Body: {rc.text}"
+        d = rc.json()
+        sid = d["site_id"]
+        assert d["name"] == "TEST Sede NoGeo"
+        assert d.get("latitude") is None
+        assert d.get("longitude") is None
+        assert d.get("radius_meters") is None
+
+        # Verify it's persisted
+        rl = api.get(f"{BASE_URL}/api/sites", headers=auth_headers)
+        found = [s for s in rl.json() if s["site_id"] == sid]
+        assert len(found) == 1
+        assert found[0]["name"] == "TEST Sede NoGeo"
+
+        # Update with only name/address
+        ru = api.put(f"{BASE_URL}/api/sites/{sid}", headers=auth_headers, json={
+            "name": "TEST Sede NoGeo 2", "address": "Nueva dir"
+        })
+        assert ru.status_code == 200
+        assert ru.json()["name"] == "TEST Sede NoGeo 2"
+        assert ru.json().get("address") == "Nueva dir"
+
+        # Cleanup
+        rd = api.delete(f"{BASE_URL}/api/sites/{sid}", headers=auth_headers)
+        assert rd.status_code == 200
+
+    def test_update_site_only_name(self, api, auth_headers):
+        # Create then update with just name
+        rc = api.post(f"{BASE_URL}/api/sites", headers=auth_headers, json={
+            "name": "TEST Sede X"
+        })
+        assert rc.status_code == 200
+        sid = rc.json()["site_id"]
+        try:
+            ru = api.put(f"{BASE_URL}/api/sites/{sid}", headers=auth_headers, json={
+                "name": "TEST Sede X updated"
+            })
+            assert ru.status_code == 200
+            assert ru.json()["name"] == "TEST Sede X updated"
+        finally:
+            api.delete(f"{BASE_URL}/api/sites/{sid}", headers=auth_headers)
+
+
+class TestUsersPhotoEndpoint:
+    """GET /api/users/{user_id}/photo returns selfie meta."""
+
+    def test_photo_admin_self_not_onboarded(self, api, auth_headers):
+        # Fetch admin's user_id via /auth/me
+        me = api.get(f"{BASE_URL}/api/auth/me", headers=auth_headers).json()
+        uid = me["user_id"]
+        r = api.get(f"{BASE_URL}/api/users/{uid}/photo", headers=auth_headers)
+        assert r.status_code == 200
+        d = r.json()
+        assert d["user_id"] == uid
+        assert "name" in d
+        assert "onboarded" in d
+        assert "selfie_base64" in d  # can be None if admin has no selfie
+
+    def test_photo_onboarded_user(self, api, auth_headers):
+        """Create a user, upload a selfie, then fetch photo."""
+        email = f"TEST_photo_{int(time.time())}@example.com"
+        rc = api.post(f"{BASE_URL}/api/users", headers=auth_headers, json={
+            "email": email, "name": "TEST Photo", "role": "employee", "password": "pw12345"
+        })
+        assert rc.status_code == 200
+        uid = rc.json()["user_id"]
+
+        try:
+            # Login as the new user and upload selfie
+            rl = api.post(f"{BASE_URL}/api/auth/login",
+                          json={"email": email, "password": "pw12345"})
+            assert rl.status_code == 200
+            emp_h = {"Authorization": f"Bearer {rl.json()['token']}",
+                     "Content-Type": "application/json"}
+            up = api.post(f"{BASE_URL}/api/onboarding/selfie", headers=emp_h,
+                          json={"selfie_base64": "data:image/jpeg;base64,ZZZZ",
+                                "face_descriptor": [0.1, 0.2, 0.3]})
+            assert up.status_code == 200
+
+            # Now fetch photo (admin)
+            rp = api.get(f"{BASE_URL}/api/users/{uid}/photo", headers=auth_headers)
+            assert rp.status_code == 200
+            d = rp.json()
+            assert d["user_id"] == uid
+            assert d["name"] == "TEST Photo"
+            assert d["onboarded"] is True
+            assert d["selfie_base64"] == "data:image/jpeg;base64,ZZZZ"
+        finally:
+            api.delete(f"{BASE_URL}/api/users/{uid}", headers=auth_headers)
+
+    def test_photo_nonexistent_user_404(self, api, auth_headers):
+        r = api.get(f"{BASE_URL}/api/users/nonexistent_zzz_abc/photo", headers=auth_headers)
+        assert r.status_code == 404
+
+    def test_photo_requires_auth(self, api):
+        r = requests.get(f"{BASE_URL}/api/users/whatever/photo")
+        assert r.status_code == 401
+
+
+class TestKioskRosterOnboarded:
+    """Roster must include face_descriptor and selfie for onboarded users."""
+
+    def test_kiosk_roster_shape(self, api, auth_headers):
+        # Ensure at least one onboarded user exists
+        email = f"TEST_roster_{int(time.time())}@example.com"
+        rc = api.post(f"{BASE_URL}/api/users", headers=auth_headers, json={
+            "email": email, "name": "TEST Roster", "role": "employee", "password": "pw12345"
+        })
+        uid = rc.json()["user_id"]
+        try:
+            rl = api.post(f"{BASE_URL}/api/auth/login",
+                          json={"email": email, "password": "pw12345"})
+            emp_h = {"Authorization": f"Bearer {rl.json()['token']}",
+                     "Content-Type": "application/json"}
+            api.post(f"{BASE_URL}/api/onboarding/selfie", headers=emp_h,
+                     json={"selfie_base64": "data:image/jpeg;base64,QQQQ",
+                           "face_descriptor": [0.5] * 128})
+
+            r = api.get(f"{BASE_URL}/api/kiosk/roster")
+            assert r.status_code == 200
+            roster = r.json()
+            assert isinstance(roster, list)
+            found = [u for u in roster if u.get("user_id") == uid]
+            assert len(found) == 1, "Onboarded user must appear in kiosk roster"
+            u = found[0]
+            # Required roster fields
+            assert u.get("selfie_base64") == "data:image/jpeg;base64,QQQQ"
+            assert u.get("face_descriptor") == [0.5] * 128
+            assert u.get("name") == "TEST Roster"
+        finally:
+            api.delete(f"{BASE_URL}/api/users/{uid}", headers=auth_headers)
