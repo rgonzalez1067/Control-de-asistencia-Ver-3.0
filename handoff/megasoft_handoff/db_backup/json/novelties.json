@@ -1,0 +1,149 @@
+[{
+	"_id": {
+		"$oid": "6a07abbf980c4bb8cc6af977"
+	},
+	"novelty_id": "nv_58eb1b589cfb",
+	"user_id": "user_f4b193092a8f",
+	"type": "vacation",
+	"start_date": "2026-02-01",
+	"end_date": "2026-02-03",
+	"reason": "test",
+	"status": "approved",
+	"created_by": "user_f4b193092a8f",
+	"created_at": {
+		"$date": "2026-05-15T23:26:55.081Z"
+	},
+	"decided_at": {
+		"$date": "2026-05-16T01:04:02.478Z"
+	},
+	"decided_by": "user_641b181ceb84",
+	"decision_comment": null
+},
+{
+	"_id": {
+		"$oid": "6a07abbf980c4bb8cc6af978"
+	},
+	"novelty_id": "nv_feaef468326b",
+	"user_id": "user_f4b193092a8f",
+	"type": "medical",
+	"start_date": "2026-03-01",
+	"end_date": "2026-03-02",
+	"reason": null,
+	"status": "approved",
+	"created_by": "user_f4b193092a8f",
+	"created_at": {
+		"$date": "2026-05-15T23:26:55.304Z"
+	},
+	"decided_at": {
+		"$date": "2026-05-15T23:26:55.411Z"
+	},
+	"decided_by": "user_753856f5f280",
+	"decision_comment": "ok"
+},
+{
+	"_id": {
+		"$oid": "6a07abf6e076674562a36825"
+	},
+	"novelty_id": "nv_94da44af998a",
+	"user_id": "user_72a6d61e0dd3",
+	"type": "vacation",
+	"start_date": "2026-02-01",
+	"end_date": "2026-02-03",
+	"reason": "test",
+	"status": "approved",
+	"created_by": "user_72a6d61e0dd3",
+	"created_at": {
+		"$date": "2026-05-15T23:27:50.798Z"
+	},
+	"decided_at": {
+		"$date": "2026-05-16T01:04:05.331Z"
+	},
+	"decided_by": "user_641b181ceb84",
+	"decision_comment": null
+},
+{
+	"_id": {
+		"$oid": "6a07abf7e076674562a36826"
+	},
+	"novelty_id": "nv_de5fb323c133",
+	"user_id": "user_72a6d61e0dd3",
+	"type": "medical",
+	"start_date": "2026-03-01",
+	"end_date": "2026-03-02",
+	"reason": null,
+	"status": "approved",
+	"created_by": "user_72a6d61e0dd3",
+	"created_at": {
+		"$date": "2026-05-15T23:27:51.011Z"
+	},
+	"decided_at": {
+		"$date": "2026-05-15T23:27:51.115Z"
+	},
+	"decided_by": "user_fb40161bb90f",
+	"decision_comment": "ok"
+},
+{
+	"_id": {
+		"$oid": "6a5adf3d88d16b660d8fd784"
+	},
+	"novelty_id": "nv_a870d2de221d",
+	"user_id": "0",
+	"type": "vacation",
+	"start_date": "2026-01-15",
+	"end_date": "2026-01-20",
+	"reason": "Vacaciones familiares",
+	"status": "approved",
+	"created_by": "user_641b181ceb84",
+	"created_at": {
+		"$date": "2026-07-18T02:04:45.032Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a5ae0216614a2c629f04ce1"
+	},
+	"novelty_id": "nv_test_6fa345ec",
+	"user_id": "user_6b75df143e69",
+	"type": "vacation",
+	"start_date": "2026-08-01",
+	"end_date": "2026-08-05",
+	"reason": "Vacaciones familiares",
+	"status": "pending",
+	"created_by": "user_6b75df143e69",
+	"created_at": {
+		"$date": "2026-07-18T02:08:33.301Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a5ae0216614a2c629f04ce2"
+	},
+	"novelty_id": "nv_test_981ffe8b",
+	"user_id": "user_6b75df143e69",
+	"type": "sick",
+	"start_date": "2026-07-25",
+	"end_date": "2026-07-25",
+	"reason": "Reposo por gripe",
+	"status": "pending",
+	"created_by": "user_6b75df143e69",
+	"created_at": {
+		"$date": "2026-07-18T02:08:33.302Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a5ae0216614a2c629f04ce3"
+	},
+	"novelty_id": "nv_test_6d7eb66f",
+	"user_id": "user_6b75df143e69",
+	"type": "tardiness",
+	"start_date": "2026-07-15",
+	"end_date": null,
+	"reason": "Trafico intenso en la manana",
+	"status": "pending",
+	"created_by": "user_6b75df143e69",
+	"created_at": {
+		"$date": "2026-07-18T02:08:33.302Z"
+	}
+}]
+

@@ -1,0 +1,1079 @@
+"""
+MegaSoft Asistencia — FastAPI Backend
+Fase 0: Puerto de la lógica del proyecto Mobile/Expo al stack Web/PWA.
+
+Basado en el MIGRATION_BLUEPRINT.md (47 endpoints agrupados por dominio):
+  Auth (7) · Users (8) · Settings (2) · Sites (5) · Departments (3)
+  Schedules (3) · Kiosk (5) · Attendance (5) · Novelties (4)
+  Reports/Stats (3) · Onboarding (1) · Root (1)
+"""
+
+from dotenv import load_dotenv
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
+
+import os
+import io
+import csv
+import uuid
+import math
+import jwt
+import bcrypt
+import logging
+import secrets
+from datetime import datetime, timezone, timedelta, date
+from typing import List, Optional, Any, Dict, Literal
+from zoneinfo import ZoneInfo
+
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form, Query
+from fastapi.responses import StreamingResponse, JSONResponse
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
+
+
+# ------------------------------------------------------------------
+# App / DB setup
+# ------------------------------------------------------------------
+MONGO_URL = os.environ["MONGO_URL"]
+DB_NAME = os.environ["DB_NAME"]
+JWT_SECRET = os.environ["JWT_SECRET"]
+JWT_ALGORITHM = "HS256"
+JWT_ACCESS_MINUTES = int(os.environ.get("JWT_ACCESS_MINUTES", "720"))
+APP_TZ = ZoneInfo(os.environ.get("APP_TIMEZONE", "America/Caracas"))
+
+client = AsyncIOMotorClient(MONGO_URL, tz_aware=True)
+db = client[DB_NAME]
+
+app = FastAPI(title="MegaSoft Asistencia API", version="0.1.0")
+api = APIRouter(prefix="/api")
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("megasoft.api")
+
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def new_id(prefix: str, size: int = 12) -> str:
+    return f"{prefix}_{uuid.uuid4().hex[:size]}"
+
+
+def hash_password(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+
+
+def verify_password(pw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(pw.encode("utf-8"), hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def create_access_token(user_id: str, role: str) -> str:
+    payload = {
+        "sub": user_id,
+        "role": role,
+        "type": "access",
+        "iat": int(now_utc().timestamp()),
+        "exp": now_utc() + timedelta(minutes=JWT_ACCESS_MINUTES),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+def sanitize_user(u: Dict[str, Any]) -> Dict[str, Any]:
+    if not u:
+        return u
+    out = {k: v for k, v in u.items() if k not in {"_id", "password_hash", "pin_code_hash"}}
+    return out
+
+
+def strip_mongo_id(doc: Dict[str, Any]) -> Dict[str, Any]:
+    if not doc:
+        return doc
+    doc.pop("_id", None)
+    return doc
+
+
+def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371000.0
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+# ------------------------------------------------------------------
+# Auth dependency
+# ------------------------------------------------------------------
+async def get_current_user(request: Request) -> Dict[str, Any]:
+    token = None
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = auth.split(" ", 1)[1].strip()
+    if not token:
+        token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="No autenticado")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expirado")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+    user = await db.users.find_one({"user_id": payload["sub"]})
+    if not user:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+    return user
+
+
+def require_roles(*roles: str):
+    async def _dep(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+        if user.get("role") not in roles:
+            raise HTTPException(status_code=403, detail="No autorizado")
+        return user
+    return _dep
+
+
+# ------------------------------------------------------------------
+# Pydantic models (request payloads)
+# ------------------------------------------------------------------
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class RegisterIn(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    cedula: Optional[str] = None
+    role: str = "employee"
+
+
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
+class ResetPasswordIn(BaseModel):
+    user_id: str
+    new_password: str
+
+
+class UserIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    email: EmailStr
+    name: str
+    role: str = "employee"
+    cedula: Optional[str] = None
+    position: Optional[str] = None
+    department_id: Optional[str] = None
+    site_id: Optional[str] = None
+    supervisor_id: Optional[str] = None
+    schedule_id: Optional[str] = None
+    picture: Optional[str] = None
+    password: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: Optional[str] = None
+    role: Optional[str] = None
+    cedula: Optional[str] = None
+    position: Optional[str] = None
+    department_id: Optional[str] = None
+    site_id: Optional[str] = None
+    supervisor_id: Optional[str] = None
+    schedule_id: Optional[str] = None
+    picture: Optional[str] = None
+    onboarded: Optional[bool] = None
+
+
+class SelfieIn(BaseModel):
+    selfie_base64: str
+    face_descriptor: Optional[List[float]] = None
+
+
+class PinIn(BaseModel):
+    pin: str
+
+
+class DepartmentIn(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class SiteIn(BaseModel):
+    name: str
+    address: Optional[str] = None
+    latitude: float
+    longitude: float
+    radius_meters: int = 100
+
+
+class SiteResolveIn(BaseModel):
+    link: str
+
+
+class ScheduleBlock(BaseModel):
+    start: str  # HH:MM
+    end: str
+
+
+class ScheduleIn(BaseModel):
+    name: str
+    blocks: List[ScheduleBlock]
+    tolerance_minutes: int = 10
+    site_id: Optional[str] = None
+
+
+class SettingsIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    name: Optional[str] = None
+    identification_method: Optional[Literal["face", "pin", "both"]] = None
+    kiosk_enabled: Optional[bool] = None
+    logo_base64: Optional[str] = None
+    timezone: Optional[str] = None
+
+
+class KioskUnlockIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class KioskPinIn(BaseModel):
+    user_id: str
+    pin: str
+
+
+class KioskAttendanceIn(BaseModel):
+    user_id: str
+    type: Literal["in", "out"]
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    site_id: Optional[str] = None
+    selfie_base64: Optional[str] = None
+    method: Optional[str] = "kiosk"
+
+
+class AttendanceCheckIn(BaseModel):
+    type: Literal["in", "out"]
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    site_id: Optional[str] = None
+    selfie_base64: Optional[str] = None
+
+
+class JustifyIn(BaseModel):
+    record_id: str
+    justification: str
+
+
+class NoveltyIn(BaseModel):
+    type: Literal["vacation", "leave", "medical", "permission", "other"]
+    start_date: str
+    end_date: str
+    reason: Optional[str] = None
+    user_id: Optional[str] = None  # admin/supervisor can create for others
+
+
+class NoveltyDecideIn(BaseModel):
+    novelty_ids: List[str]
+    decision: Literal["approved", "rejected"]
+    comment: Optional[str] = None
+
+
+# ------------------------------------------------------------------
+# Startup: indexes + admin seed
+# ------------------------------------------------------------------
+@app.on_event("startup")
+async def on_startup() -> None:
+    await db.users.create_index("email", unique=True)
+    await db.users.create_index("user_id", unique=True)
+    await db.attendance.create_index([("user_id", 1), ("timestamp", -1)])
+    await db.novelties.create_index([("user_id", 1), ("start_date", 1)])
+    await db.user_sessions.create_index("session_token", unique=True)
+    await db.user_sessions.create_index("user_id")
+    await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
+
+    # Admin bootstrap (idempotent) — no toca hash existente si ya valida
+    admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
+    admin_password = os.environ.get("ADMIN_PASSWORD", "")
+    if admin_email and admin_password:
+        existing = await db.users.find_one({"email": admin_email})
+        if existing is None:
+            await db.users.insert_one({
+                "user_id": new_id("user"),
+                "email": admin_email,
+                "name": "Administrator",
+                "role": "admin",
+                "password_hash": hash_password(admin_password),
+                "onboarded": False,
+                "created_at": now_utc(),
+            })
+            logger.info("Seed: admin '%s' creado.", admin_email)
+        else:
+            # Solo actualiza si la contraseña actual NO valida
+            if not verify_password(admin_password, existing.get("password_hash", "")):
+                await db.users.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"password_hash": hash_password(admin_password)}},
+                )
+                logger.info("Seed: contraseña admin refrescada.")
+    logger.info("Startup completo.")
+
+
+@app.on_event("shutdown")
+async def on_shutdown() -> None:
+    client.close()
+
+
+# ==================================================================
+# ROOT / HEALTH
+# ==================================================================
+@api.get("/")
+async def root() -> Dict[str, Any]:
+    return {"service": "megasoft-asistencia", "status": "ok", "time": now_utc().isoformat()}
+
+
+# ==================================================================
+# AUTH (7 endpoints)
+# ==================================================================
+@api.get("/auth/needs-bootstrap")
+async def auth_needs_bootstrap() -> Dict[str, bool]:
+    """True si no existe ningún usuario admin (para primer setup)."""
+    admin = await db.users.find_one({"role": "admin"})
+    return {"needs_bootstrap": admin is None}
+
+
+@api.post("/auth/register")
+async def auth_register(payload: RegisterIn, response: Response) -> Dict[str, Any]:
+    admin_exists = await db.users.find_one({"role": "admin"})
+    # Sólo permitir registro público si aún no hay admin (bootstrap del primer admin)
+    if admin_exists is not None:
+        raise HTTPException(status_code=403, detail="Registro público deshabilitado")
+    email = payload.email.lower().strip()
+    exists = await db.users.find_one({"email": email})
+    if exists:
+        raise HTTPException(status_code=409, detail="Email ya registrado")
+    user = {
+        "user_id": new_id("user"),
+        "email": email,
+        "name": payload.name,
+        "role": "admin",  # el primero es admin
+        "cedula": payload.cedula,
+        "password_hash": hash_password(payload.password),
+        "onboarded": False,
+        "created_at": now_utc(),
+    }
+    await db.users.insert_one(user)
+    token = create_access_token(user["user_id"], user["role"])
+    response.set_cookie("access_token", token, httponly=True, samesite="lax",
+                        max_age=JWT_ACCESS_MINUTES * 60, path="/")
+    return {"token": token, "user": sanitize_user(user)}
+
+
+@api.post("/auth/login")
+async def auth_login(payload: LoginIn, response: Response) -> Dict[str, Any]:
+    email = payload.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    if not user or not verify_password(payload.password, user.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
+    token = create_access_token(user["user_id"], user["role"])
+    response.set_cookie("access_token", token, httponly=True, samesite="lax",
+                        max_age=JWT_ACCESS_MINUTES * 60, path="/")
+    return {"token": token, "user": sanitize_user(user)}
+
+
+@api.get("/auth/me")
+async def auth_me(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    return sanitize_user(user)
+
+
+@api.post("/auth/logout")
+async def auth_logout(response: Response) -> Dict[str, bool]:
+    response.delete_cookie("access_token", path="/")
+    return {"ok": True}
+
+
+@api.post("/auth/change-password")
+async def auth_change_password(payload: ChangePasswordIn,
+                               user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
+    if not verify_password(payload.old_password, user.get("password_hash", "")):
+        raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
+    await db.users.update_one({"_id": user["_id"]},
+                              {"$set": {"password_hash": hash_password(payload.new_password)}})
+    return {"ok": True}
+
+
+@api.post("/auth/reset-password")
+async def auth_reset_password(payload: ResetPasswordIn,
+                              _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+    res = await db.users.update_one(
+        {"user_id": payload.user_id},
+        {"$set": {"password_hash": hash_password(payload.new_password)}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"ok": True}
+
+
+# ==================================================================
+# USERS (8 endpoints)
+# ==================================================================
+@api.get("/users")
+async def users_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    docs = await db.users.find({}, {"password_hash": 0, "pin_code_hash": 0,
+                                    "selfie_base64": 0, "face_descriptor": 0}).to_list(1000)
+    for d in docs:
+        strip_mongo_id(d)
+    return docs
+
+
+@api.post("/users")
+async def users_create(payload: UserIn,
+                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    email = payload.email.lower().strip()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="Email ya registrado")
+    doc = payload.model_dump(exclude_none=True)
+    doc["email"] = email
+    doc["user_id"] = new_id("user")
+    doc["onboarded"] = False
+    doc["created_at"] = now_utc()
+    if payload.password:
+        doc["password_hash"] = hash_password(payload.password)
+        doc.pop("password", None)
+    await db.users.insert_one(doc)
+    return sanitize_user(doc)
+
+
+@api.get("/users/{user_id}")
+async def users_get(user_id: str,
+                    _: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    u = await db.users.find_one({"user_id": user_id},
+                                {"password_hash": 0, "pin_code_hash": 0})
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    strip_mongo_id(u)
+    return u
+
+
+@api.put("/users/{user_id}")
+async def users_update(user_id: str, payload: UserUpdate,
+                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Sin cambios")
+    res = await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    u = await db.users.find_one({"user_id": user_id},
+                                {"password_hash": 0, "pin_code_hash": 0})
+    return strip_mongo_id(u)
+
+
+@api.delete("/users/{user_id}")
+async def users_delete(user_id: str,
+                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+    res = await db.users.delete_one({"user_id": user_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"ok": True}
+
+
+@api.post("/users/{user_id}/selfie")
+async def users_selfie(user_id: str, payload: SelfieIn,
+                       user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
+    if user["user_id"] != user_id and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="No autorizado")
+    updates = {"selfie_base64": payload.selfie_base64, "onboarded": True}
+    if payload.face_descriptor is not None:
+        updates["face_descriptor"] = payload.face_descriptor
+    res = await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"ok": True}
+
+
+@api.post("/users/{user_id}/pin")
+async def users_set_pin(user_id: str, payload: PinIn,
+                        user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
+    if user["user_id"] != user_id and user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if not payload.pin.isdigit() or not (4 <= len(payload.pin) <= 8):
+        raise HTTPException(status_code=400, detail="PIN debe ser 4-8 dígitos")
+    await db.users.update_one({"user_id": user_id},
+                              {"$set": {"pin_code_hash": hash_password(payload.pin)}})
+    return {"ok": True}
+
+
+@api.get("/users/import/template")
+async def users_import_template(_: Dict[str, Any] = Depends(require_roles("admin"))) -> StreamingResponse:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["email", "name", "cedula", "role", "position",
+                     "department_id", "site_id", "supervisor_id", "schedule_id", "password"])
+    writer.writerow(["jperez@empresa.com", "Juan Perez", "12345678", "employee",
+                     "Analista", "", "", "", "", "temporal123"])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]),
+                             media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=users_template.csv"})
+
+
+@api.post("/users/import")
+async def users_import(file: UploadFile = File(...),
+                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    content = (await file.read()).decode("utf-8", errors="ignore")
+    reader = csv.DictReader(io.StringIO(content))
+    created, skipped, errors = 0, 0, []
+    for i, row in enumerate(reader, start=2):
+        try:
+            email = (row.get("email") or "").lower().strip()
+            if not email or not row.get("name"):
+                errors.append(f"Fila {i}: email/name requerido")
+                continue
+            if await db.users.find_one({"email": email}):
+                skipped += 1
+                continue
+            pw = row.get("password") or secrets.token_urlsafe(8)
+            doc = {
+                "user_id": new_id("user"),
+                "email": email,
+                "name": row["name"],
+                "cedula": row.get("cedula") or None,
+                "role": row.get("role") or "employee",
+                "position": row.get("position") or None,
+                "department_id": row.get("department_id") or None,
+                "site_id": row.get("site_id") or None,
+                "supervisor_id": row.get("supervisor_id") or None,
+                "schedule_id": row.get("schedule_id") or None,
+                "onboarded": False,
+                "created_at": now_utc(),
+                "password_hash": hash_password(pw),
+            }
+            await db.users.insert_one(doc)
+            created += 1
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"Fila {i}: {e}")
+    return {"created": created, "skipped": skipped, "errors": errors}
+
+
+# ==================================================================
+# SETTINGS (2 endpoints)
+# ==================================================================
+@api.get("/settings")
+async def settings_get() -> Dict[str, Any]:
+    doc = await db.settings.find_one({"_id": "company"}) or {"_id": "company"}
+    # normaliza: reemplaza _id por id string en respuesta
+    doc["id"] = str(doc.pop("_id"))
+    return doc
+
+
+@api.put("/settings")
+async def settings_put(payload: SettingsIn,
+                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    updates["updated_at"] = now_utc()
+    await db.settings.update_one({"_id": "company"}, {"$set": updates}, upsert=True)
+    doc = await db.settings.find_one({"_id": "company"})
+    doc["id"] = str(doc.pop("_id"))
+    return doc
+
+
+# ==================================================================
+# SITES (5 endpoints)
+# ==================================================================
+@api.get("/sites")
+async def sites_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    docs = await db.sites.find({}).to_list(500)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.post("/sites")
+async def sites_create(payload: SiteIn,
+                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    doc = payload.model_dump()
+    doc["site_id"] = new_id("site")
+    doc["created_at"] = now_utc()
+    await db.sites.insert_one(doc)
+    return strip_mongo_id(doc)
+
+
+@api.put("/sites/{site_id}")
+async def sites_update(site_id: str, payload: SiteIn,
+                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    res = await db.sites.update_one({"site_id": site_id}, {"$set": payload.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Sede no encontrada")
+    doc = await db.sites.find_one({"site_id": site_id})
+    return strip_mongo_id(doc)
+
+
+@api.delete("/sites/{site_id}")
+async def sites_delete(site_id: str,
+                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+    res = await db.sites.delete_one({"site_id": site_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Sede no encontrada")
+    return {"ok": True}
+
+
+@api.post("/sites/resolve-link")
+async def sites_resolve_link(payload: SiteResolveIn,
+                             _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    """Intenta extraer lat/lng de un link de Google Maps."""
+    import re
+    link = payload.link
+    # patrones tipo @lat,lng o !3dlat!4dlng o q=lat,lng
+    m = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+)", link)
+    if not m:
+        m = re.search(r"!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)", link)
+    if not m:
+        m = re.search(r"[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)", link)
+    if not m:
+        m = re.search(r"(-?\d+\.\d+),\s*(-?\d+\.\d+)", link)
+    if not m:
+        raise HTTPException(status_code=400, detail="No se pudo extraer lat/lng del link")
+    return {"latitude": float(m.group(1)), "longitude": float(m.group(2))}
+
+
+# ==================================================================
+# DEPARTMENTS (3 endpoints)
+# ==================================================================
+@api.get("/departments")
+async def departments_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    docs = await db.departments.find({}).sort("name", 1).to_list(500)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.post("/departments")
+async def departments_create(payload: DepartmentIn,
+                             _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    doc = payload.model_dump()
+    doc["department_id"] = new_id("dept", 10)
+    doc["created_at"] = now_utc()
+    await db.departments.insert_one(doc)
+    return strip_mongo_id(doc)
+
+
+@api.put("/departments/{department_id}")
+async def departments_update(department_id: str, payload: DepartmentIn,
+                             _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    res = await db.departments.update_one({"department_id": department_id},
+                                          {"$set": payload.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Departamento no encontrado")
+    doc = await db.departments.find_one({"department_id": department_id})
+    return strip_mongo_id(doc)
+
+
+@api.delete("/departments/{department_id}")
+async def departments_delete(department_id: str,
+                             _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+    res = await db.departments.delete_one({"department_id": department_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Departamento no encontrado")
+    return {"ok": True}
+
+
+# ==================================================================
+# SCHEDULES (3 endpoints)
+# ==================================================================
+@api.get("/schedules")
+async def schedules_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    docs = await db.schedules.find({}).to_list(500)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.post("/schedules")
+async def schedules_create(payload: ScheduleIn,
+                           _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    doc = payload.model_dump()
+    doc["schedule_id"] = new_id("sch", 10)
+    doc["created_at"] = now_utc()
+    await db.schedules.insert_one(doc)
+    return strip_mongo_id(doc)
+
+
+@api.put("/schedules/{schedule_id}")
+async def schedules_update(schedule_id: str, payload: ScheduleIn,
+                           _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    res = await db.schedules.update_one({"schedule_id": schedule_id},
+                                        {"$set": payload.model_dump()})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Horario no encontrado")
+    doc = await db.schedules.find_one({"schedule_id": schedule_id})
+    return strip_mongo_id(doc)
+
+
+@api.delete("/schedules/{schedule_id}")
+async def schedules_delete(schedule_id: str,
+                           _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+    res = await db.schedules.delete_one({"schedule_id": schedule_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Horario no encontrado")
+    return {"ok": True}
+
+
+# ==================================================================
+# KIOSK (5 endpoints)
+# ==================================================================
+@api.post("/kiosk/unlock")
+async def kiosk_unlock(payload: KioskUnlockIn) -> Dict[str, Any]:
+    """Admin desbloquea el modo kiosco con sus credenciales."""
+    email = payload.email.lower().strip()
+    user = await db.users.find_one({"email": email})
+    if (not user or user.get("role") != "admin"
+            or not verify_password(payload.password, user.get("password_hash", ""))):
+        raise HTTPException(status_code=401, detail="Credenciales de administrador inválidas")
+    settings = await db.settings.find_one({"_id": "company"}) or {}
+    if not settings.get("kiosk_enabled", True):
+        raise HTTPException(status_code=403, detail="Modo kiosco deshabilitado")
+    return {"ok": True, "unlocked_by": user["user_id"], "unlocked_at": now_utc().isoformat()}
+
+
+@api.get("/kiosk/roster")
+async def kiosk_roster() -> List[Dict[str, Any]]:
+    """Lista de usuarios con datos mínimos para reconocimiento en el kiosco."""
+    docs = await db.users.find(
+        {"onboarded": True},
+        {"user_id": 1, "name": 1, "cedula": 1, "role": 1, "picture": 1, "site_id": 1,
+         "department_id": 1, "schedule_id": 1, "position": 1,
+         "selfie_base64": 1, "face_descriptor": 1, "_id": 0},
+    ).to_list(2000)
+    return docs
+
+
+@api.post("/kiosk/verify-pin")
+async def kiosk_verify_pin(payload: KioskPinIn) -> Dict[str, bool]:
+    user = await db.users.find_one({"user_id": payload.user_id})
+    if not user or not user.get("pin_code_hash"):
+        raise HTTPException(status_code=404, detail="Usuario o PIN no configurado")
+    if not verify_password(payload.pin, user["pin_code_hash"]):
+        raise HTTPException(status_code=401, detail="PIN incorrecto")
+    return {"ok": True}
+
+
+@api.post("/kiosk/attendance/check")
+async def kiosk_attendance_check(payload: KioskAttendanceIn) -> Dict[str, Any]:
+    user = await db.users.find_one({"user_id": payload.user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return await _register_attendance(user, payload.type, payload.latitude, payload.longitude,
+                                      payload.site_id, payload.selfie_base64, method="kiosk")
+
+
+@api.post("/kiosk/reenroll-face")
+async def kiosk_reenroll_face(user_id: str = Form(...), pin: str = Form(...),
+                              selfie_base64: str = Form(...),
+                              face_descriptor: Optional[str] = Form(None)) -> Dict[str, bool]:
+    user = await db.users.find_one({"user_id": user_id})
+    if not user or not user.get("pin_code_hash") or not verify_password(pin, user["pin_code_hash"]):
+        raise HTTPException(status_code=401, detail="PIN incorrecto")
+    updates: Dict[str, Any] = {"selfie_base64": selfie_base64, "onboarded": True}
+    if face_descriptor:
+        import json as _json
+        try:
+            updates["face_descriptor"] = _json.loads(face_descriptor)
+        except Exception:
+            pass
+    await db.users.update_one({"_id": user["_id"]}, {"$set": updates})
+    return {"ok": True}
+
+
+# ==================================================================
+# ATTENDANCE (5 endpoints)
+# ==================================================================
+async def _register_attendance(user: Dict[str, Any], type_: str,
+                               latitude: Optional[float], longitude: Optional[float],
+                               site_id: Optional[str], selfie_base64: Optional[str],
+                               method: str = "web") -> Dict[str, Any]:
+    site = None
+    if site_id:
+        site = await db.sites.find_one({"site_id": site_id})
+    elif user.get("site_id"):
+        site = await db.sites.find_one({"site_id": user["site_id"]})
+
+    within = False
+    if site and latitude is not None and longitude is not None:
+        dist = haversine_m(latitude, longitude, site["latitude"], site["longitude"])
+        within = dist <= site.get("radius_meters", 100)
+
+    # Cálculo de tardanza (solo para "in")
+    is_late, late_min = False, 0
+    if type_ == "in" and user.get("schedule_id"):
+        sched = await db.schedules.find_one({"schedule_id": user["schedule_id"]})
+        if sched and sched.get("blocks"):
+            local_now = now_utc().astimezone(APP_TZ)
+            first_block = sched["blocks"][0]
+            hh, mm = map(int, first_block["start"].split(":"))
+            expected = local_now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            tolerance = int(sched.get("tolerance_minutes", 10))
+            delta = int((local_now - expected).total_seconds() // 60)
+            if delta > tolerance:
+                is_late = True
+                late_min = delta
+
+    doc = {
+        "record_id": new_id("att", 12),
+        "user_id": user["user_id"],
+        "type": type_,
+        "timestamp": now_utc(),
+        "latitude": latitude,
+        "longitude": longitude,
+        "site_id": site["site_id"] if site else site_id,
+        "within_geofence": within,
+        "is_late": is_late,
+        "late_minutes": late_min,
+        "justification": None,
+        "method": method,
+    }
+    if selfie_base64:
+        doc["selfie_base64"] = selfie_base64
+    await db.attendance.insert_one(doc)
+    return strip_mongo_id(doc)
+
+
+@api.post("/attendance/check")
+async def attendance_check(payload: AttendanceCheckIn,
+                           user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    return await _register_attendance(user, payload.type, payload.latitude, payload.longitude,
+                                      payload.site_id, payload.selfie_base64, method="web")
+
+
+@api.get("/attendance/me")
+async def attendance_me(limit: int = 100,
+                        user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    docs = await db.attendance.find(
+        {"user_id": user["user_id"]},
+        {"selfie_base64": 0},
+    ).sort("timestamp", -1).limit(limit).to_list(limit)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.get("/attendance/today")
+async def attendance_today(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    local_now = now_utc().astimezone(APP_TZ)
+    start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    end = start + timedelta(days=1)
+    docs = await db.attendance.find(
+        {"user_id": user["user_id"], "timestamp": {"$gte": start, "$lt": end}},
+        {"selfie_base64": 0},
+    ).sort("timestamp", 1).to_list(50)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.get("/attendance/team")
+async def attendance_team(days: int = 7,
+                          user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> List[Dict[str, Any]]:
+    query: Dict[str, Any] = {"timestamp": {"$gte": now_utc() - timedelta(days=days)}}
+    if user["role"] == "supervisor":
+        team = await db.users.find({"supervisor_id": user["user_id"]}, {"user_id": 1}).to_list(1000)
+        team_ids = [t["user_id"] for t in team]
+        query["user_id"] = {"$in": team_ids}
+    docs = await db.attendance.find(query, {"selfie_base64": 0}).sort("timestamp", -1).limit(1000).to_list(1000)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.post("/attendance/justify")
+async def attendance_justify(payload: JustifyIn,
+                             user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
+    query = {"record_id": payload.record_id}
+    if user["role"] not in {"admin", "supervisor"}:
+        query["user_id"] = user["user_id"]
+    res = await db.attendance.update_one(query, {"$set": {"justification": payload.justification}})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Registro no encontrado")
+    return {"ok": True}
+
+
+# ==================================================================
+# NOVELTIES (4 endpoints)
+# ==================================================================
+@api.get("/novelties")
+async def novelties_list(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    q: Dict[str, Any] = {}
+    if user["role"] == "employee":
+        q["user_id"] = user["user_id"]
+    elif user["role"] == "supervisor":
+        team = await db.users.find({"supervisor_id": user["user_id"]}, {"user_id": 1}).to_list(1000)
+        team_ids = [t["user_id"] for t in team] + [user["user_id"]]
+        q["user_id"] = {"$in": team_ids}
+    docs = await db.novelties.find(q).sort("created_at", -1).to_list(1000)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.post("/novelties")
+async def novelties_create(payload: NoveltyIn,
+                           user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    target = payload.user_id or user["user_id"]
+    if target != user["user_id"] and user["role"] not in {"admin", "supervisor"}:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    doc = {
+        "novelty_id": new_id("nv", 12),
+        "user_id": target,
+        "type": payload.type,
+        "start_date": payload.start_date,
+        "end_date": payload.end_date,
+        "reason": payload.reason,
+        "status": "pending",
+        "created_by": user["user_id"],
+        "created_at": now_utc(),
+        "decided_at": None,
+        "decided_by": None,
+        "decision_comment": None,
+    }
+    await db.novelties.insert_one(doc)
+    return strip_mongo_id(doc)
+
+
+@api.delete("/novelties/{novelty_id}")
+async def novelties_delete(novelty_id: str,
+                           user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
+    q: Dict[str, Any] = {"novelty_id": novelty_id}
+    if user["role"] not in {"admin", "supervisor"}:
+        q["user_id"] = user["user_id"]
+        q["status"] = "pending"
+    res = await db.novelties.delete_one(q)
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Novedad no encontrada")
+    return {"ok": True}
+
+
+@api.post("/novelties/bulk-decide")
+async def novelties_bulk_decide(payload: NoveltyDecideIn,
+                                user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, int]:
+    res = await db.novelties.update_many(
+        {"novelty_id": {"$in": payload.novelty_ids}, "status": "pending"},
+        {"$set": {"status": payload.decision, "decided_at": now_utc(),
+                  "decided_by": user["user_id"], "decision_comment": payload.comment}},
+    )
+    return {"updated": res.modified_count}
+
+
+# ==================================================================
+# STATS / REPORTS (3 endpoints)
+# ==================================================================
+@api.get("/stats/dashboard")
+async def stats_dashboard(_: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, Any]:
+    total_users = await db.users.count_documents({})
+    onboarded = await db.users.count_documents({"onboarded": True})
+    local_now = now_utc().astimezone(APP_TZ)
+    start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    today_in = await db.attendance.count_documents({"timestamp": {"$gte": start}, "type": "in"})
+    today_late = await db.attendance.count_documents({"timestamp": {"$gte": start}, "type": "in", "is_late": True})
+    pending_nov = await db.novelties.count_documents({"status": "pending"})
+    # attendance last 7 days
+    series = []
+    for i in range(6, -1, -1):
+        day_start = start - timedelta(days=i)
+        day_end = day_start + timedelta(days=1)
+        ins = await db.attendance.count_documents({"timestamp": {"$gte": day_start, "$lt": day_end}, "type": "in"})
+        lates = await db.attendance.count_documents({"timestamp": {"$gte": day_start, "$lt": day_end}, "type": "in", "is_late": True})
+        series.append({"date": day_start.astimezone(APP_TZ).strftime("%Y-%m-%d"),
+                       "check_ins": ins, "late": lates})
+    return {
+        "total_users": total_users,
+        "onboarded_users": onboarded,
+        "check_ins_today": today_in,
+        "late_today": today_late,
+        "pending_novelties": pending_nov,
+        "series_7d": series,
+    }
+
+
+@api.get("/reports")
+async def reports_list(from_date: Optional[str] = Query(None),
+                       to_date: Optional[str] = Query(None),
+                       user_id: Optional[str] = Query(None),
+                       site_id: Optional[str] = Query(None),
+                       _: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> List[Dict[str, Any]]:
+    q: Dict[str, Any] = {}
+    if user_id:
+        q["user_id"] = user_id
+    if site_id:
+        q["site_id"] = site_id
+    if from_date or to_date:
+        rng: Dict[str, Any] = {}
+        if from_date:
+            rng["$gte"] = datetime.fromisoformat(from_date).replace(tzinfo=APP_TZ).astimezone(timezone.utc)
+        if to_date:
+            rng["$lt"] = (datetime.fromisoformat(to_date).replace(tzinfo=APP_TZ)
+                          + timedelta(days=1)).astimezone(timezone.utc)
+        q["timestamp"] = rng
+    docs = await db.attendance.find(q, {"selfie_base64": 0}).sort("timestamp", -1).limit(5000).to_list(5000)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.get("/reports/export")
+async def reports_export(from_date: Optional[str] = Query(None),
+                         to_date: Optional[str] = Query(None),
+                         _: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> StreamingResponse:
+    q: Dict[str, Any] = {}
+    if from_date or to_date:
+        rng: Dict[str, Any] = {}
+        if from_date:
+            rng["$gte"] = datetime.fromisoformat(from_date).replace(tzinfo=APP_TZ).astimezone(timezone.utc)
+        if to_date:
+            rng["$lt"] = (datetime.fromisoformat(to_date).replace(tzinfo=APP_TZ)
+                          + timedelta(days=1)).astimezone(timezone.utc)
+        q["timestamp"] = rng
+    users = {u["user_id"]: u async for u in db.users.find({}, {"user_id": 1, "name": 1, "email": 1, "cedula": 1})}
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["record_id", "user_id", "name", "cedula", "type", "timestamp_utc",
+                "timestamp_local", "site_id", "within_geofence", "is_late", "late_minutes", "justification"])
+    async for r in db.attendance.find(q).sort("timestamp", -1):
+        u = users.get(r.get("user_id"), {})
+        ts = r.get("timestamp")
+        if isinstance(ts, datetime):
+            ts_local = ts.astimezone(APP_TZ).strftime("%Y-%m-%d %H:%M:%S")
+            ts_utc = ts.astimezone(timezone.utc).isoformat()
+        else:
+            ts_local = str(ts)
+            ts_utc = str(ts)
+        w.writerow([r.get("record_id"), r.get("user_id"), u.get("name"), u.get("cedula"),
+                    r.get("type"), ts_utc, ts_local, r.get("site_id"),
+                    r.get("within_geofence"), r.get("is_late"), r.get("late_minutes"),
+                    r.get("justification") or ""])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=asistencia_report.csv"})
+
+
+# ==================================================================
+# ONBOARDING (1 endpoint)
+# ==================================================================
+@api.post("/onboarding/selfie")
+async def onboarding_selfie(payload: SelfieIn,
+                            user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
+    updates: Dict[str, Any] = {"selfie_base64": payload.selfie_base64, "onboarded": True}
+    if payload.face_descriptor is not None:
+        updates["face_descriptor"] = payload.face_descriptor
+    await db.users.update_one({"_id": user["_id"]}, {"$set": updates})
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------
+# Wire router + CORS
+# ------------------------------------------------------------------
+app.include_router(api)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=False,
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)

@@ -1,0 +1,95 @@
+[{
+	"_id": {
+		"$oid": "6a07b2935544b858d1d539d0"
+	},
+	"schedule_id": "sch_d2db7693fc",
+	"name": "Día Completo",
+	"blocks": [
+		{
+			"start": "08:00",
+			"end": "12:00"
+		},
+		{
+			"start": "13:00",
+			"end": "17:00"
+		}
+	],
+	"tolerance_minutes": 10,
+	"site_id": null,
+	"created_at": {
+		"$date": "2026-05-15T23:56:03.593Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a0b8a810cfdc4525f749a42"
+	},
+	"schedule_id": "sch_12b82cab90",
+	"name": "Turno Uno",
+	"blocks": [
+		{
+			"start": "08:00am",
+			"end": "2:00pm"
+		}
+	],
+	"tolerance_minutes": 10,
+	"site_id": "site_4b119c114c",
+	"created_at": {
+		"$date": "2026-05-18T21:54:09.338Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a0b8a9f0cfdc4525f749a43"
+	},
+	"schedule_id": "sch_fc250f0da4",
+	"name": "Turno Dos",
+	"blocks": [
+		{
+			"start": "02:00pm",
+			"end": "8:30pm"
+		}
+	],
+	"tolerance_minutes": 10,
+	"site_id": "site_4b119c114c",
+	"created_at": {
+		"$date": "2026-05-18T21:54:39.794Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a0b8acd0cfdc4525f749a44"
+	},
+	"schedule_id": "sch_0293238865",
+	"name": "Turno Nocturno 1",
+	"blocks": [
+		{
+			"start": "8:00pm ",
+			"end": "02:00am"
+		}
+	],
+	"tolerance_minutes": 10,
+	"site_id": "site_4b119c114c",
+	"created_at": {
+		"$date": "2026-05-18T21:55:25.51Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a0b8ae80cfdc4525f749a45"
+	},
+	"schedule_id": "sch_f6fd2ca68a",
+	"name": "Turno Nocturno 2",
+	"blocks": [
+		{
+			"start": "2:00am ",
+			"end": "09:00am"
+		}
+	],
+	"tolerance_minutes": 10,
+	"site_id": "site_4b119c114c",
+	"created_at": {
+		"$date": "2026-05-18T21:55:52.977Z"
+	}
+}]
+

@@ -1,0 +1,166 @@
+[{
+	"_id": {
+		"$oid": "6a078fbc6739fa36b623b7ad"
+	},
+	"department_id": "dept_30d5899f38",
+	"name": "Recursos Humanos",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T21:27:24.102Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07b1e25544b858d1d539c6"
+	},
+	"department_id": "dept_ff5969a523",
+	"name": "Implementación",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T23:53:06.291Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07b1ea5544b858d1d539c7"
+	},
+	"department_id": "dept_08f9687bf4",
+	"name": "Infraestructura ",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T23:53:14.325Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07b1f15544b858d1d539c8"
+	},
+	"department_id": "dept_0da8efc581",
+	"name": "Desarrollo",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T23:53:21.216Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07b2075544b858d1d539ca"
+	},
+	"department_id": "dept_3bb34e1353",
+	"name": "Aseguramiento de Calidad",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T23:53:43.534Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07b2115544b858d1d539cb"
+	},
+	"department_id": "dept_9f9462ebfd",
+	"name": "Auditoría de Sistemas",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T23:53:53.137Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07b21d5544b858d1d539cc"
+	},
+	"department_id": "dept_abc5f0d373",
+	"name": "Control de Riesgo",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T23:54:05.167Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07b2265544b858d1d539cd"
+	},
+	"department_id": "dept_1473277d0a",
+	"name": "Seguridad de Información ",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T23:54:14.234Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07b22d5544b858d1d539ce"
+	},
+	"department_id": "dept_492e3896ad",
+	"name": "Dirección ",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T23:54:21.96Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07b2375544b858d1d539cf"
+	},
+	"department_id": "dept_a7c9a12382",
+	"name": "Soporte y Monitoreo",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-15T23:54:31.493Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07c14e275a41ec1167f2b4"
+	},
+	"department_id": "dept_5a8376e5d5",
+	"name": "Ventas Pyme",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-16T00:58:54.74Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a07c158275a41ec1167f2b5"
+	},
+	"department_id": "dept_acc886d013",
+	"name": "Ventas Corporativas",
+	"description": null,
+	"created_at": {
+		"$date": "2026-05-16T00:59:04.881Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a5e731aeacf37ad7965213b"
+	},
+	"department_id": "dept_8cd0eed02f",
+	"name": "Desarrollo OLB",
+	"description": null,
+	"created_at": {
+		"$date": "2026-07-20T19:12:26.98Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a5eaf18e1c31b4ff20692ed"
+	},
+	"department_id": "dept_15badba066",
+	"name": "Operaciones",
+	"description": null,
+	"created_at": {
+		"$date": "2026-07-20T23:28:24.299Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a5eaf7be1c31b4ff20692ee"
+	},
+	"department_id": "dept_dab6af4497",
+	"name": "Administración",
+	"description": null,
+	"created_at": {
+		"$date": "2026-07-20T23:30:03.151Z"
+	}
+}]
+

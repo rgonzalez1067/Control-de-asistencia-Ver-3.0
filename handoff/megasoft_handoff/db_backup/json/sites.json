@@ -1,0 +1,29 @@
+[{
+	"_id": {
+		"$oid": "6a0b5ab146611da6c03c2261"
+	},
+	"site_id": "site_dc46e76844",
+	"name": "Sede Torre Banco Plaza",
+	"address": "Av casanova",
+	"latitude": 10.4936459,
+	"longitude": -66.877962,
+	"radius_meters": 100,
+	"created_at": {
+		"$date": "2026-05-18T18:30:09.081Z"
+	}
+},
+{
+	"_id": {
+		"$oid": "6a0db734d4f67c32b8973f64"
+	},
+	"site_id": "site_e47fc4465e",
+	"name": "Sede Los Chaguaramos",
+	"address": "Los Chaguaramos",
+	"latitude": 10.4851564,
+	"longitude": -66.8869266,
+	"radius_meters": 10,
+	"created_at": {
+		"$date": "2026-05-20T13:29:24.866Z"
+	}
+}]
+

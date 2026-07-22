@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"user_id":{"$numberInt":"1"},"start_date":{"$numberInt":"1"}},"name":"user_id_1_start_date_1"}],"uuid":"6d12536258a94c49b8b0d0ab9fde8376","collectionName":"novelties","type":"collection"}
