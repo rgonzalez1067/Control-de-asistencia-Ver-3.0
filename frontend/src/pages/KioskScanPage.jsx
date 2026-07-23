@@ -10,8 +10,9 @@ import {
 import { toast } from "sonner";
 import {
   ScanFace, LogIn, LogOut as LogOutIcon, Loader2, LockKeyhole,
-  KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight, RefreshCcw,
+  KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight, RefreshCcw, DoorOpen,
 } from "lucide-react";
+import { Label } from "@/components/ui/label";
 import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 
 const FACEAPI_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
@@ -61,6 +62,7 @@ export default function KioskScanPage() {
   const [reenrollTarget, setReenrollTarget] = useState(null);    // usuario elegido (para PIN)
   const [reenrollCapture, setReenrollCapture] = useState(null);  // {user_id, name, pin} lista para capturar
   const [reenrollSaving, setReenrollSaving] = useState(false);
+  const [showExit, setShowExit] = useState(false);
   const [clock, setClock] = useState(new Date());
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -235,6 +237,13 @@ export default function KioskScanPage() {
     nav("/kiosk", { replace: true });
   }
 
+  function exitToAdmin() {
+    setKioskUnlocked(false);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    nav("/", { replace: true });
+  }
+
   async function saveReenroll(dataUrl) {
     if (!reenrollCapture) return;
     setReenrollSaving(true);
@@ -289,9 +298,21 @@ export default function KioskScanPage() {
             <p className="text-sm font-semibold leading-tight mt-0.5">Kiosco de asistencia</p>
           </div>
         </div>
-        <div className="text-right hidden sm:block">
-          <p className="text-[10px] uppercase tracking-widest text-white/40 leading-none">Hoy</p>
-          <p className="text-sm font-mono font-semibold leading-tight mt-0.5">{timeStr}</p>
+        <div className="flex items-center gap-2">
+          <div className="text-right hidden sm:block">
+            <p className="text-[10px] uppercase tracking-widest text-white/40 leading-none">Hoy</p>
+            <p className="text-sm font-mono font-semibold leading-tight mt-0.5">{timeStr}</p>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowExit(true)}
+            className="rounded-full h-9 px-3 text-white/70 hover:bg-white/10 hover:text-white text-xs"
+            data-testid="kiosk-exit-btn"
+          >
+            <DoorOpen className="h-4 w-4 mr-1.5" />
+            Salir
+          </Button>
         </div>
       </header>
 
@@ -494,6 +515,13 @@ export default function KioskScanPage() {
         onConfirm={saveReenroll}
         saving={reenrollSaving}
       />
+
+      {/* Salir del kiosco — requiere credenciales admin */}
+      <ExitKioskDialog
+        open={showExit}
+        onCancel={() => setShowExit(false)}
+        onSuccess={() => { setShowExit(false); exitToAdmin(); }}
+      />
     </div>
   );
 }
@@ -672,3 +700,80 @@ function PinEnterDialog({ target, onCancel, onSuccess }) {
     </Dialog>
   );
 }
+
+/** Dialog para salir del kiosco — pide credenciales de administrador */
+function ExitKioskDialog({ open, onCancel, onSuccess }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) { setEmail(""); setPassword(""); }
+  }, [open]);
+
+  async function verify(e) {
+    e?.preventDefault?.();
+    if (!email || !password) { toast.error("Ingresa correo y contraseña"); return; }
+    setBusy(true);
+    try {
+      await api.post("/kiosk/unlock", { email: email.trim(), password });
+      toast.success("Saliendo del modo kiosco…");
+      onSuccess();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Credenciales inválidas");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
+      <DialogContent className="max-w-sm" data-testid="kiosk-exit-dialog">
+        <DialogHeader className="items-center text-center">
+          <div className="h-14 w-14 rounded-2xl bg-primary/10 grid place-items-center mb-2">
+            <DoorOpen className="h-7 w-7 text-primary dark:text-foreground" />
+          </div>
+          <DialogTitle>Salir del kiosco</DialogTitle>
+          <DialogDescription>
+            Confirma con tus credenciales de administrador para regresar al panel.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={verify} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Correo del administrador</Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="admin@empresa.com"
+              className="h-11"
+              autoFocus
+              data-testid="kiosk-exit-email"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Contraseña</Label>
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="h-11"
+              data-testid="kiosk-exit-password"
+            />
+          </div>
+          <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">
+            <Button type="button" variant="outline" onClick={onCancel}
+              className="h-12 rounded-full flex-1" data-testid="kiosk-exit-cancel">
+              <X className="h-4 w-4 mr-1.5" /> Cancelar
+            </Button>
+            <Button type="submit" disabled={busy}
+              className="h-12 rounded-full flex-1 bg-primary hover:bg-primary/90 font-semibold"
+              data-testid="kiosk-exit-confirm">
+              {busy ? "Verificando…" : (<>Salir <ArrowRight className="h-4 w-4 ml-1.5" /></>)}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+

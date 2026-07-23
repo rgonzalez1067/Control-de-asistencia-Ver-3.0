@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { ShieldCheck, ScanFace, LockKeyhole, ArrowRight } from "lucide-react";
+import { ShieldCheck, ScanFace, LockKeyhole, ArrowRight, ArrowLeft } from "lucide-react";
 
 const KIOSK_KEY = "megasoft.kiosk.unlocked";
 
@@ -96,6 +96,18 @@ export default function KioskUnlockPage() {
               Al desbloquear, la pantalla mostrará la cámara y aceptará marcas de cualquier empleado.
             </p>
           </form>
+
+          <div className="pt-4 border-t border-white/10 text-center">
+            <button
+              type="button"
+              onClick={() => nav("/", { replace: true })}
+              className="text-xs text-white/60 hover:text-accent inline-flex items-center gap-1.5 transition-colors"
+              data-testid="kiosk-back-to-admin"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Regresar al panel administrativo
+            </button>
+          </div>
         </CardContent>
       </Card>
     </div>
