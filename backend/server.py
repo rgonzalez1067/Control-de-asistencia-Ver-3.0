@@ -252,6 +252,10 @@ class KioskUnlockIn(BaseModel):
     password: str
 
 
+class KioskFaceUnlockIn(BaseModel):
+    face_descriptor: List[float]
+
+
 class KioskPinIn(BaseModel):
     user_id: str
     pin: str
@@ -777,6 +781,60 @@ async def kiosk_unlock(payload: KioskUnlockIn) -> Dict[str, Any]:
     if not settings.get("kiosk_enabled", True):
         raise HTTPException(status_code=403, detail="Modo kiosco deshabilitado")
     return {"ok": True, "unlocked_by": user["user_id"], "unlocked_at": now_utc().isoformat()}
+
+
+@api.post("/kiosk/unlock-face")
+async def kiosk_unlock_face(payload: KioskFaceUnlockIn) -> Dict[str, Any]:
+    """Admin desbloquea el modo kiosco con su rostro (face-api descriptor)."""
+    desc = payload.face_descriptor or []
+    if len(desc) != 128:
+        raise HTTPException(status_code=400, detail="Descriptor facial inválido (se esperan 128 dimensiones)")
+
+    settings = await db.settings.find_one({"_id": "company"}) or {}
+    if not settings.get("kiosk_enabled", True):
+        raise HTTPException(status_code=403, detail="Modo kiosco deshabilitado")
+
+    admins = await db.users.find(
+        {"role": "admin", "face_descriptor": {"$exists": True, "$ne": None, "$not": {"$size": 0}}},
+        {"user_id": 1, "name": 1, "face_descriptor": 1, "_id": 0},
+    ).to_list(200)
+    if not admins:
+        raise HTTPException(status_code=404, detail="No hay administradores con rostro registrado")
+
+    import math as _math
+    best = None
+    second = None
+    for a in admins:
+        ref = a.get("face_descriptor") or []
+        if len(ref) != 128:
+            continue
+        dist = _math.sqrt(sum((float(x) - float(y)) ** 2 for x, y in zip(ref, desc)))
+        if best is None or dist < best[1]:
+            second = best
+            best = (a, dist)
+        elif second is None or dist < second[1]:
+            second = (a, dist)
+
+    if not best:
+        raise HTTPException(status_code=401, detail="No se pudo comparar el rostro")
+
+    THRESHOLD = 0.48
+    MARGIN = 0.06
+    admin, dist = best
+    if dist > THRESHOLD:
+        raise HTTPException(status_code=401, detail=f"Rostro no reconocido (distancia {dist:.3f} > {THRESHOLD})")
+    if second is not None and (second[1] - dist) < MARGIN:
+        raise HTTPException(
+            status_code=401,
+            detail="Rostro ambiguo entre dos administradores. Intenta de nuevo con mejor iluminación.",
+        )
+    return {
+        "ok": True,
+        "unlocked_by": admin["user_id"],
+        "admin_name": admin["name"],
+        "distance": round(dist, 4),
+        "unlocked_at": now_utc().isoformat(),
+    }
 
 
 @api.get("/kiosk/roster")
