@@ -64,7 +64,7 @@ export default function ExecutiveWidget() {
       doc.text("Resumen ejecutivo de asistencia", 40, 58);
       doc.setFontSize(10);
       doc.setTextColor(200, 210, 225);
-      doc.text(`Último(s) ${data.days} día(s) · generado ${now.toLocaleString("es-VE")}`, 40, 76);
+      doc.text(`Último(s) ${data.days} día(s) · generado ${now.toLocaleString("es-VE", { timeZone: "America/Caracas" })}`, 40, 76);
 
       // KPI cards
       const kpis = [

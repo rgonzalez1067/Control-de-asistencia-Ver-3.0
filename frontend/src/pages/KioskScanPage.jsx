@@ -278,11 +278,13 @@ export default function KioskScanPage() {
   }
 
   // Formato "Miércoles, 22 de julio" (weekday y mes capitalizados, "de" en minúscula).
-  const wk = clock.toLocaleDateString("es-VE", { weekday: "long" });
-  const mo = clock.toLocaleDateString("es-VE", { month: "long" });
-  const dateStr = `${wk.charAt(0).toUpperCase()}${wk.slice(1)}, ${clock.getDate()} de ${mo}`;
+  const TZ_CARACAS = "America/Caracas";
+  const wk = clock.toLocaleDateString("es-VE", { weekday: "long", timeZone: TZ_CARACAS });
+  const mo = clock.toLocaleDateString("es-VE", { month: "long", timeZone: TZ_CARACAS });
+  const dayNum = clock.toLocaleDateString("es-VE", { day: "numeric", timeZone: TZ_CARACAS });
+  const dateStr = `${wk.charAt(0).toUpperCase()}${wk.slice(1)}, ${dayNum} de ${mo}`;
   const timeStr = clock.toLocaleTimeString("es-VE", {
-    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: TZ_CARACAS,
   });
 
   return (

@@ -44,8 +44,8 @@ export default function LoginPage() {
     }
   }
 
-  const clock = tick.toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const day = tick.toLocaleDateString("es-VE", { weekday: "long", day: "numeric", month: "long" });
+  const clock = tick.toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/Caracas" });
+  const day = tick.toLocaleDateString("es-VE", { weekday: "long", day: "numeric", month: "long", timeZone: "America/Caracas" });
 
   return (
     <div className="min-h-screen w-full bg-primary text-primary-foreground overflow-hidden">
