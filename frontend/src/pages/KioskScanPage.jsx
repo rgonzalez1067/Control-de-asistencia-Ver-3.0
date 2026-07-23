@@ -244,7 +244,7 @@ export default function KioskScanPage() {
     nav("/", { replace: true });
   }
 
-  async function saveReenroll(dataUrl) {
+  async function saveReenroll(dataUrl, descriptor) {
     if (!reenrollCapture) return;
     setReenrollSaving(true);
     try {
@@ -252,6 +252,9 @@ export default function KioskScanPage() {
       fd.append("user_id", reenrollCapture.user_id);
       fd.append("pin", reenrollCapture.pin);
       fd.append("selfie_base64", dataUrl);
+      if (Array.isArray(descriptor) && descriptor.length > 0) {
+        fd.append("face_descriptor", JSON.stringify(descriptor));
+      }
       await api.post("/kiosk/reenroll-face", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });

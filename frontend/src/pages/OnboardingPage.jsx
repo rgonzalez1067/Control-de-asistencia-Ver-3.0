@@ -5,13 +5,37 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Camera, Check, RefreshCw, ArrowLeft, ShieldCheck, Sparkles } from "lucide-react";
+import { Camera, Check, RefreshCw, ArrowLeft, ShieldCheck, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
+const FACEAPI_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
+const MODELS_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
+
+function loadFaceApi() {
+  if (window.faceapi) return Promise.resolve(window.faceapi);
+  if (window.__faceApiLoading) return window.__faceApiLoading;
+  window.__faceApiLoading = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = FACEAPI_URL; s.async = true;
+    s.onload = () => resolve(window.faceapi);
+    s.onerror = () => reject(new Error("No se pudo cargar face-api.js"));
+    document.head.appendChild(s);
+  });
+  return window.__faceApiLoading;
+}
+async function loadFaceModels(faceapi) {
+  if (window.__faceModelsReady) return;
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_URL),
+    faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_URL),
+    faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_URL),
+  ]);
+  window.__faceModelsReady = true;
+}
+
 /**
- * OnboardingPage — captura una selfie con getUserMedia y la envía a
- * `/api/onboarding/selfie`. El descriptor facial (face-api.js) se
- * incorporará en la Fase 3 desde CDN; por ahora enviamos solo la foto.
+ * OnboardingPage — captura una selfie y su descriptor facial (face-api.js)
+ * y los envía a `/api/onboarding/selfie`.
  */
 export default function OnboardingPage() {
   const { user, refresh } = useAuth();
@@ -22,12 +46,15 @@ export default function OnboardingPage() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [descriptor, setDescriptor] = useState(null);
+  const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let stopped = false;
     async function start() {
       try {
+        loadFaceApi().then((fa) => loadFaceModels(fa)).catch(() => null);
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 640 } },
           audio: false,
@@ -51,30 +78,60 @@ export default function OnboardingPage() {
     };
   }, []);
 
-  function capture() {
+  async function capture() {
     if (!videoRef.current) return;
-    const v = videoRef.current;
-    const size = Math.min(v.videoWidth, v.videoHeight);
-    const c = canvasRef.current;
-    c.width = 480; c.height = 480;
-    const ctx = c.getContext("2d");
-    const sx = (v.videoWidth - size) / 2;
-    const sy = (v.videoHeight - size) / 2;
-    // mirror horizontally so it matches the on-screen preview
-    ctx.save();
-    ctx.translate(c.width, 0);
-    ctx.scale(-1, 1);
-    ctx.drawImage(v, sx, sy, size, size, 0, 0, c.width, c.height);
-    ctx.restore();
-    setPreview(c.toDataURL("image/jpeg", 0.85));
+    setAnalyzing(true);
+    try {
+      const v = videoRef.current;
+      const size = Math.min(v.videoWidth, v.videoHeight);
+      const c = canvasRef.current;
+      c.width = 480; c.height = 480;
+      const ctx = c.getContext("2d");
+      const sx = (v.videoWidth - size) / 2;
+      const sy = (v.videoHeight - size) / 2;
+      ctx.save();
+      ctx.translate(c.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(v, sx, sy, size, size, 0, 0, c.width, c.height);
+      ctx.restore();
+      const dataUrl = c.toDataURL("image/jpeg", 0.85);
+
+      let desc = null;
+      try {
+        const faceapi = await loadFaceApi();
+        await loadFaceModels(faceapi);
+        const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+        const det = await faceapi
+          .detectSingleFace(v, opts)
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+        if (det?.descriptor) desc = Array.from(det.descriptor);
+      } catch (_) { /* modelo no cargó */ }
+
+      if (!desc) {
+        toast.warning("No se detectó un rostro claro. Repite con mejor luz y de frente.");
+      }
+      setDescriptor(desc);
+      setPreview(dataUrl);
+    } finally {
+      setAnalyzing(false);
+    }
   }
 
   async function save() {
     if (!preview) return;
     setSaving(true);
     try {
-      await api.post("/onboarding/selfie", { selfie_base64: preview });
-      toast.success("¡Rostro registrado! Ya puedes usar el kiosco.");
+      const payload = { selfie_base64: preview };
+      if (Array.isArray(descriptor) && descriptor.length > 0) {
+        payload.face_descriptor = descriptor;
+      }
+      await api.post("/onboarding/selfie", payload);
+      toast.success(
+        Array.isArray(descriptor) && descriptor.length > 0
+          ? "¡Rostro registrado! Ya puedes usar el kiosco."
+          : "Foto guardada, pero el rostro no fue detectado. Repite la captura para habilitar el kiosco."
+      );
       await refresh();
       nav("/", { replace: true });
     } catch (e) {
@@ -154,6 +211,16 @@ export default function OnboardingPage() {
               {preview && (
                 <img src={preview} alt="preview" className="absolute inset-0 h-full w-full object-cover" data-testid="onboarding-preview" />
               )}
+              {preview && (
+                <div className={
+                  "absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[11px] font-medium backdrop-blur border " +
+                  (descriptor
+                    ? "bg-emerald-500/90 border-emerald-300/40 text-white"
+                    : "bg-amber-500/90 border-amber-300/40 text-white")
+                } data-testid="onboarding-descriptor-status">
+                  {descriptor ? "✓ Rostro detectado" : "⚠ Sin rostro claro — repetir"}
+                </div>
+              )}
               {!ready && !preview && (
                 <div className="absolute inset-0 grid place-items-center text-white text-sm">
                   {error ? (
@@ -171,17 +238,19 @@ export default function OnboardingPage() {
               {!preview ? (
                 <Button
                   onClick={capture}
-                  disabled={!ready}
+                  disabled={!ready || analyzing}
                   className="rounded-full h-12 px-6 bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
                   data-testid="onboarding-capture"
                 >
-                  <Camera className="h-4 w-4 mr-2" /> Capturar
+                  {analyzing
+                    ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Analizando rostro…</>)
+                    : (<><Camera className="h-4 w-4 mr-2" /> Capturar</>)}
                 </Button>
               ) : (
                 <>
                   <Button
                     variant="outline"
-                    onClick={() => setPreview(null)}
+                    onClick={() => { setPreview(null); setDescriptor(null); }}
                     className="rounded-full h-12 px-5"
                     data-testid="onboarding-retake"
                   >

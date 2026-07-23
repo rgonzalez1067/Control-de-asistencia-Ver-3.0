@@ -184,12 +184,20 @@ export default function UsersPage() {
     }
   }
 
-  async function saveAdminSelfie(dataUrl) {
+  async function saveAdminSelfie(dataUrl, descriptor) {
     if (!selfieTarget) return;
     setSelfieSaving(true);
     try {
-      await api.post(`/users/${selfieTarget.user_id}/selfie`, { selfie_base64: dataUrl });
-      toast.success(`Rostro registrado para ${selfieTarget.name.split(" ")[0]}`);
+      const payload = { selfie_base64: dataUrl };
+      if (Array.isArray(descriptor) && descriptor.length > 0) {
+        payload.face_descriptor = descriptor;
+      }
+      await api.post(`/users/${selfieTarget.user_id}/selfie`, payload);
+      toast.success(
+        Array.isArray(descriptor) && descriptor.length > 0
+          ? `Rostro registrado para ${selfieTarget.name.split(" ")[0]}`
+          : `Foto guardada, pero el rostro no fue detectado. Repite la captura para habilitar el kiosco.`
+      );
       setSelfieTarget(null);
       loadAll();
     } catch (e) {
