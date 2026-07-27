@@ -60,6 +60,8 @@ export default function UsersPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [uppercasing, setUppercasing] = useState(false);
+  const [uppercaseConfirm, setUppercaseConfirm] = useState(false);
   const [importPreview, setImportPreview] = useState(null); // {file, data} — abre diálogo
   const [importReport, setImportReport] = useState(null);   // resultado post-confirmar
   const [photoTarget, setPhotoTarget] = useState(null); // {user_id, name, selfie_base64, loading}
@@ -203,6 +205,20 @@ export default function UsersPage() {
     }
   }
 
+  async function normalizeUppercase() {
+    setUppercasing(true);
+    try {
+      const { data } = await api.post("/users/uppercase-names");
+      toast.success(`${data.updated_count} nombre(s) convertidos a MAYÚSCULAS`);
+      loadAll();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally {
+      setUppercasing(false);
+      setUppercaseConfirm(false);
+    }
+  }
+
   async function openPhoto(u) {
     setPhotoTarget({ user_id: u.user_id, name: u.name, loading: true, selfie_base64: null });
     try {
@@ -290,6 +306,16 @@ export default function UsersPage() {
             data-testid="users-import-btn"
           >
             <Upload className="h-4 w-4 mr-1.5" /> {importing ? "Importando…" : "Importar Excel"}
+          </Button>
+          <Button
+            variant="outline"
+            className="rounded-full"
+            disabled={uppercasing}
+            onClick={() => setUppercaseConfirm(true)}
+            data-testid="users-uppercase-btn"
+            title="Convierte todos los nombres actuales de la BD a MAYÚSCULAS"
+          >
+            <RefreshCw className="h-4 w-4 mr-1.5" /> {uppercasing ? "Normalizando…" : "Nombres a MAYÚS"}
           </Button>
           <Button
             className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
@@ -530,6 +556,28 @@ export default function UsersPage() {
         report={importReport}
         onClose={() => setImportReport(null)}
       />
+
+      <AlertDialog open={uppercaseConfirm} onOpenChange={setUppercaseConfirm}>
+        <AlertDialogContent data-testid="uppercase-confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Convertir todos los nombres a MAYÚSCULAS</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción reescribirá el campo <b>nombre</b> de todos los empleados en la base de datos a mayúsculas.
+              Los acentos se preservan (Á É Í Ó Ú Ñ). Los registros que ya estén en mayúsculas no se tocan.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={uppercasing}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={uppercasing}
+              onClick={normalizeUppercase}
+              data-testid="uppercase-confirm-btn"
+            >
+              {uppercasing ? "Normalizando…" : "Sí, convertir todos"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

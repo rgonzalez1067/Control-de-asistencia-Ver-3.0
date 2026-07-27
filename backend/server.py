@@ -840,6 +840,24 @@ async def users_import(file: UploadFile = File(...),
     }
 
 
+@api.post("/users/uppercase-names")
+async def users_uppercase_names(
+    _: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
+    """Normaliza todos los nombres de empleados a MAYÚSCULAS.
+       Útil cuando una importación parcial deja algunos empleados con case mixto."""
+    updated: List[str] = []
+    async for u in db.users.find({}, {"user_id": 1, "email": 1, "name": 1, "_id": 0}):
+        name = (u.get("name") or "").strip()
+        if not name:
+            continue
+        upper = name.upper()
+        if upper != name:
+            await db.users.update_one({"user_id": u["user_id"]}, {"$set": {"name": upper}})
+            updated.append(u.get("email"))
+    return {"updated_count": len(updated), "updated_emails": updated}
+
+
 # ==================================================================
 # SETTINGS (2 endpoints)
 # ==================================================================
