@@ -64,6 +64,7 @@ export default function KioskScanPage() {
   const [reenrollSaving, setReenrollSaving] = useState(false);
   const [showExit, setShowExit] = useState(false);
   const [clock, setClock] = useState(new Date());
+  const [idle, setIdle] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const intervalRef = useRef(null);
@@ -72,12 +73,22 @@ export default function KioskScanPage() {
   const phaseRef = useRef(phase);
   const labeledRef = useRef(labeled);
   const rosterRef = useRef(roster);
+  const idleRef = useRef(false);
+  const lastFaceAtRef = useRef(Date.now());
   // Contador de frames consecutivos para el mismo user (evita falsos positivos)
   const consecutiveRef = useRef({ userId: null, count: 0 });
+
+  const IDLE_AFTER_MS = 15000; // 15s sin rostro → reposo
 
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { labeledRef.current = labeled; }, [labeled]);
   useEffect(() => { rosterRef.current = roster; }, [roster]);
+  useEffect(() => { idleRef.current = idle; }, [idle]);
+
+  function wakeUp() {
+    lastFaceAtRef.current = Date.now();
+    if (idleRef.current) setIdle(false);
+  }
 
   useEffect(() => {
     if (!isKioskUnlocked()) { nav("/kiosk", { replace: true }); return; }
@@ -141,6 +152,18 @@ export default function KioskScanPage() {
       try {
         const faceapi = window.faceapi;
         const opts = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+
+        // Modo reposo: solo detectamos presencia (rápido, sin descriptor).
+        // Si hay un rostro nuevo, despertamos y en el siguiente tick se hace el matching completo.
+        if (idleRef.current) {
+          const face = await faceapi.detectSingleFace(videoRef.current, opts);
+          if (face) {
+            wakeUp();
+          }
+          busyRef.current = false;
+          return;
+        }
+
         const det = await faceapi
           .detectSingleFace(videoRef.current, opts)
           .withFaceLandmarks()
@@ -148,9 +171,16 @@ export default function KioskScanPage() {
         if (!det) {
           // no cara visible: reinicia contador
           consecutiveRef.current = { userId: null, count: 0 };
+          // Si llevamos suficiente tiempo sin rostro → entrar en reposo
+          if (Date.now() - lastFaceAtRef.current > IDLE_AFTER_MS) {
+            setIdle(true);
+          }
           busyRef.current = false;
           return;
         }
+
+        // Hay rostro: actualiza timestamp para reset del temporizador
+        lastFaceAtRef.current = Date.now();
 
         // Distancia euclidiana contra TODOS los descriptores + top-2
         const distances = labeledArr.map((ld) => ({
@@ -288,9 +318,16 @@ export default function KioskScanPage() {
   });
 
   return (
-    <div className="min-h-screen bg-primary text-primary-foreground relative overflow-hidden flex flex-col" data-testid="kiosk-scan-page">
+    <div
+      className="min-h-screen bg-primary text-primary-foreground relative overflow-hidden flex flex-col"
+      data-testid="kiosk-scan-page"
+      onPointerDown={wakeUp}
+    >
       <div className="pointer-events-none absolute -top-40 -left-40 h-[520px] w-[520px] rounded-full border border-white/5" />
       <div className="pointer-events-none absolute -bottom-32 -right-32 h-[420px] w-[420px] rounded-full bg-accent/10 blur-3xl" />
+
+      {/* Contenedor atenuable — todo el contenido se oscurece en modo reposo */}
+      <div className={"flex-1 flex flex-col transition-[filter,opacity] duration-[1200ms] ease-out " + (idle ? "brightness-[0.06] opacity-70" : "brightness-100 opacity-100")}>
 
       {/* Header */}
       <header className="relative flex items-center justify-between px-4 py-4 border-b border-white/5">
@@ -348,7 +385,7 @@ export default function KioskScanPage() {
               <video ref={videoRef} muted playsInline
                      className="absolute inset-0 h-full w-full object-cover scale-x-[-1]" />
 
-              {phase === "ready" && (
+              {phase === "ready" && !idle && (
                 <div className="pointer-events-none absolute inset-0">
                   <div className="absolute inset-6 border-2 border-dashed border-accent/70 rounded-[28px]" />
                   <div className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-accent to-transparent animate-[kiosk-scan_2.4s_ease-in-out_infinite]" />
@@ -404,6 +441,16 @@ export default function KioskScanPage() {
           <KeyRound className="h-4 w-4 mr-1.5" /> Marcar con PIN
         </Button>
       </div>
+
+      </div>{/* /contenedor atenuable */}
+
+      {/* Badge sutil "En reposo" — visible aún con la pantalla atenuada */}
+      {idle && (
+        <div className="pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 text-[10px] tracking-[0.35em] uppercase text-white/40" data-testid="kiosk-idle-badge">
+          <span className="h-1.5 w-1.5 rounded-full bg-white/40 animate-pulse" />
+          En reposo · acércate para activar
+        </div>
+      )}
 
       <style>{`
         @keyframes kiosk-scan {
