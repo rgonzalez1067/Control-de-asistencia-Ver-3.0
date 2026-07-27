@@ -23,10 +23,14 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuTrigger, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tabs, TabsContent, TabsList, TabsTrigger,
+} from "@/components/ui/tabs";
 import { toast } from "sonner";
 import {
   Search, Plus, MoreVertical, Pencil, Trash2, KeyRound, Upload,
   Download, ShieldCheck, BadgeCheck, CircleUserRound, Image as ImageIcon, UserCircle2, Camera,
+  FileSpreadsheet, AlertTriangle, CheckCircle2, XCircle, ArrowRight,
 } from "lucide-react";
 import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 import SetPinDialog from "@/components/SetPinDialog";
@@ -56,6 +60,8 @@ export default function UsersPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [importPreview, setImportPreview] = useState(null); // {file, data} — abre diálogo
+  const [importReport, setImportReport] = useState(null);   // resultado post-confirmar
   const [photoTarget, setPhotoTarget] = useState(null); // {user_id, name, selfie_base64, loading}
   const [selfieTarget, setSelfieTarget] = useState(null); // {user_id, name} — capture in behalf
   const [selfieSaving, setSelfieSaving] = useState(false);
@@ -165,19 +171,35 @@ export default function UsersPage() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const { data } = await api.post("/users/import", fd, {
+      const { data } = await api.post("/users/import/preview", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      toast.success(`Importación: ${data.created} creados · ${data.updated} actualizados${data.errors?.length ? ` · ${data.errors.length} errores` : ""}`);
-      if (data.errors?.length) {
-        console.warn("Errores de importación:", data.errors);
-      }
-      loadAll();
+      setImportPreview({ file, data });
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     } finally {
       setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  async function confirmImport() {
+    if (!importPreview?.file) return;
+    setImporting(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", importPreview.file);
+      const { data } = await api.post("/users/import", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setImportPreview(null);
+      setImportReport(data);
+      toast.success(`Importación completada · ${data.created} creados · ${data.updated} actualizados${data.errors?.length ? ` · ${data.errors.length} errores` : ""}`);
+      loadAll();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -496,6 +518,18 @@ export default function UsersPage() {
         userId={pinTarget?.user_id}
         userName={pinTarget?.name}
       />
+
+      <ImportPreviewDialog
+        state={importPreview}
+        loading={importing}
+        onCancel={() => setImportPreview(null)}
+        onConfirm={confirmImport}
+      />
+
+      <ImportReportDialog
+        report={importReport}
+        onClose={() => setImportReport(null)}
+      />
     </div>
   );
 }
@@ -665,3 +699,245 @@ function ResetPasswordDialog({ target, onCancel, onConfirm }) {
     </Dialog>
   );
 }
+
+/* --------- Import preview dialog (2-step confirmation) --------- */
+function ImportPreviewDialog({ state, loading, onCancel, onConfirm }) {
+  const open = !!state;
+  const data = state?.data;
+  const create = data?.to_create || [];
+  const update = data?.to_update || [];
+  const noChanges = data?.no_changes || [];
+  const errors = data?.errors || [];
+  const affected = create.length + update.length;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
+      <DialogContent className="max-w-3xl" data-testid="import-preview-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileSpreadsheet className="h-5 w-5 text-primary" /> Vista previa de la importación
+          </DialogTitle>
+          <DialogDescription>
+            Revisa los cambios antes de confirmar. Los campos vacíos <b>no</b> sobrescriben datos existentes.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-4 gap-2 py-2">
+          <SummaryPill icon={Plus} label="Nuevos" value={create.length} tone="emerald" testid="preview-count-create" />
+          <SummaryPill icon={Pencil} label="Actualizar" value={update.length} tone="amber" testid="preview-count-update" />
+          <SummaryPill icon={CheckCircle2} label="Sin cambios" value={noChanges.length} tone="slate" testid="preview-count-nochange" />
+          <SummaryPill icon={AlertTriangle} label="Errores" value={errors.length} tone="red" testid="preview-count-errors" />
+        </div>
+
+        <Tabs defaultValue="create" className="w-full">
+          <TabsList className="grid grid-cols-4 h-9 rounded-full">
+            <TabsTrigger value="create" data-testid="preview-tab-create" className="rounded-full text-xs">Nuevos ({create.length})</TabsTrigger>
+            <TabsTrigger value="update" data-testid="preview-tab-update" className="rounded-full text-xs">Actualizar ({update.length})</TabsTrigger>
+            <TabsTrigger value="nochange" data-testid="preview-tab-nochange" className="rounded-full text-xs">Sin cambios ({noChanges.length})</TabsTrigger>
+            <TabsTrigger value="errors" data-testid="preview-tab-errors" className="rounded-full text-xs">Errores ({errors.length})</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="create" className="mt-3 max-h-72 overflow-y-auto">
+            {create.length === 0 ? <EmptyRow label="No hay empleados nuevos" /> : (
+              <Table>
+                <TableHeader><TableRow>
+                  <TableHead className="w-14">#</TableHead><TableHead>Email</TableHead>
+                  <TableHead>Nombre</TableHead><TableHead>Rol</TableHead>
+                  <TableHead>Posición</TableHead><TableHead>PIN</TableHead>
+                </TableRow></TableHeader>
+                <TableBody>
+                  {create.map((r) => (
+                    <TableRow key={`c-${r.row}`}>
+                      <TableCell className="text-muted-foreground text-xs">{r.row}</TableCell>
+                      <TableCell className="text-xs">{r.email}</TableCell>
+                      <TableCell className="text-xs">{r.name}</TableCell>
+                      <TableCell className="text-xs">{r.role}</TableCell>
+                      <TableCell className="text-xs">{r.position || "—"}</TableCell>
+                      <TableCell className="text-xs font-mono">{r.kiosk_pin || "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </TabsContent>
+
+          <TabsContent value="update" className="mt-3 max-h-72 overflow-y-auto">
+            {update.length === 0 ? <EmptyRow label="No hay actualizaciones" /> : (
+              <div className="space-y-2">
+                {update.map((r) => (
+                  <div key={`u-${r.row}`} className="rounded-lg border p-2.5 text-xs" data-testid={`preview-update-row-${r.row}`}>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium">{r.name} <span className="text-muted-foreground">· {r.email}</span></span>
+                      <span className="text-muted-foreground">fila {r.row}</span>
+                    </div>
+                    <div className="space-y-0.5">
+                      {Object.entries(r.changes).map(([k, v]) => (
+                        <div key={k} className="flex items-center gap-1.5">
+                          <span className="text-muted-foreground min-w-[100px]">{k}</span>
+                          <span className="text-red-600 line-through">{String(v.from || "—")}</span>
+                          <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                          <span className="text-emerald-700 font-medium">{String(v.to)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="nochange" className="mt-3 max-h-72 overflow-y-auto">
+            {noChanges.length === 0 ? <EmptyRow label="Todas las filas producen cambios" /> : (
+              <ul className="text-xs space-y-1">
+                {noChanges.map((r) => (
+                  <li key={`n-${r.row}`} className="flex items-center gap-2 text-muted-foreground">
+                    <CheckCircle2 className="h-3 w-3 text-slate-400" />
+                    Fila {r.row} · {r.email} · {r.name}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TabsContent>
+
+          <TabsContent value="errors" className="mt-3 max-h-72 overflow-y-auto">
+            {errors.length === 0 ? <EmptyRow label="No se encontraron errores" tone="emerald" /> : (
+              <ul className="space-y-1.5">
+                {errors.map((e, i) => (
+                  <li key={i} className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2 text-xs">
+                    <XCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="font-medium">Fila {e.row}</span>
+                      {e.email && <span className="text-muted-foreground"> · {e.email}</span>}
+                      <p className="text-red-700 mt-0.5">{e.reason}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TabsContent>
+        </Tabs>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={loading} className="rounded-full" data-testid="import-cancel-btn">
+            Cancelar
+          </Button>
+          <Button
+            onClick={onConfirm}
+            disabled={loading || affected === 0}
+            className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground"
+            data-testid="import-confirm-btn"
+          >
+            <CheckCircle2 className="h-4 w-4 mr-1.5" />
+            {loading ? "Aplicando…" : `Confirmar importación (${affected})`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SummaryPill({ icon: Icon, label, value, tone, testid }) {
+  const tones = {
+    emerald: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    amber:   "bg-amber-50 text-amber-700 border-amber-200",
+    slate:   "bg-slate-50 text-slate-700 border-slate-200",
+    red:     "bg-red-50 text-red-700 border-red-200",
+  };
+  return (
+    <div className={"rounded-xl border px-3 py-2 " + tones[tone]} data-testid={testid}>
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide">
+        <Icon className="h-3.5 w-3.5" /> {label}
+      </div>
+      <div className="text-2xl font-bold mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function EmptyRow({ label, tone }) {
+  return (
+    <div className={"text-center text-xs py-6 " + (tone === "emerald" ? "text-emerald-600" : "text-muted-foreground")}>
+      {label}
+    </div>
+  );
+}
+
+/* --------- Import report dialog (after commit) --------- */
+function ImportReportDialog({ report, onClose }) {
+  const open = !!report;
+  if (!report) return null;
+  const hasErrors = (report.errors || []).length > 0;
+
+  function downloadReport() {
+    const lines = [];
+    lines.push(`Importación de empleados — ${new Date().toLocaleString("es-VE", { timeZone: "America/Caracas" })}`);
+    lines.push(`Creados: ${report.created}  ·  Actualizados: ${report.updated}  ·  Errores: ${(report.errors || []).length}`);
+    lines.push("");
+    if ((report.created_emails || []).length) {
+      lines.push("=== NUEVOS ===");
+      (report.created_emails || []).forEach((e) => lines.push(`+ ${e}`));
+      lines.push("");
+    }
+    if ((report.updated_emails || []).length) {
+      lines.push("=== ACTUALIZADOS ===");
+      (report.updated_emails || []).forEach((e) => lines.push(`~ ${e}`));
+      lines.push("");
+    }
+    if (hasErrors) {
+      lines.push("=== ERRORES ===");
+      (report.errors || []).forEach((e) => lines.push(`✗ Fila ${e.row}${e.email ? " (" + e.email + ")" : ""}: ${e.reason}`));
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `import_report_${Date.now()}.txt`;
+    a.click();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-2xl" data-testid="import-report-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {hasErrors
+              ? <AlertTriangle className="h-5 w-5 text-amber-500" />
+              : <CheckCircle2 className="h-5 w-5 text-emerald-600" />}
+            Reporte de importación
+          </DialogTitle>
+          <DialogDescription>Resumen de los cambios aplicados en la base de datos.</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid grid-cols-3 gap-2">
+          <SummaryPill icon={Plus} label="Creados" value={report.created} tone="emerald" testid="report-created" />
+          <SummaryPill icon={Pencil} label="Actualizados" value={report.updated} tone="amber" testid="report-updated" />
+          <SummaryPill icon={AlertTriangle} label="Errores" value={(report.errors || []).length} tone={hasErrors ? "red" : "slate"} testid="report-errors" />
+        </div>
+
+        {hasErrors && (
+          <div className="max-h-64 overflow-y-auto space-y-1.5 mt-2">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">Errores</p>
+            <ul className="space-y-1.5">
+              {(report.errors || []).map((e, i) => (
+                <li key={i} className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-2 text-xs">
+                  <XCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="font-medium">Fila {e.row}</span>
+                    {e.email && <span className="text-muted-foreground"> · {e.email}</span>}
+                    <p className="text-red-700 mt-0.5">{e.reason}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={downloadReport} className="rounded-full" data-testid="import-download-report">
+            <Download className="h-4 w-4 mr-1.5" /> Descargar reporte
+          </Button>
+          <Button onClick={onClose} className="rounded-full" data-testid="import-report-close">Cerrar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+

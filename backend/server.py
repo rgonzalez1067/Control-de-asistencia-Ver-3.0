@@ -638,6 +638,93 @@ async def users_import_template(_: Dict[str, Any] = Depends(require_roles("admin
     )
 
 
+@api.post("/users/import/preview")
+async def users_import_preview(file: UploadFile = File(...),
+                               _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    """Analiza el Excel sin escribir en BD. Retorna qué filas se crearían,
+       cuáles se actualizarían (con los campos que cambiarían) y los errores."""
+    from openpyxl import load_workbook
+    raw = await file.read()
+    try:
+        wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Archivo Excel inválido: {e}") from None
+    ws = wb["Empleados"] if "Empleados" in wb.sheetnames else wb.active
+
+    rows = ws.iter_rows(values_only=True)
+    try:
+        headers_row = next(rows)
+    except StopIteration:
+        raise HTTPException(status_code=400, detail="La hoja está vacía") from None
+    headers = [(str(h).strip().lower() if h is not None else "") for h in headers_row]
+    if not {"email", "name"}.issubset(set(headers)):
+        raise HTTPException(status_code=400, detail="Faltan columnas obligatorias: email, name")
+
+    def _get(row, key):
+        try:
+            idx = headers.index(key)
+        except ValueError:
+            return None
+        if idx >= len(row):
+            return None
+        val = row[idx]
+        if val is None:
+            return None
+        s = str(val).strip()
+        return s if s else None
+
+    to_create: List[Dict[str, Any]] = []
+    to_update: List[Dict[str, Any]] = []
+    errors: List[Dict[str, Any]] = []
+
+    for i, row in enumerate(rows, start=2):
+        if row is None or all(v is None for v in row):
+            continue
+        email = (_get(row, "email") or "").lower()
+        name = _get(row, "name")
+        if not email or not name:
+            errors.append({"row": i, "email": email or None, "reason": "email/name requerido"})
+            continue
+
+        candidate = {
+            "email": email,
+            "name": name,
+            "cedula": _get(row, "cedula"),
+            "role": _get(row, "role"),
+            "position": _get(row, "position"),
+            "department_id": _get(row, "department_id"),
+            "site_id": _get(row, "site_id"),
+            "supervisor_id": _get(row, "supervisor_id"),
+            "schedule_id": _get(row, "schedule_id"),
+            "kiosk_pin": _get(row, "kiosk_pin"),
+        }
+        existing = await db.users.find_one({"email": email})
+        if not existing:
+            to_create.append({"row": i, **candidate,
+                              "role": candidate["role"] or "employee"})
+        else:
+            # Calcula qué campos cambiarían (sólo los que traen valor y difieren)
+            changes = {}
+            for k, v in candidate.items():
+                if v is None:
+                    continue
+                if str(existing.get(k) or "") != str(v):
+                    changes[k] = {"from": existing.get(k), "to": v}
+            if changes:
+                to_update.append({"row": i, "email": email, "name": name, "changes": changes})
+            else:
+                # Sin cambios reales, no lo listamos como update
+                to_update.append({"row": i, "email": email, "name": name, "changes": {}, "no_op": True})
+
+    return {
+        "total_rows": len(to_create) + len(to_update) + len(errors),
+        "to_create": to_create,
+        "to_update": [u for u in to_update if not u.get("no_op")],
+        "no_changes": [u for u in to_update if u.get("no_op")],
+        "errors": errors,
+    }
+
+
 @api.post("/users/import")
 async def users_import(file: UploadFile = File(...),
                        _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
@@ -682,6 +769,8 @@ async def users_import(file: UploadFile = File(...),
         return s if s else None
 
     created, updated, errors = 0, 0, []
+    created_list: List[str] = []
+    updated_list: List[str] = []
     for i, row in enumerate(rows, start=2):
         if row is None or all(v is None for v in row):
             continue
@@ -689,7 +778,7 @@ async def users_import(file: UploadFile = File(...),
             email = (_get(row, "email") or "").lower()
             name = _get(row, "name")
             if not email or not name:
-                errors.append(f"Fila {i}: email/name requerido")
+                errors.append({"row": i, "email": email or None, "reason": "email/name requerido"})
                 continue
 
             payload_fields = {
@@ -712,6 +801,7 @@ async def users_import(file: UploadFile = File(...),
                 if set_fields:
                     await db.users.update_one({"email": email}, {"$set": set_fields})
                 updated += 1
+                updated_list.append(email)
             else:
                 pw = _get(row, "password") or secrets.token_urlsafe(8)
                 doc = {
@@ -732,9 +822,16 @@ async def users_import(file: UploadFile = File(...),
                 }
                 await db.users.insert_one(doc)
                 created += 1
+                created_list.append(email)
         except Exception as e:  # noqa: BLE001
-            errors.append(f"Fila {i}: {e}")
-    return {"created": created, "updated": updated, "errors": errors}
+            errors.append({"row": i, "email": None, "reason": str(e)})
+    return {
+        "created": created,
+        "updated": updated,
+        "created_emails": created_list,
+        "updated_emails": updated_list,
+        "errors": errors,
+    }
 
 
 # ==================================================================
