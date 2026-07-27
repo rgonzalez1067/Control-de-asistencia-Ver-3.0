@@ -682,6 +682,8 @@ async def users_import_preview(file: UploadFile = File(...),
             continue
         email = (_get(row, "email") or "").lower()
         name = _get(row, "name")
+        if name:
+            name = name.upper()  # Enforzar mayúsculas en el nombre
         if not email or not name:
             errors.append({"row": i, "email": email or None, "reason": "email/name requerido"})
             continue
@@ -777,6 +779,8 @@ async def users_import(file: UploadFile = File(...),
         try:
             email = (_get(row, "email") or "").lower()
             name = _get(row, "name")
+            if name:
+                name = name.upper()  # Enforzar mayúsculas en el nombre
             if not email or not name:
                 errors.append({"row": i, "email": email or None, "reason": "email/name requerido"})
                 continue
