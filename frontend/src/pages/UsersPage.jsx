@@ -30,7 +30,7 @@ import { toast } from "sonner";
 import {
   Search, Plus, MoreVertical, Pencil, Trash2, KeyRound, Upload,
   Download, ShieldCheck, BadgeCheck, CircleUserRound, Image as ImageIcon, UserCircle2, Camera,
-  FileSpreadsheet, AlertTriangle, CheckCircle2, XCircle, ArrowRight,
+  FileSpreadsheet, AlertTriangle, CheckCircle2, XCircle, ArrowRight, RefreshCw,
 } from "lucide-react";
 import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 import SetPinDialog from "@/components/SetPinDialog";
@@ -706,8 +706,9 @@ function ImportPreviewDialog({ state, loading, onCancel, onConfirm }) {
   const data = state?.data;
   const create = data?.to_create || [];
   const update = data?.to_update || [];
-  const noChanges = data?.no_changes || [];
   const errors = data?.errors || [];
+  const withDiff = update.filter((u) => u.changes && Object.keys(u.changes).length > 0);
+  const forceOnly = update.filter((u) => !u.changes || Object.keys(u.changes).length === 0);
   const affected = create.length + update.length;
 
   return (
@@ -718,22 +719,20 @@ function ImportPreviewDialog({ state, loading, onCancel, onConfirm }) {
             <FileSpreadsheet className="h-5 w-5 text-primary" /> Vista previa de la importación
           </DialogTitle>
           <DialogDescription>
-            Revisa los cambios antes de confirmar. Los campos vacíos <b>no</b> sobrescriben datos existentes.
+            Revisa los cambios antes de confirmar. El campo <b>nombre</b> se reescribe siempre en MAYÚSCULAS aunque no aparezcan diferencias visibles.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-4 gap-2 py-2">
+        <div className="grid grid-cols-3 gap-2 py-2">
           <SummaryPill icon={Plus} label="Nuevos" value={create.length} tone="emerald" testid="preview-count-create" />
-          <SummaryPill icon={Pencil} label="Actualizar" value={update.length} tone="amber" testid="preview-count-update" />
-          <SummaryPill icon={CheckCircle2} label="Sin cambios" value={noChanges.length} tone="slate" testid="preview-count-nochange" />
+          <SummaryPill icon={Pencil} label="A actualizar" value={update.length} tone="amber" testid="preview-count-update" />
           <SummaryPill icon={AlertTriangle} label="Errores" value={errors.length} tone="red" testid="preview-count-errors" />
         </div>
 
         <Tabs defaultValue="create" className="w-full">
-          <TabsList className="grid grid-cols-4 h-9 rounded-full">
+          <TabsList className="grid grid-cols-3 h-9 rounded-full">
             <TabsTrigger value="create" data-testid="preview-tab-create" className="rounded-full text-xs">Nuevos ({create.length})</TabsTrigger>
             <TabsTrigger value="update" data-testid="preview-tab-update" className="rounded-full text-xs">Actualizar ({update.length})</TabsTrigger>
-            <TabsTrigger value="nochange" data-testid="preview-tab-nochange" className="rounded-full text-xs">Sin cambios ({noChanges.length})</TabsTrigger>
             <TabsTrigger value="errors" data-testid="preview-tab-errors" className="rounded-full text-xs">Errores ({errors.length})</TabsTrigger>
           </TabsList>
 
@@ -750,7 +749,7 @@ function ImportPreviewDialog({ state, loading, onCancel, onConfirm }) {
                     <TableRow key={`c-${r.row}`}>
                       <TableCell className="text-muted-foreground text-xs">{r.row}</TableCell>
                       <TableCell className="text-xs">{r.email}</TableCell>
-                      <TableCell className="text-xs">{r.name}</TableCell>
+                      <TableCell className="text-xs font-medium">{r.name}</TableCell>
                       <TableCell className="text-xs">{r.role}</TableCell>
                       <TableCell className="text-xs">{r.position || "—"}</TableCell>
                       <TableCell className="text-xs font-mono">{r.kiosk_pin || "—"}</TableCell>
@@ -761,41 +760,54 @@ function ImportPreviewDialog({ state, loading, onCancel, onConfirm }) {
             )}
           </TabsContent>
 
-          <TabsContent value="update" className="mt-3 max-h-72 overflow-y-auto">
+          <TabsContent value="update" className="mt-3 max-h-72 overflow-y-auto space-y-2">
             {update.length === 0 ? <EmptyRow label="No hay actualizaciones" /> : (
-              <div className="space-y-2">
-                {update.map((r) => (
-                  <div key={`u-${r.row}`} className="rounded-lg border p-2.5 text-xs" data-testid={`preview-update-row-${r.row}`}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-medium">{r.name} <span className="text-muted-foreground">· {r.email}</span></span>
-                      <span className="text-muted-foreground">fila {r.row}</span>
-                    </div>
-                    <div className="space-y-0.5">
-                      {Object.entries(r.changes).map(([k, v]) => (
-                        <div key={k} className="flex items-center gap-1.5">
-                          <span className="text-muted-foreground min-w-[100px]">{k}</span>
-                          <span className="text-red-600 line-through">{String(v.from || "—")}</span>
-                          <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                          <span className="text-emerald-700 font-medium">{String(v.to)}</span>
+              <>
+                {withDiff.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[10px] uppercase tracking-wide text-amber-600 font-medium">
+                      Con cambios detectados ({withDiff.length})
+                    </p>
+                    {withDiff.map((r) => (
+                      <div key={`u-${r.row}`} className="rounded-lg border border-amber-200 bg-amber-50/50 p-2.5 text-xs" data-testid={`preview-update-row-${r.row}`}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-medium">{r.name} <span className="text-muted-foreground">· {r.email}</span></span>
+                          <span className="text-muted-foreground">fila {r.row}</span>
                         </div>
-                      ))}
-                    </div>
+                        <div className="space-y-0.5">
+                          {Object.entries(r.changes).map(([k, v]) => (
+                            <div key={k} className="flex items-center gap-1.5">
+                              <span className="text-muted-foreground min-w-[100px]">{k}</span>
+                              <span className="text-red-600 line-through">{String(v.from || "—")}</span>
+                              <ArrowRight className="h-3 w-3 text-muted-foreground" />
+                              <span className="text-emerald-700 font-medium">{String(v.to)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
-          </TabsContent>
+                )}
 
-          <TabsContent value="nochange" className="mt-3 max-h-72 overflow-y-auto">
-            {noChanges.length === 0 ? <EmptyRow label="Todas las filas producen cambios" /> : (
-              <ul className="text-xs space-y-1">
-                {noChanges.map((r) => (
-                  <li key={`n-${r.row}`} className="flex items-center gap-2 text-muted-foreground">
-                    <CheckCircle2 className="h-3 w-3 text-slate-400" />
-                    Fila {r.row} · {r.email} · {r.name}
-                  </li>
-                ))}
-              </ul>
+                {forceOnly.length > 0 && (
+                  <div className="space-y-1 mt-3">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 font-medium">
+                      Reescritura del nombre en mayúsculas ({forceOnly.length})
+                    </p>
+                    <ul className="text-xs space-y-0.5 max-h-40 overflow-y-auto rounded-lg border bg-slate-50/50 p-2">
+                      {forceOnly.map((r) => (
+                        <li key={`f-${r.row}`} className="flex items-center gap-2">
+                          <RefreshCw className="h-3 w-3 text-slate-400" />
+                          <span className="text-muted-foreground">Fila {r.row}</span>
+                          <span>·</span>
+                          <span className="font-medium">{r.name}</span>
+                          <span className="text-muted-foreground">· {r.email}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
             )}
           </TabsContent>
 

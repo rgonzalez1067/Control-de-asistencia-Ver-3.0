@@ -705,24 +705,26 @@ async def users_import_preview(file: UploadFile = File(...),
             to_create.append({"row": i, **candidate,
                               "role": candidate["role"] or "employee"})
         else:
-            # Calcula qué campos cambiarían (sólo los que traen valor y difieren)
+            # Calcula qué campos cambiarían (case-sensitive: ideal para detectar
+            # cambios de mayúsculas/minúsculas en el nombre).
             changes = {}
             for k, v in candidate.items():
                 if v is None:
                     continue
                 if str(existing.get(k) or "") != str(v):
                     changes[k] = {"from": existing.get(k), "to": v}
-            if changes:
-                to_update.append({"row": i, "email": email, "name": name, "changes": changes})
-            else:
-                # Sin cambios reales, no lo listamos como update
-                to_update.append({"row": i, "email": email, "name": name, "changes": {}, "no_op": True})
+            # Todo registro existente se marca para actualizar (aunque no haya diffs)
+            # porque siempre reescribimos el "name" para garantizar mayúsculas.
+            to_update.append({
+                "row": i, "email": email, "name": name,
+                "changes": changes,
+                "will_force_name": not changes,   # marca informativa
+            })
 
     return {
         "total_rows": len(to_create) + len(to_update) + len(errors),
         "to_create": to_create,
-        "to_update": [u for u in to_update if not u.get("no_op")],
-        "no_changes": [u for u in to_update if u.get("no_op")],
+        "to_update": to_update,
         "errors": errors,
     }
 
