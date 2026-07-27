@@ -235,6 +235,7 @@ class ScheduleIn(BaseModel):
     name: str
     blocks: List[ScheduleBlock]
     tolerance_minutes: int = 10
+    justification_tolerance_minutes: int = 20
     site_id: Optional[str] = None
 
 
@@ -310,6 +311,13 @@ async def on_startup() -> None:
     await db.user_sessions.create_index("session_token", unique=True)
     await db.user_sessions.create_index("user_id")
     await db.user_sessions.create_index("expires_at", expireAfterSeconds=0)
+
+    # Backfill: schedules sin ventana de justificación → default 20 min.
+    await db.schedules.update_many(
+        {"$or": [{"justification_tolerance_minutes": {"$exists": False}},
+                 {"justification_tolerance_minutes": None}]},
+        {"$set": {"justification_tolerance_minutes": 20}},
+    )
 
     # Admin bootstrap (idempotent) — no toca hash existente si ya valida
     admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
@@ -933,8 +941,13 @@ async def _register_attendance(user: Dict[str, Any], type_: str,
     # Geocerca deshabilitada — la ubicación se registra sólo con fines de auditoría.
     within = None
 
-    # Cálculo de tardanza (solo para "in")
+    # Cálculo de tardanza (solo para "in") — clasificación dual
+    #   • on_time     → dentro de tolerancia general
+    #   • late_minor  → excede tolerancia general, dentro de la ventana de justificación
+    #   • late_major  → excede ambas tolerancias (obligatorio justificar)
     is_late, late_min = False, 0
+    late_severity = "on_time"
+    requires_justification = False
     if type_ == "in" and user.get("schedule_id"):
         sched = await db.schedules.find_one({"schedule_id": user["schedule_id"]})
         if sched and sched.get("blocks"):
@@ -942,11 +955,17 @@ async def _register_attendance(user: Dict[str, Any], type_: str,
             first_block = sched["blocks"][0]
             hh, mm = map(int, first_block["start"].split(":"))
             expected = local_now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-            tolerance = int(sched.get("tolerance_minutes", 10))
+            tol_general = int(sched.get("tolerance_minutes", 10))
+            tol_justif = int(sched.get("justification_tolerance_minutes", 20))
             delta = int((local_now - expected).total_seconds() // 60)
-            if delta > tolerance:
+            if delta > tol_general:
                 is_late = True
                 late_min = delta
+                if delta > (tol_general + tol_justif):
+                    late_severity = "late_major"
+                    requires_justification = True
+                else:
+                    late_severity = "late_minor"
 
     doc = {
         "record_id": new_id("att", 12),
@@ -959,6 +978,8 @@ async def _register_attendance(user: Dict[str, Any], type_: str,
         "within_geofence": within,
         "is_late": is_late,
         "late_minutes": late_min,
+        "late_severity": late_severity,
+        "requires_justification": requires_justification,
         "justification": None,
         "method": method,
     }
@@ -1015,7 +1036,10 @@ async def attendance_justify(payload: JustifyIn,
     query = {"record_id": payload.record_id}
     if user["role"] not in {"admin", "supervisor"}:
         query["user_id"] = user["user_id"]
-    res = await db.attendance.update_one(query, {"$set": {"justification": payload.justification}})
+    res = await db.attendance.update_one(
+        query,
+        {"$set": {"justification": payload.justification, "requires_justification": False}},
+    )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Registro no encontrado")
     return {"ok": True}
@@ -1106,9 +1130,16 @@ async def stats_executive(days: int = 30,
     per_dept_total: Dict[str, int] = {}
     total_ins = 0
     total_late = 0
+    total_late_minor = 0
+    total_late_major = 0
+    total_late_major_pending = 0
     total_late_minutes = 0
 
-    async for r in db.attendance.find(q, {"user_id": 1, "is_late": 1, "late_minutes": 1, "_id": 0}):
+    async for r in db.attendance.find(
+        q,
+        {"user_id": 1, "is_late": 1, "late_minutes": 1, "late_severity": 1,
+         "requires_justification": 1, "justification": 1, "_id": 0},
+    ):
         total_ins += 1
         uid = r.get("user_id")
         user = users.get(uid, {})
@@ -1117,6 +1148,13 @@ async def stats_executive(days: int = 30,
         if r.get("is_late"):
             total_late += 1
             total_late_minutes += int(r.get("late_minutes") or 0)
+            sev = r.get("late_severity") or ("late_major" if int(r.get("late_minutes") or 0) > 30 else "late_minor")
+            if sev == "late_major":
+                total_late_major += 1
+                if r.get("requires_justification") and not r.get("justification"):
+                    total_late_major_pending += 1
+            else:
+                total_late_minor += 1
             u = per_user.setdefault(uid, {
                 "user_id": uid,
                 "name": user.get("name", uid),
@@ -1152,6 +1190,9 @@ async def stats_executive(days: int = 30,
         "generated_at": now_utc().isoformat(),
         "total_check_ins": total_ins,
         "total_late": total_late,
+        "total_late_minor": total_late_minor,
+        "total_late_major": total_late_major,
+        "total_late_major_pending": total_late_major_pending,
         "late_pct": round((total_late / total_ins) * 100, 1) if total_ins else 0,
         "avg_late_minutes": round(total_late_minutes / total_late, 1) if total_late else 0,
         "top_late": top_late,
@@ -1167,6 +1208,13 @@ async def stats_dashboard(_: Dict[str, Any] = Depends(require_roles("admin", "su
     start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     today_in = await db.attendance.count_documents({"timestamp": {"$gte": start}, "type": "in"})
     today_late = await db.attendance.count_documents({"timestamp": {"$gte": start}, "type": "in", "is_late": True})
+    today_late_major_pending = await db.attendance.count_documents({
+        "timestamp": {"$gte": start},
+        "type": "in",
+        "late_severity": "late_major",
+        "requires_justification": True,
+        "$or": [{"justification": None}, {"justification": ""}],
+    })
     pending_nov = await db.novelties.count_documents({"status": "pending"})
     # attendance last 7 days
     series = []
@@ -1182,6 +1230,7 @@ async def stats_dashboard(_: Dict[str, Any] = Depends(require_roles("admin", "su
         "onboarded_users": onboarded,
         "check_ins_today": today_in,
         "late_today": today_late,
+        "late_major_pending": today_late_major_pending,
         "pending_novelties": pending_nov,
         "series_7d": series,
     }
@@ -1217,7 +1266,8 @@ async def reports_export(from_date: Optional[str] = Query(None),
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["record_id", "user_id", "name", "cedula", "type", "timestamp_utc",
-                "timestamp_local", "site_id", "within_geofence", "is_late", "late_minutes", "justification"])
+                "timestamp_local", "site_id", "within_geofence", "is_late", "late_minutes",
+                "late_severity", "requires_justification", "justification"])
     async for r in db.attendance.find(q).sort("timestamp", -1):
         u = users.get(r.get("user_id"), {})
         ts = r.get("timestamp")
@@ -1230,6 +1280,7 @@ async def reports_export(from_date: Optional[str] = Query(None),
         w.writerow([r.get("record_id"), r.get("user_id"), u.get("name"), u.get("cedula"),
                     r.get("type"), ts_utc, ts_local, r.get("site_id"),
                     r.get("within_geofence"), r.get("is_late"), r.get("late_minutes"),
+                    r.get("late_severity") or "", r.get("requires_justification") or False,
                     r.get("justification") or ""])
     buf.seek(0)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",

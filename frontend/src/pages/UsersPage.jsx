@@ -48,6 +48,7 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
+  const [deptFilter, setDeptFilter] = useState("all");
   const [departments, setDepartments] = useState([]);
   const [sites, setSites] = useState([]);
   const [schedules, setSchedules] = useState([]);
@@ -94,6 +95,13 @@ export default function UsersPage() {
     const needle = q.trim().toLowerCase();
     return users.filter((u) => {
       if (roleFilter !== "all" && u.role !== roleFilter) return false;
+      if (deptFilter !== "all") {
+        if (deptFilter === "__none") {
+          if (u.department_id) return false;
+        } else if (u.department_id !== deptFilter) {
+          return false;
+        }
+      }
       if (!needle) return true;
       return (
         (u.name || "").toLowerCase().includes(needle) ||
@@ -101,7 +109,7 @@ export default function UsersPage() {
         (u.cedula || "").toLowerCase().includes(needle)
       );
     });
-  }, [users, q, roleFilter]);
+  }, [users, q, roleFilter, deptFilter]);
 
   async function saveUser(form) {
     try {
@@ -284,7 +292,7 @@ export default function UsersPage() {
             />
           </div>
           <Select value={roleFilter} onValueChange={setRoleFilter}>
-            <SelectTrigger className="w-[180px] h-10" data-testid="users-role-filter">
+            <SelectTrigger className="w-[160px] h-10" data-testid="users-role-filter">
               <SelectValue placeholder="Rol" />
             </SelectTrigger>
             <SelectContent>
@@ -292,6 +300,18 @@ export default function UsersPage() {
               <SelectItem value="admin">Admin</SelectItem>
               <SelectItem value="supervisor">Supervisor</SelectItem>
               <SelectItem value="employee">Empleado</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={deptFilter} onValueChange={setDeptFilter}>
+            <SelectTrigger className="w-[200px] h-10" data-testid="users-dept-filter">
+              <SelectValue placeholder="Departamento" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos los departamentos</SelectItem>
+              <SelectItem value="__none">Sin departamento</SelectItem>
+              {departments.map((d) => (
+                <SelectItem key={d.department_id} value={d.department_id}>{d.name}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground ml-auto">

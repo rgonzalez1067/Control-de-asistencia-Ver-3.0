@@ -78,22 +78,31 @@ export default function TeamPage() {
   // Matrix por día (columna) y usuario (fila) — muestra estado del día
   const dayList = useMemo(() => daysBackList(Number(days)), [days]);
   const matrix = useMemo(() => {
-    // For each user: { user, days: {'2026-07-22': {first_in, last_out, late}} }
+    // For each user: { user, days: {'2026-07-22': {first_in, last_out, late, severity, needs_justif}} }
     return teamMembers.map((m) => {
       const byDay = {};
       for (const d of dayList) {
         const key = d.toLocaleDateString("en-CA", { timeZone: TZ });
-        byDay[key] = { key, ins: [], outs: [], is_late: false, late_minutes: 0 };
+        byDay[key] = { key, ins: [], outs: [], is_late: false, late_minutes: 0, severity: "on_time", needs_justif: false, records: [] };
       }
       const userRecs = teamRecords.filter((r) => r.user_id === m.user_id);
       for (const r of userRecs) {
         const key = new Date(r.timestamp).toLocaleDateString("en-CA", { timeZone: TZ });
         if (!byDay[key]) continue;
+        byDay[key].records.push(r);
         if (r.type === "in") {
           byDay[key].ins.push(new Date(r.timestamp));
           if (r.is_late) {
             byDay[key].is_late = true;
             byDay[key].late_minutes = Math.max(byDay[key].late_minutes, r.late_minutes || 0);
+            const sev = r.late_severity || "late_minor";
+            // late_major wins over late_minor
+            if (sev === "late_major" || byDay[key].severity !== "late_major") {
+              byDay[key].severity = sev;
+            }
+            if (r.requires_justification && !r.justification) {
+              byDay[key].needs_justif = true;
+            }
           }
         } else {
           byDay[key].outs.push(new Date(r.timestamp));
@@ -199,18 +208,30 @@ export default function TeamPage() {
                           {!hasAny && (
                             <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/25" title="Sin marca" />
                           )}
-                          {hasAny && (
-                            <div className={"inline-block rounded-lg px-2 py-1 " + (cell.is_late ? "bg-amber-100" : "bg-emerald-50")}>
-                              <div className="text-[11px] font-mono text-foreground">
-                                {firstIn ? dfTime.format(firstIn) : "—"} / {lastOut ? dfTime.format(lastOut) : "—"}
-                              </div>
-                              {cell.is_late && (
-                                <div className="text-[9px] text-amber-800 flex items-center justify-center gap-0.5">
-                                  <AlertTriangle className="h-2.5 w-2.5" /> {cell.late_minutes}m tarde
+                          {hasAny && (() => {
+                            const isMajor = cell.severity === "late_major";
+                            const isMinor = cell.severity === "late_minor";
+                            const needsJ = cell.needs_justif;
+                            const bg = isMajor
+                              ? (needsJ ? "bg-red-100 ring-1 ring-red-300" : "bg-red-50")
+                              : isMinor ? "bg-amber-100" : "bg-emerald-50";
+                            const textColor = isMajor ? "text-red-800" : "text-amber-800";
+                            return (
+                              <div className={"inline-block rounded-lg px-2 py-1 " + bg}
+                                   title={needsJ ? "Requiere justificación del supervisor" : undefined}>
+                                <div className="text-[11px] font-mono text-foreground">
+                                  {firstIn ? dfTime.format(firstIn) : "—"} / {lastOut ? dfTime.format(lastOut) : "—"}
                                 </div>
-                              )}
-                            </div>
-                          )}
+                                {cell.is_late && (
+                                  <div className={"text-[9px] flex items-center justify-center gap-0.5 " + textColor}>
+                                    <AlertTriangle className="h-2.5 w-2.5" />
+                                    {cell.late_minutes}m {isMajor ? "· mayor" : "leve"}
+                                    {needsJ && <span className="ml-0.5">!</span>}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                       );
                     })}
@@ -221,6 +242,21 @@ export default function TeamPage() {
           </div>
         </CardContent>
       </Card>
+
+      <div className="flex flex-wrap items-center justify-center gap-3 text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-3 rounded-sm bg-emerald-50 border border-emerald-200" /> A tiempo
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-3 rounded-sm bg-amber-100 border border-amber-300" /> Retraso leve
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-3 rounded-sm bg-red-100 border border-red-300" /> Retraso mayor
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <AlertTriangle className="h-3 w-3 text-red-500" /> Requiere justificar
+        </span>
+      </div>
 
       <p className="text-[11px] text-muted-foreground text-center">
         <UserCircle2 className="h-3 w-3 inline mr-1" />

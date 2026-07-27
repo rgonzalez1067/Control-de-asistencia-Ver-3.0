@@ -25,7 +25,7 @@ export default function DashboardHome() {
     return [
       { icon: Users2, label: "Empleados", value: stats.total_users, hint: `${stats.onboarded_users} con rostro registrado`, tint: "text-foreground" },
       { icon: Clock3, label: "Marcas de entrada hoy", value: stats.check_ins_today, hint: "check-ins registrados", tint: "text-emerald-600" },
-      { icon: AlertTriangle, label: "Tarde hoy", value: stats.late_today, hint: "fuera de tolerancia", tint: "text-amber-600" },
+      { icon: AlertTriangle, label: "Tarde hoy", value: stats.late_today, hint: (stats.late_major_pending ?? 0) > 0 ? `${stats.late_major_pending} sin justificar` : "fuera de tolerancia", tint: (stats.late_major_pending ?? 0) > 0 ? "text-red-600" : "text-amber-600" },
       { icon: Inbox, label: "Novedades pendientes", value: stats.pending_novelties, hint: "esperando decisión", tint: "text-fuchsia-600" },
     ];
   }, [stats]);

@@ -19,7 +19,7 @@ import {
 import { toast } from "sonner";
 import { CalendarClock, Plus, Pencil, Trash2, Timer, MapPin } from "lucide-react";
 
-const EMPTY = { name: "", blocks: [{ start: "09:00", end: "17:00" }], tolerance_minutes: 10, site_id: "" };
+const EMPTY = { name: "", blocks: [{ start: "09:00", end: "17:00" }], tolerance_minutes: 10, justification_tolerance_minutes: 20, site_id: "" };
 
 export default function SchedulesPage() {
   const [items, setItems] = useState([]);
@@ -48,6 +48,7 @@ export default function SchedulesPage() {
       name: form.name,
       blocks: form.blocks,
       tolerance_minutes: Number(form.tolerance_minutes) || 0,
+      justification_tolerance_minutes: Number(form.justification_tolerance_minutes) || 0,
       site_id: form.site_id || undefined,
     };
     try {
@@ -121,9 +122,15 @@ export default function SchedulesPage() {
                 ))}
               </div>
 
-              <div className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Timer className="h-3.5 w-3.5" />
-                Tolerancia: <b className="text-foreground">{s.tolerance_minutes} min</b>
+              <div className="mt-4 space-y-1 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <Timer className="h-3.5 w-3.5" />
+                  Tolerancia general: <b className="text-foreground">{s.tolerance_minutes} min</b>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Timer className="h-3.5 w-3.5" />
+                  Ventana justificación: <b className="text-foreground">{s.justification_tolerance_minutes ?? 20} min</b>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -197,10 +204,16 @@ function ScheduleDialog({ state, sites, onCancel, onSave }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
-              <Label>Tolerancia (min)</Label>
+              <Label>Tolerancia general (min)</Label>
               <Input type="number" min="0" max="120" value={form.tolerance_minutes ?? 10} onChange={(e) => setForm((f) => ({ ...f, tolerance_minutes: e.target.value }))} data-testid="schedules-form-tol" />
+              <p className="text-[10px] text-muted-foreground leading-tight">Margen antes de marcar tardanza.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Justif. (min)</Label>
+              <Input type="number" min="0" max="240" value={form.justification_tolerance_minutes ?? 20} onChange={(e) => setForm((f) => ({ ...f, justification_tolerance_minutes: e.target.value }))} data-testid="schedules-form-tol-justif" />
+              <p className="text-[10px] text-muted-foreground leading-tight">Al superarla, el supervisor debe justificar.</p>
             </div>
             <div className="space-y-1.5">
               <Label>Sede</Label>

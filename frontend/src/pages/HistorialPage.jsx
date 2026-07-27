@@ -164,11 +164,19 @@ export default function HistorialPage() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      {r.is_late ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-amber-700">
-                          <AlertTriangle className="h-3 w-3" /> Tarde · {r.late_minutes} min
-                        </span>
-                      ) : r.type === "in" ? (
+                      {r.is_late ? (() => {
+                        const isMajor = r.late_severity === "late_major";
+                        const cls = isMajor
+                          ? "bg-red-100 text-red-800"
+                          : "bg-amber-100 text-amber-800";
+                        const label = isMajor ? "Retraso mayor" : "Retraso leve";
+                        return (
+                          <span className={"inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium " + cls}>
+                            <AlertTriangle className="h-3 w-3" /> {label} · {r.late_minutes}m
+                            {r.requires_justification && !r.justification && <span className="ml-0.5 font-bold">!</span>}
+                          </span>
+                        );
+                      })() : r.type === "in" ? (
                         <span className="text-[11px] text-emerald-700">A tiempo</span>
                       ) : (
                         <span className="text-[11px] text-muted-foreground">—</span>
