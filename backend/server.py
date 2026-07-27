@@ -564,54 +564,177 @@ async def users_get_photo(user_id: str,
 
 @api.get("/users/import/template")
 async def users_import_template(_: Dict[str, Any] = Depends(require_roles("admin"))) -> StreamingResponse:
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(["email", "name", "cedula", "role", "position",
-                     "department_id", "site_id", "supervisor_id", "schedule_id", "password"])
-    writer.writerow(["jperez@empresa.com", "Juan Perez", "12345678", "employee",
-                     "Analista", "", "", "", "", "temporal123"])
+    """Genera un Excel .xlsx con 2 pestañas:
+       • Empleados  → cabeceras vacías, listas para llenar
+       • Ejemplos   → filas de referencia con casos típicos
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    wb = Workbook()
+
+    headers = [
+        "email", "name", "cedula", "role", "position",
+        "department_id", "site_id", "supervisor_id", "schedule_id",
+        "password", "kiosk_pin",
+    ]
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1F2937")
+    header_align = Alignment(horizontal="center", vertical="center")
+
+    ws1 = wb.active
+    ws1.title = "Empleados"
+    ws1.append(headers)
+    for i, _c in enumerate(headers, start=1):
+        cell = ws1.cell(row=1, column=i)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        ws1.column_dimensions[cell.column_letter].width = max(14, len(_c) + 4)
+    ws1.freeze_panes = "A2"
+
+    ws2 = wb.create_sheet("Ejemplos")
+    ws2.append(headers)
+    for i, _c in enumerate(headers, start=1):
+        cell = ws2.cell(row=1, column=i)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+        ws2.column_dimensions[cell.column_letter].width = max(14, len(_c) + 4)
+    ws2.freeze_panes = "A2"
+
+    ejemplos = [
+        ["jperez@empresa.com", "Juan Pérez", "12345678", "employee",
+         "Analista", "", "", "", "", "Temporal2026*", "1234"],
+        ["mrodriguez@empresa.com", "María Rodríguez", "23456789", "supervisor",
+         "Coordinadora", "", "", "", "", "", "5678"],
+        ["cgomez@empresa.com", "Carlos Gómez", "34567890", "employee",
+         "Técnico Soporte", "", "", "user_abc123", "sched_xyz789", "", ""],
+    ]
+    for row in ejemplos:
+        ws2.append(row)
+
+    # Nota / leyenda al pie de la pestaña Ejemplos
+    ws2.append([])
+    ws2.append(["NOTAS:"])
+    ws2["A" + str(ws2.max_row)].font = Font(bold=True, color="B45309")
+    notas = [
+        "• Sólo email y name son obligatorios. El resto puede ir vacío.",
+        "• role: employee | supervisor | admin (default: employee).",
+        "• Si el email ya existe → se ACTUALIZAN sólo los campos con valor (no sobrescribe con vacío).",
+        "• Si el email NO existe → se INSERTA un nuevo empleado.",
+        "• password: sólo se aplica al crear. Si se omite, se genera uno aleatorio.",
+        "• kiosk_pin: 4 dígitos numéricos para el modo kiosco (marca con PIN).",
+    ]
+    for n in notas:
+        ws2.append([n])
+
+    buf = io.BytesIO()
+    wb.save(buf)
     buf.seek(0)
-    return StreamingResponse(iter([buf.getvalue()]),
-                             media_type="text/csv",
-                             headers={"Content-Disposition": "attachment; filename=users_template.csv"})
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=users_template.xlsx"},
+    )
 
 
 @api.post("/users/import")
 async def users_import(file: UploadFile = File(...),
                        _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
-    content = (await file.read()).decode("utf-8", errors="ignore")
-    reader = csv.DictReader(io.StringIO(content))
-    created, skipped, errors = 0, 0, []
-    for i, row in enumerate(reader, start=2):
+    """Importa empleados desde Excel (.xlsx). Upsert por email:
+       • Si email no existe → INSERT
+       • Si email existe    → UPDATE sólo de campos con valor (los vacíos no borran datos)
+    """
+    from openpyxl import load_workbook
+    raw = await file.read()
+    try:
+        wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Archivo Excel inválido: {e}") from None
+
+    if "Empleados" in wb.sheetnames:
+        ws = wb["Empleados"]
+    else:
+        ws = wb.active
+
+    rows = ws.iter_rows(values_only=True)
+    try:
+        headers_row = next(rows)
+    except StopIteration:
+        raise HTTPException(status_code=400, detail="La hoja está vacía") from None
+
+    headers = [(str(h).strip().lower() if h is not None else "") for h in headers_row]
+    required = {"email", "name"}
+    if not required.issubset(set(headers)):
+        raise HTTPException(status_code=400, detail="Faltan columnas obligatorias: email, name")
+
+    def _get(row, key):
         try:
-            email = (row.get("email") or "").lower().strip()
-            if not email or not row.get("name"):
+            idx = headers.index(key)
+        except ValueError:
+            return None
+        if idx >= len(row):
+            return None
+        val = row[idx]
+        if val is None:
+            return None
+        s = str(val).strip()
+        return s if s else None
+
+    created, updated, errors = 0, 0, []
+    for i, row in enumerate(rows, start=2):
+        if row is None or all(v is None for v in row):
+            continue
+        try:
+            email = (_get(row, "email") or "").lower()
+            name = _get(row, "name")
+            if not email or not name:
                 errors.append(f"Fila {i}: email/name requerido")
                 continue
-            if await db.users.find_one({"email": email}):
-                skipped += 1
-                continue
-            pw = row.get("password") or secrets.token_urlsafe(8)
-            doc = {
-                "user_id": new_id("user"),
-                "email": email,
-                "name": row["name"],
-                "cedula": row.get("cedula") or None,
-                "role": row.get("role") or "employee",
-                "position": row.get("position") or None,
-                "department_id": row.get("department_id") or None,
-                "site_id": row.get("site_id") or None,
-                "supervisor_id": row.get("supervisor_id") or None,
-                "schedule_id": row.get("schedule_id") or None,
-                "onboarded": False,
-                "created_at": now_utc(),
-                "password_hash": hash_password(pw),
+
+            payload_fields = {
+                "cedula": _get(row, "cedula"),
+                "role": _get(row, "role"),
+                "position": _get(row, "position"),
+                "department_id": _get(row, "department_id"),
+                "site_id": _get(row, "site_id"),
+                "supervisor_id": _get(row, "supervisor_id"),
+                "schedule_id": _get(row, "schedule_id"),
+                "kiosk_pin": _get(row, "kiosk_pin"),
             }
-            await db.users.insert_one(doc)
-            created += 1
+            # Descartamos None para no sobreescribir con vacío en updates.
+            set_fields = {k: v for k, v in payload_fields.items() if v is not None}
+            # name siempre lo actualizamos si el email ya existe
+            set_fields["name"] = name
+
+            existing = await db.users.find_one({"email": email})
+            if existing:
+                if set_fields:
+                    await db.users.update_one({"email": email}, {"$set": set_fields})
+                updated += 1
+            else:
+                pw = _get(row, "password") or secrets.token_urlsafe(8)
+                doc = {
+                    "user_id": new_id("user"),
+                    "email": email,
+                    "name": name,
+                    "cedula": payload_fields.get("cedula"),
+                    "role": payload_fields.get("role") or "employee",
+                    "position": payload_fields.get("position"),
+                    "department_id": payload_fields.get("department_id"),
+                    "site_id": payload_fields.get("site_id"),
+                    "supervisor_id": payload_fields.get("supervisor_id"),
+                    "schedule_id": payload_fields.get("schedule_id"),
+                    "kiosk_pin": payload_fields.get("kiosk_pin"),
+                    "onboarded": False,
+                    "created_at": now_utc(),
+                    "password_hash": hash_password(pw),
+                }
+                await db.users.insert_one(doc)
+                created += 1
         except Exception as e:  # noqa: BLE001
             errors.append(f"Fila {i}: {e}")
-    return {"created": created, "skipped": skipped, "errors": errors}
+    return {"created": created, "updated": updated, "errors": errors}
 
 
 # ==================================================================

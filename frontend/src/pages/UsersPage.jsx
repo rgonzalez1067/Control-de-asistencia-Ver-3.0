@@ -168,7 +168,7 @@ export default function UsersPage() {
       const { data } = await api.post("/users/import", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      toast.success(`Importación: ${data.created} creados · ${data.skipped} omitidos${data.errors?.length ? ` · ${data.errors.length} errores` : ""}`);
+      toast.success(`Importación: ${data.created} creados · ${data.updated} actualizados${data.errors?.length ? ` · ${data.errors.length} errores` : ""}`);
       if (data.errors?.length) {
         console.warn("Errores de importación:", data.errors);
       }
@@ -223,7 +223,7 @@ export default function UsersPage() {
       .then((blob) => {
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = "users_template.csv";
+        a.download = "users_template.xlsx";
         a.click();
       })
       .catch((e) => toast.error(e.message));
@@ -240,7 +240,7 @@ export default function UsersPage() {
             <span className="text-xl font-normal text-muted-foreground">{users.length}</span>
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Crea, edita y organiza a tu equipo. Puedes importar por CSV para cargas masivas.
+            Crea, edita y organiza a tu equipo. Puedes importar desde Excel para cargas y actualizaciones masivas.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -250,12 +250,12 @@ export default function UsersPage() {
             onClick={downloadTemplate}
             data-testid="users-template-btn"
           >
-            <Download className="h-4 w-4 mr-1.5" /> Plantilla CSV
+            <Download className="h-4 w-4 mr-1.5" /> Plantilla Excel
           </Button>
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,text/csv"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             className="hidden"
             data-testid="users-import-input"
             onChange={(e) => handleImport(e.target.files?.[0])}
@@ -267,7 +267,7 @@ export default function UsersPage() {
             onClick={() => fileRef.current?.click()}
             data-testid="users-import-btn"
           >
-            <Upload className="h-4 w-4 mr-1.5" /> {importing ? "Importando…" : "Importar CSV"}
+            <Upload className="h-4 w-4 mr-1.5" /> {importing ? "Importando…" : "Importar Excel"}
           </Button>
           <Button
             className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
