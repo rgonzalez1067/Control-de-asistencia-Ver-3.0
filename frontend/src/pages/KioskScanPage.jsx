@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import {
   ScanFace, LogIn, LogOut as LogOutIcon, Loader2, LockKeyhole,
-  KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight, RefreshCcw, DoorOpen,
+  KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight, RefreshCcw, DoorOpen, Camera,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
@@ -65,6 +65,9 @@ export default function KioskScanPage() {
   const [showExit, setShowExit] = useState(false);
   const [clock, setClock] = useState(new Date());
   const [idle, setIdle] = useState(false);
+  const [pendingVisits, setPendingVisits] = useState([]);
+  const [activeVisit, setActiveVisit] = useState(null);
+  const [visitVisitorIdx, setVisitVisitorIdx] = useState(0);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const intervalRef = useRef(null);
@@ -255,7 +258,20 @@ export default function KioskScanPage() {
       toast.success(`${user.name.split(" ")[0]} · ${marked === "in" ? "Entrada" : "Salida"} registrada`);
       setPhase("success");
       setCurrent({ ...user, marked });
-      setTimeout(() => { setCurrent(null); setPhase("ready"); }, 2200);
+      // Detectar visitas pendientes del anfitrión (solo cuando marca entrada)
+      let pendingVisits = [];
+      if (marked === "in") {
+        try {
+          const r = await api.get(`/kiosk/pending-visits/${user.user_id}`);
+          pendingVisits = r.data || [];
+        } catch (_) { pendingVisits = []; }
+      }
+      if (pendingVisits.length > 0) {
+        setPendingVisits(pendingVisits);
+        // No auto-cierre — el usuario decide si atiende la visita
+      } else {
+        setTimeout(() => { setCurrent(null); setPhase("ready"); }, 2200);
+      }
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
@@ -517,16 +533,64 @@ export default function KioskScanPage() {
       {/* Success overlay */}
       {phase === "success" && current && (
         <div className="fixed inset-0 grid place-items-center bg-primary/95 z-50 animate-in fade-in" data-testid="kiosk-success">
-          <div className="text-center px-6">
+          <div className="text-center px-6 max-w-md">
             <CheckCircle2 className="h-28 w-28 text-emerald-400 mx-auto mb-4 animate-bounce" />
             <p className="text-3xl font-bold text-primary-foreground">¡Listo, {current.name.split(" ")[0]}!</p>
             <p className="font-serif-display text-accent text-2xl mt-1">
               {current.marked === "in" ? "entrada registrada" : "salida registrada"}
             </p>
             <p className="text-white/60 text-sm mt-3 font-mono">{timeStr}</p>
+
+            {pendingVisits.length > 0 && (
+              <div className="mt-6 space-y-2">
+                <p className="text-white/70 text-sm">Tienes {pendingVisits.length} visita{pendingVisits.length > 1 ? "s" : ""} pendiente{pendingVisits.length > 1 ? "s" : ""}</p>
+                <Button
+                  onClick={() => { setActiveVisit(pendingVisits[0]); setVisitVisitorIdx(0); }}
+                  className="rounded-full h-14 px-8 bg-accent hover:bg-accent/90 text-primary font-bold text-lg shadow-lg"
+                  data-testid="kiosk-visit-btn"
+                >
+                  <UserCircle2 className="h-5 w-5 mr-2" /> Visita
+                </Button>
+                <button
+                  onClick={() => { setPendingVisits([]); setCurrent(null); setPhase("ready"); }}
+                  className="block w-full text-xs text-white/40 hover:text-white/70 mt-2"
+                >
+                  Omitir por ahora
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
+
+      <VisitSelfieDialog
+        visit={activeVisit}
+        visitorIdx={visitVisitorIdx}
+        onCaptured={async (dataUrl) => {
+          try {
+            const { data } = await api.post(`/visits/${activeVisit.visit_id}/capture-selfie`, {
+              visitor_index: visitVisitorIdx,
+              selfie_base64: dataUrl,
+            });
+            if (data.status === "completed") {
+              toast.success("Visita completada");
+              // Pasar a la siguiente visita pendiente o cerrar
+              const remaining = pendingVisits.filter((v) => v.visit_id !== activeVisit.visit_id);
+              setPendingVisits(remaining);
+              setActiveVisit(null);
+              setVisitVisitorIdx(0);
+              if (remaining.length === 0) {
+                setTimeout(() => { setCurrent(null); setPhase("ready"); }, 800);
+              }
+            } else {
+              setVisitVisitorIdx((i) => i + 1);
+            }
+          } catch (e) {
+            toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+          }
+        }}
+        onCancel={() => { setActiveVisit(null); setVisitVisitorIdx(0); }}
+      />
 
       <PinPickerDialog
         open={showPinList}
@@ -829,3 +893,94 @@ function ExitKioskDialog({ open, onCancel, onSuccess }) {
   );
 }
 
+
+
+/** Modal de captura de selfie del visitante N. Cámara + botón "Capturar". */
+function VisitSelfieDialog({ visit, visitorIdx, onCaptured, onCancel }) {
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [ready, setReady] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const visitor = visit?.visitors?.[visitorIdx];
+
+  useEffect(() => {
+    if (!visit) return;
+    let stopped = false;
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 720 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        if (stopped) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => null);
+        }
+        setReady(true);
+      } catch (_) { /* ignore */ }
+    })();
+    return () => {
+      stopped = true;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      setReady(false);
+    };
+  }, [visit, visitorIdx]);
+
+  async function capture() {
+    if (!videoRef.current) return;
+    setBusy(true);
+    try {
+      const v = videoRef.current;
+      const size = Math.min(v.videoWidth, v.videoHeight);
+      const c = document.createElement("canvas");
+      c.width = 480; c.height = 480;
+      const ctx = c.getContext("2d");
+      const sx = (v.videoWidth - size) / 2;
+      const sy = (v.videoHeight - size) / 2;
+      ctx.save(); ctx.translate(c.width, 0); ctx.scale(-1, 1);
+      ctx.drawImage(v, sx, sy, size, size, 0, 0, c.width, c.height);
+      ctx.restore();
+      const dataUrl = c.toDataURL("image/jpeg", 0.85);
+      await onCaptured(dataUrl);
+    } finally { setBusy(false); }
+  }
+
+  if (!visit || !visitor) return null;
+  const total = visit.visitors.length;
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onCancel()}>
+      <DialogContent className="max-w-md bg-primary text-primary-foreground border-white/10" data-testid="kiosk-visit-selfie">
+        <DialogHeader className="items-center text-center">
+          <DialogTitle className="text-2xl">Selfie de visitante {visitorIdx + 1} / {total}</DialogTitle>
+          <DialogDescription className="text-white/70">
+            <span className="block text-lg font-semibold text-white">{visitor.name}</span>
+            <span className="text-sm">Cédula: {visitor.cedula}</span>
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="relative aspect-square w-full max-w-[320px] mx-auto rounded-2xl overflow-hidden border-2 border-accent/50 bg-black/40">
+          <video ref={videoRef} autoPlay muted playsInline
+            className="absolute inset-0 h-full w-full object-cover [transform:scaleX(-1)]" />
+          <div className="pointer-events-none absolute inset-6 rounded-full border-2 border-accent/70" />
+        </div>
+
+        <DialogFooter className="flex-row gap-2 sm:justify-stretch">
+          <Button variant="outline" onClick={onCancel} disabled={busy}
+            className="rounded-full h-12 flex-1 bg-white/5 border-white/20 text-white hover:bg-white/10"
+            data-testid="kiosk-visit-selfie-cancel">
+            Cancelar
+          </Button>
+          <Button onClick={capture} disabled={!ready || busy}
+            className="rounded-full h-12 flex-1 bg-accent hover:bg-accent/90 text-primary font-bold"
+            data-testid="kiosk-visit-selfie-capture">
+            {busy ? "Guardando…" : (<><Camera className="h-4 w-4 mr-1.5" /> Capturar</>)}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

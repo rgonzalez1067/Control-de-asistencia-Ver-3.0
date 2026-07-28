@@ -21,7 +21,7 @@ import {
   LayoutDashboard, Users, Building2, MapPin, CalendarClock,
   Fingerprint, FileBarChart2, Bell, LogOut, Settings2, ShieldCheck,
   IdCard, History as HistoryIcon, ChevronDown, UserCircle2,
-  Menu, ScanFace, KeyRound, Eye, EyeOff,
+  Menu, ScanFace, KeyRound, Eye, EyeOff, UserPlus, ClipboardList,
 } from "lucide-react";
 
 const NAV_ADMIN = [
@@ -62,9 +62,18 @@ export default function AppLayout() {
   const nav = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [changePwOpen, setChangePwOpen] = useState(false);
-  const items =
+
+  const canCreateVisits = user?.role === "admin" || user?.can_create_visits;
+  const canViewVisitLogs = user?.role === "admin" || user?.can_view_visit_logs;
+
+  const baseItems =
     user?.role === "admin" ? NAV_ADMIN :
     user?.role === "supervisor" ? NAV_SUPERVISOR : NAV_EMPLOYEE;
+
+  const visitItems = [];
+  if (canCreateVisits) visitItems.push({ to: "/visitas/agendar", icon: UserPlus, label: "Agendar visita" });
+  if (canViewVisitLogs) visitItems.push({ to: "/visitas/historico", icon: ClipboardList, label: "Histórico de visitas" });
+  const items = [...baseItems, ...visitItems];
   const isAdmin = user?.role === "admin";
 
   async function handleLogout() {

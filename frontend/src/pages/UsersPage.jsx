@@ -30,7 +30,7 @@ import { toast } from "sonner";
 import {
   Search, Plus, MoreVertical, Pencil, Trash2, KeyRound, Upload,
   Download, ShieldCheck, BadgeCheck, CircleUserRound, Image as ImageIcon, UserCircle2, Camera,
-  FileSpreadsheet, AlertTriangle, CheckCircle2, XCircle, ArrowRight, RefreshCw,
+  FileSpreadsheet, AlertTriangle, CheckCircle2, XCircle, ArrowRight, RefreshCw, ClipboardList,
 } from "lucide-react";
 import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 import SetPinDialog from "@/components/SetPinDialog";
@@ -666,6 +666,33 @@ function UserFormDialog({ state, onCancel, onSave, departments, sites, schedules
                 />
               </div>
             </>
+          )}
+          {isEdit && (
+            <div className="sm:col-span-2 rounded-xl border border-dashed p-3 space-y-2 bg-muted/30">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                <ClipboardList className="h-3.5 w-3.5" /> Permisos · Control de visitas
+              </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.can_create_visits}
+                  onChange={(e) => setForm((f) => ({ ...f, can_create_visits: e.target.checked }))}
+                  className="h-4 w-4 accent-primary"
+                  data-testid="user-form-can-create-visits"
+                />
+                <span>Puede <b>agendar visitas</b></span>
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.can_view_visit_logs}
+                  onChange={(e) => setForm((f) => ({ ...f, can_view_visit_logs: e.target.checked }))}
+                  className="h-4 w-4 accent-primary"
+                  data-testid="user-form-can-view-visit-logs"
+                />
+                <span>Acceso al <b>histórico de visitas</b> con selfies</span>
+              </label>
+            </div>
           )}
         </div>
 

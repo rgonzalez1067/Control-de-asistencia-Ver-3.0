@@ -1,0 +1,25 @@
+{
+  "summary": "Control de Visitas end-to-end testing (iteration 12). 10 backend pytest cases (permissions, CRUD, kiosk-pending, selfie capture) all pass. Frontend flows verified: admin sidebar shows both visits entries; employee without perms hides them, and after admin toggles perms via API + re-login the entries appear. Agendar Visita form validates missing host, supports personal/laboral tab switching, add/remove visitors, and successful submission toasts 'Visita agendada correctamente'. Histórico page renders filter controls (from/to/type/search), lists visits with Personal (emerald) / Laboral badges, detail dialog opens with visitor cards; the 'Imprimir / Exportar' button only appears when the visit has at least one captured selfie (verified with the laboral 2-selfie visit created by backend tests).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_visits.py",
+    "/app/test_reports/pytest/iter12_visits.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 1913 lines — should be split into routers (users/visits/kiosk/reports) for maintainability.",
+    "POST /visits accepts payload.scheduled_at from the client with no bound check; a caller could backdate/postdate arbitrarily. Consider min/max validation.",
+    "POST /visits/{visit_id}/capture-selfie is unauthenticated (like the kiosk pending endpoint). This is intentional per the review note, but a rate-limit or a per-visit short-lived token would harden it against selfie flooding.",
+    "GET /visits limits to 500 with no pagination — will silently truncate history once dataset grows.",
+    "AgendarVisitaPage: host Select renders 138 options (all users) with no search — should switch to a Combobox with type-ahead for usability."
+  ],
+  "updated_files": ["/app/backend/tests/test_visits.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100% (7/7 checks)"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve/admin123. Test employee used: jgil@megasoft.com.ve/TestPass!234 (password reset via /api/auth/reset-password; perms restored to false after tests).",
+  "seed_data_creation": "Created ~6 visits via API/UI: 1 personal (UI-agendada), 1 laboral with 2 completed selfies (TEST_SelfieCorp), plus scheduled today/tomorrow variants for kiosk-pending endpoint verification. All prefixed 'TEST_' or created by admin during test run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "test_visits.py resets pytest fixtures cleanly. Employee jgil@megasoft.com.ve now has password TestPass!234 (bcrypt hash was overwritten via admin reset-password endpoint — main agent may want to note this in test_credentials.md if it should persist). Visit-download button in Histórico only appears when selfies exist; verify with the completed TEST_SelfieCorp laboral visit if retesting.",
+  "rca_of_the_issue": "No issues observed; feature works end-to-end."
+}

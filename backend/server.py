@@ -214,6 +214,34 @@ class UserUpdate(BaseModel):
     schedule_id: Optional[str] = None
     picture: Optional[str] = None
     onboarded: Optional[bool] = None
+    can_create_visits: Optional[bool] = None
+    can_view_visit_logs: Optional[bool] = None
+
+
+class VisitorIn(BaseModel):
+    name: str
+    cedula: str
+    phone: Optional[str] = None
+
+
+class VisitIn(BaseModel):
+    type: str  # "personal" | "laboral"
+    host_user_id: str
+    scheduled_at: Optional[datetime] = None
+    company_name: Optional[str] = None  # laboral only
+    motive: Optional[str] = None        # laboral only
+    visitors: List[VisitorIn]
+    notes: Optional[str] = None
+
+
+class VisitSelfieIn(BaseModel):
+    visitor_index: int
+    selfie_base64: str
+
+
+class UserPermissionsIn(BaseModel):
+    can_create_visits: Optional[bool] = None
+    can_view_visit_logs: Optional[bool] = None
 
 
 class SelfieIn(BaseModel):
@@ -1521,6 +1549,162 @@ async def novelties_bulk_decide(payload: NoveltyDecideIn,
                   "decided_by": user["user_id"], "decision_comment": payload.comment}},
     )
     return {"updated": res.modified_count}
+
+
+
+# ==================================================================
+# VISITS (Control de Visitas) — 6 endpoints
+# ==================================================================
+@api.post("/users/{user_id}/visit-permissions")
+async def set_visit_permissions(
+    user_id: str,
+    payload: UserPermissionsIn,
+    _: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
+    """Admin toggles can_create_visits / can_view_visit_logs on a user."""
+    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not updates:
+        return {"ok": True, "changed": 0}
+    res = await db.users.update_one({"user_id": user_id}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"ok": True, "changed": res.modified_count, "updates": updates}
+
+
+@api.post("/visits")
+async def create_visit(payload: VisitIn,
+                       user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if not user.get("can_create_visits") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="No tienes permiso para crear visitas")
+    if payload.type not in ("personal", "laboral"):
+        raise HTTPException(status_code=400, detail="type debe ser 'personal' o 'laboral'")
+    if not payload.visitors:
+        raise HTTPException(status_code=400, detail="Debe registrar al menos un visitante")
+
+    host = await db.users.find_one({"user_id": payload.host_user_id}, {"user_id": 1, "name": 1, "_id": 0})
+    if not host:
+        raise HTTPException(status_code=404, detail="Empleado anfitrión no encontrado")
+
+    if payload.type == "laboral":
+        if not payload.company_name:
+            raise HTTPException(status_code=400, detail="Nombre de empresa requerido para visita laboral")
+        for v in payload.visitors:
+            if not v.phone:
+                raise HTTPException(status_code=400, detail="Cada visitante laboral requiere teléfono")
+
+    visit_id = new_id("visit", 10)
+    doc = {
+        "visit_id": visit_id,
+        "type": payload.type,
+        "host_user_id": payload.host_user_id,
+        "host_name": host.get("name"),
+        "scheduled_at": payload.scheduled_at or now_utc(),
+        "company_name": payload.company_name if payload.type == "laboral" else None,
+        "motive": payload.motive,
+        "notes": payload.notes,
+        "visitors": [v.model_dump() for v in payload.visitors],
+        "selfies": [],
+        "status": "pending",
+        "created_at": now_utc(),
+        "created_by": user["user_id"],
+    }
+    await db.visits.insert_one(doc)
+    return {"visit_id": visit_id, "ok": True}
+
+
+@api.get("/visits")
+async def list_visits(
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    type: Optional[str] = None,
+    host_user_id: Optional[str] = None,
+    company_name: Optional[str] = None,
+    status: Optional[str] = None,
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    if not user.get("can_view_visit_logs") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver visitas")
+
+    q: Dict[str, Any] = {}
+    if from_date or to_date:
+        rng: Dict[str, Any] = {}
+        if from_date:
+            rng["$gte"] = datetime.fromisoformat(from_date).replace(tzinfo=APP_TZ).astimezone(timezone.utc)
+        if to_date:
+            rng["$lt"] = (datetime.fromisoformat(to_date).replace(tzinfo=APP_TZ) + timedelta(days=1)).astimezone(timezone.utc)
+        q["scheduled_at"] = rng
+    if type:
+        q["type"] = type
+    if host_user_id:
+        q["host_user_id"] = host_user_id
+    if company_name:
+        q["company_name"] = {"$regex": company_name, "$options": "i"}
+    if status:
+        q["status"] = status
+
+    docs = []
+    async for d in db.visits.find(q).sort("scheduled_at", -1).limit(500):
+        d.pop("_id", None)
+        d["selfies_count"] = len(d.get("selfies") or [])
+        d.pop("selfies", None)
+        docs.append(d)
+    return docs
+
+
+@api.get("/visits/{visit_id}")
+async def get_visit(visit_id: str,
+                    user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if not user.get("can_view_visit_logs") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="No tienes permiso para ver visitas")
+    d = await db.visits.find_one({"visit_id": visit_id})
+    if not d:
+        raise HTTPException(status_code=404, detail="Visita no encontrada")
+    d.pop("_id", None)
+    return d
+
+
+@api.get("/kiosk/pending-visits/{host_user_id}")
+async def kiosk_pending_visits(host_user_id: str) -> List[Dict[str, Any]]:
+    today_local = now_utc().astimezone(APP_TZ)
+    start = today_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    end = (today_local.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).astimezone(timezone.utc)
+    docs = []
+    async for v in db.visits.find(
+        {"host_user_id": host_user_id,
+         "status": {"$in": ["pending", "in_progress"]},
+         "scheduled_at": {"$gte": start, "$lt": end}}
+    ).sort("scheduled_at", 1):
+        v.pop("_id", None)
+        v.pop("selfies", None)
+        docs.append(v)
+    return docs
+
+
+@api.post("/visits/{visit_id}/capture-selfie")
+async def capture_visit_selfie(visit_id: str, payload: VisitSelfieIn) -> Dict[str, Any]:
+    doc = await db.visits.find_one({"visit_id": visit_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Visita no encontrada")
+    if payload.visitor_index < 0 or payload.visitor_index >= len(doc.get("visitors") or []):
+        raise HTTPException(status_code=400, detail="visitor_index fuera de rango")
+    if not payload.selfie_base64 or not payload.selfie_base64.startswith("data:image"):
+        raise HTTPException(status_code=400, detail="selfie_base64 inválido")
+
+    selfies = doc.get("selfies") or []
+    selfies = [s for s in selfies if s.get("visitor_index") != payload.visitor_index]
+    selfies.append({
+        "visitor_index": payload.visitor_index,
+        "selfie_base64": payload.selfie_base64,
+        "captured_at": now_utc(),
+    })
+    total_visitors = len(doc.get("visitors") or [])
+    new_status = "completed" if len(selfies) >= total_visitors else "in_progress"
+    updates: Dict[str, Any] = {"selfies": selfies, "status": new_status}
+    if new_status == "completed":
+        updates["completed_at"] = now_utc()
+    await db.visits.update_one({"visit_id": visit_id}, {"$set": updates})
+    return {"ok": True, "status": new_status, "captured": len(selfies), "total": total_visitors}
+
 
 
 # ==================================================================

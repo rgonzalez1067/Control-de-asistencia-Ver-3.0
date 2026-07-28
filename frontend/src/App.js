@@ -20,6 +20,8 @@ import KioskScanPage from "@/pages/KioskScanPage";
 import ReportsPage from "@/pages/ReportsPage";
 import NoveltiesPage from "@/pages/NoveltiesPage";
 import TeamPage from "@/pages/TeamPage";
+import AgendarVisitaPage from "@/pages/AgendarVisitaPage";
+import HistoricoVisitasPage from "@/pages/HistoricoVisitasPage";
 
 const ADMIN = ["admin"];
 const ADMIN_OR_SUP = ["admin", "supervisor"];
@@ -70,6 +72,10 @@ function App() {
             <Route path="novedades" element={<NoveltiesPage />} />
             <Route path="carnet" element={<CarnetPage />} />
             <Route path="historial" element={<HistorialPage />} />
+
+            {/* Control de visitas — permisos individuales */}
+            <Route path="visitas/agendar" element={<AgendarVisitaPage />} />
+            <Route path="visitas/historico" element={<HistoricoVisitasPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
