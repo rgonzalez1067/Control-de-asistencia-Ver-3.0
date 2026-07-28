@@ -220,8 +220,9 @@ class UserUpdate(BaseModel):
 
 class VisitorIn(BaseModel):
     name: str
-    cedula: str
+    cedula: Optional[str] = None
     phone: Optional[str] = None
+    is_minor: Optional[bool] = False
 
 
 class VisitIn(BaseModel):
@@ -1591,6 +1592,14 @@ async def create_visit(payload: VisitIn,
         for v in payload.visitors:
             if not v.phone:
                 raise HTTPException(status_code=400, detail="Cada visitante laboral requiere teléfono")
+            if not v.cedula:
+                raise HTTPException(status_code=400, detail="Cada visitante laboral requiere cédula")
+    else:  # personal
+        for v in payload.visitors:
+            # En visitas personales: cédula obligatoria salvo que sea menor de edad
+            if not v.cedula and not v.is_minor:
+                raise HTTPException(status_code=400,
+                                    detail="Cédula requerida (o marcar como menor de edad)")
 
     visit_id = new_id("visit", 10)
     doc = {
@@ -1704,6 +1713,38 @@ async def capture_visit_selfie(visit_id: str, payload: VisitSelfieIn) -> Dict[st
         updates["completed_at"] = now_utc()
     await db.visits.update_one({"visit_id": visit_id}, {"$set": updates})
     return {"ok": True, "status": new_status, "captured": len(selfies), "total": total_visitors}
+
+
+@api.post("/visits/{visit_id}/close")
+async def close_visit(visit_id: str,
+                      user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Cierra manualmente una visita: registra exit_at y cambia status='closed'.
+       Requiere can_view_visit_logs o rol admin."""
+    if not user.get("can_view_visit_logs") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="No tienes permiso para cerrar visitas")
+    doc = await db.visits.find_one({"visit_id": visit_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Visita no encontrada")
+    if doc.get("status") == "closed":
+        raise HTTPException(status_code=400, detail="La visita ya está cerrada")
+    exit_at = now_utc()
+    scheduled_at = doc.get("scheduled_at") or doc.get("created_at")
+    duration_min = None
+    if scheduled_at:
+        if isinstance(scheduled_at, datetime):
+            if scheduled_at.tzinfo is None:
+                scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
+            duration_min = round((exit_at - scheduled_at).total_seconds() / 60, 1)
+    await db.visits.update_one(
+        {"visit_id": visit_id},
+        {"$set": {
+            "status": "closed",
+            "exit_at": exit_at,
+            "duration_minutes": duration_min,
+            "closed_by": user["user_id"],
+        }},
+    )
+    return {"ok": True, "exit_at": exit_at.isoformat(), "duration_minutes": duration_min}
 
 
 

@@ -17,7 +17,7 @@ export default function AgendarVisitaPage() {
   const [companyName, setCompanyName] = useState("");
   const [motive, setMotive] = useState("");
   const [notes, setNotes] = useState("");
-  const [visitors, setVisitors] = useState([{ name: "", cedula: "", phone: "" }]);
+  const [visitors, setVisitors] = useState([{ name: "", cedula: "", phone: "", is_minor: false }]);
   const [employees, setEmployees] = useState([]);
   const [saving, setSaving] = useState(false);
 
@@ -30,18 +30,28 @@ export default function AgendarVisitaPage() {
   function updateVisitor(i, field, val) {
     setVisitors((prev) => prev.map((v, idx) => idx === i ? { ...v, [field]: val } : v));
   }
-  function addVisitor() { setVisitors((v) => [...v, { name: "", cedula: "", phone: "" }]); }
+  function addVisitor() { setVisitors((v) => [...v, { name: "", cedula: "", phone: "", is_minor: false }]); }
   function removeVisitor(i) { setVisitors((v) => v.length > 1 ? v.filter((_, idx) => idx !== i) : v); }
 
   function reset() {
     setHostUserId(""); setScheduledAt(""); setCompanyName(""); setMotive(""); setNotes("");
-    setVisitors([{ name: "", cedula: "", phone: "" }]);
+    setVisitors([{ name: "", cedula: "", phone: "", is_minor: false }]);
   }
 
   async function submit() {
     if (!hostUserId) { toast.error("Selecciona el empleado anfitrión"); return; }
-    if (visitors.some((v) => !v.name.trim() || !v.cedula.trim())) {
-      toast.error("Cada visitante requiere nombre y cédula"); return;
+    // Personal: cédula requerida SALVO menores. Laboral: siempre requerida.
+    if (type === "personal") {
+      if (visitors.some((v) => !v.name.trim())) {
+        toast.error("Cada visitante requiere nombre"); return;
+      }
+      if (visitors.some((v) => !v.is_minor && !v.cedula.trim())) {
+        toast.error("Cédula requerida (o marcar visitante como menor de edad)"); return;
+      }
+    } else {
+      if (visitors.some((v) => !v.name.trim() || !v.cedula.trim())) {
+        toast.error("Cada visitante requiere nombre y cédula"); return;
+      }
     }
     if (type === "laboral") {
       if (!companyName.trim()) { toast.error("Nombre de empresa requerido"); return; }
@@ -60,8 +70,9 @@ export default function AgendarVisitaPage() {
         notes: notes.trim() || null,
         visitors: visitors.map((v) => ({
           name: v.name.trim(),
-          cedula: v.cedula.trim(),
+          cedula: v.cedula?.trim() || null,
           phone: v.phone?.trim() || null,
+          is_minor: type === "personal" ? !!v.is_minor : false,
         })),
       };
       await api.post("/visits", payload);
@@ -93,7 +104,7 @@ export default function AgendarVisitaPage() {
 
             <TabsContent value="personal" className="pt-4 space-y-4">
               <HostAndDate hostUserId={hostUserId} setHostUserId={setHostUserId} employees={employees} scheduledAt={scheduledAt} setScheduledAt={setScheduledAt} />
-              <VisitorsList visitors={visitors} updateVisitor={updateVisitor} removeVisitor={removeVisitor} addVisitor={addVisitor} withPhone={false} />
+              <VisitorsList visitors={visitors} updateVisitor={updateVisitor} removeVisitor={removeVisitor} addVisitor={addVisitor} withPhone={false} withMinor={true} />
             </TabsContent>
 
             <TabsContent value="laboral" className="pt-4 space-y-4">
@@ -110,7 +121,7 @@ export default function AgendarVisitaPage() {
                     data-testid="visit-motive" className="h-11" />
                 </div>
               </div>
-              <VisitorsList visitors={visitors} updateVisitor={updateVisitor} removeVisitor={removeVisitor} addVisitor={addVisitor} withPhone={true} />
+              <VisitorsList visitors={visitors} updateVisitor={updateVisitor} removeVisitor={removeVisitor} addVisitor={addVisitor} withPhone={true} withMinor={false} />
             </TabsContent>
           </Tabs>
 
@@ -160,7 +171,7 @@ function HostAndDate({ hostUserId, setHostUserId, employees, scheduledAt, setSch
   );
 }
 
-function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, withPhone }) {
+function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, withPhone, withMinor }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -174,12 +185,26 @@ function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, with
              data-testid={`visitor-row-${i}`}>
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">Visitante {i + 1}</span>
-            {visitors.length > 1 && (
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:bg-red-50"
-                onClick={() => removeVisitor(i)} data-testid={`visitor-remove-${i}`}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            )}
+            <div className="flex items-center gap-3">
+              {withMinor && (
+                <label className="flex items-center gap-1.5 text-xs cursor-pointer" data-testid={`visitor-${i}-minor-label`}>
+                  <input
+                    type="checkbox"
+                    checked={!!v.is_minor}
+                    onChange={(e) => updateVisitor(i, "is_minor", e.target.checked)}
+                    className="h-3.5 w-3.5 accent-primary"
+                    data-testid={`visitor-${i}-minor`}
+                  />
+                  <span className="text-muted-foreground">Menor de edad</span>
+                </label>
+              )}
+              {visitors.length > 1 && (
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500 hover:bg-red-50"
+                  onClick={() => removeVisitor(i)} data-testid={`visitor-remove-${i}`}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
           </div>
           <div className={"grid gap-2 " + (withPhone ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
             <div>
@@ -188,9 +213,12 @@ function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, with
                      placeholder="Ej. Juan Pérez" className="h-10" data-testid={`visitor-${i}-name`} />
             </div>
             <div>
-              <Label className="text-[10px] flex items-center gap-1"><IdCard className="h-3 w-3" /> Cédula</Label>
+              <Label className="text-[10px] flex items-center gap-1">
+                <IdCard className="h-3 w-3" /> Cédula {v.is_minor && withMinor ? "(opcional para menores)" : ""}
+              </Label>
               <Input value={v.cedula} onChange={(e) => updateVisitor(i, "cedula", e.target.value)}
-                     placeholder="V-12345678" className="h-10" data-testid={`visitor-${i}-cedula`} />
+                     placeholder={v.is_minor && withMinor ? "Cédula escolar o del representante (opcional)" : "V-12345678"}
+                     className="h-10" data-testid={`visitor-${i}-cedula`} />
             </div>
             {withPhone && (
               <div>

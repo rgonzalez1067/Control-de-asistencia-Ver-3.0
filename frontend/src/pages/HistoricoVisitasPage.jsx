@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Building2, User as UserIcon, Camera, Search, X, Users, Calendar, Filter, Download, IdCard, Phone,
+  Building2, User as UserIcon, Camera, Search, X, Users, Calendar, Filter, Download, IdCard, Phone, DoorClosed, Baby,
 } from "lucide-react";
 
 const TZ = "America/Caracas";
@@ -58,6 +58,17 @@ export default function HistoricoVisitasPage() {
     try {
       const { data } = await api.get(`/visits/${v.visit_id}`);
       setSelected(data);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    }
+  }
+
+  async function closeVisit(v) {
+    if (!window.confirm(`¿Cerrar la visita de ${v.host_name}? Se registrará la hora de salida y no podrá modificarse.`)) return;
+    try {
+      const { data } = await api.post(`/visits/${v.visit_id}/close`);
+      toast.success(`Visita cerrada · duración ${data.duration_minutes ?? "?"} min`);
+      load();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     }
@@ -111,14 +122,15 @@ export default function HistoricoVisitasPage() {
                   <TableHead>Anfitrión</TableHead>
                   <TableHead>Empresa / Visitantes</TableHead>
                   <TableHead>Selfies</TableHead>
+                  <TableHead>Duración</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading && <TableRow><TableCell colSpan={7} className="text-center py-6 text-muted-foreground">Cargando…</TableCell></TableRow>}
+                {loading && <TableRow><TableCell colSpan={8} className="text-center py-6 text-muted-foreground">Cargando…</TableCell></TableRow>}
                 {!loading && filtered.length === 0 && (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Sin visitas para los filtros aplicados.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Sin visitas para los filtros aplicados.</TableCell></TableRow>
                 )}
                 {filtered.map((v) => {
                   const d = new Date(v.scheduled_at);
@@ -145,15 +157,33 @@ export default function HistoricoVisitasPage() {
                           {v.selfies_count || 0} / {total}
                         </span>
                       </TableCell>
+                      <TableCell className="text-xs">
+                        {v.duration_minutes != null ? (
+                          <span className="font-mono">{v.duration_minutes} min</span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                       <TableCell>
-                        <Badge variant={v.status === "completed" ? "default" : "outline"} className="text-[10px]">
-                          {v.status}
+                        <Badge variant={v.status === "closed" ? "default" : "outline"} className="text-[10px]">
+                          {v.status === "closed" ? "Finalizada" : v.status}
                         </Badge>
                       </TableCell>
                       <TableCell>
                         <Button size="sm" variant="ghost" onClick={() => openDetail(v)} data-testid={`visit-open-${v.visit_id}`}>
                           Ver
                         </Button>
+                        {v.status !== "closed" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => closeVisit(v)}
+                            className="ml-1 h-8 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                            data-testid={`visit-close-${v.visit_id}`}
+                          >
+                            <DoorClosed className="h-3 w-3 mr-1" /> Cerrar
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   );
@@ -195,10 +225,11 @@ function VisitDetailDialog({ visit, onClose }) {
 
         <div className="grid sm:grid-cols-2 gap-3 text-sm">
           <InfoRow label="Anfitrión" value={visit.host_name} />
-          <InfoRow label="Estado" value={visit.status} />
+          <InfoRow label="Estado" value={visit.status === "closed" ? "Finalizada" : visit.status} />
           {visit.type === "laboral" && <InfoRow label="Empresa" value={visit.company_name} />}
           {visit.motive && <InfoRow label="Motivo" value={visit.motive} />}
           {visit.notes && <InfoRow label="Notas" value={visit.notes} />}
+          {visit.exit_at && <InfoRow label="Salida" value={`${new Date(visit.exit_at).toLocaleString("es-VE", { timeZone: TZ })}${visit.duration_minutes != null ? ` · ${visit.duration_minutes} min` : ""}`} />}
         </div>
 
         <div className="space-y-3 pt-3 border-t">
@@ -224,8 +255,15 @@ function VisitDetailDialog({ visit, onClose }) {
                       </div>
                     )}
                     <div className="min-w-0">
-                      <div className="text-sm font-semibold truncate">{v.name}</div>
-                      <div className="text-xs text-muted-foreground truncate flex items-center gap-1"><IdCard className="h-3 w-3" /> {v.cedula}</div>
+                      <div className="text-sm font-semibold truncate flex items-center gap-1.5">
+                        {v.name}
+                        {v.is_minor && (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">
+                            <Baby className="h-2.5 w-2.5" /> Menor
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground truncate flex items-center gap-1"><IdCard className="h-3 w-3" /> {v.cedula || "—"}</div>
                       {v.phone && <div className="text-xs text-muted-foreground truncate flex items-center gap-1"><Phone className="h-3 w-3" /> {v.phone}</div>}
                     </div>
                   </div>
@@ -257,13 +295,14 @@ function InfoRow({ label, value }) {
 
 function generatePrintable(v) {
   const scheduledD = new Date(v.scheduled_at);
+  const exitD = v.exit_at ? new Date(v.exit_at) : null;
   const rows = (v.visitors || []).map((vi, i) => {
     const s = (v.selfies || []).find((x) => x.visitor_index === i);
     return `
       <div style="display:flex;gap:12px;padding:8px;border:1px solid #ddd;border-radius:8px;margin:6px 0;">
         ${s ? `<img src="${s.selfie_base64}" style="width:80px;height:80px;border-radius:8px;object-fit:cover;">` : `<div style="width:80px;height:80px;background:#f0f0f0;border-radius:8px"></div>`}
         <div>
-          <div style="font-weight:600">${vi.name}</div>
+          <div style="font-weight:600">${vi.name}${vi.is_minor ? ' <span style="font-size:11px;background:#dbeafe;color:#1e40af;padding:2px 6px;border-radius:6px;">MENOR</span>' : ""}</div>
           <div style="color:#666;font-size:12px">Cédula: ${vi.cedula || "—"}</div>
           ${vi.phone ? `<div style="color:#666;font-size:12px">Tel: ${vi.phone}</div>` : ""}
         </div>
@@ -273,7 +312,7 @@ function generatePrintable(v) {
     <style>body{font-family:system-ui,-apple-system,sans-serif;max-width:720px;margin:32px auto;padding:0 16px;color:#111}</style>
   </head><body>
     <h1>Registro de visita</h1>
-    <p><b>${v.type === "laboral" ? "Laboral" : "Personal"}</b> · ${scheduledD.toLocaleString("es-VE", { timeZone: "America/Caracas" })}</p>
+    <p><b>${v.type === "laboral" ? "Laboral" : "Personal"}</b> · Entrada: ${scheduledD.toLocaleString("es-VE", { timeZone: "America/Caracas" })}${exitD ? ` · Salida: ${exitD.toLocaleString("es-VE", { timeZone: "America/Caracas" })}` : ""}${v.duration_minutes != null ? ` · Duración: ${v.duration_minutes} min` : ""}</p>
     <p><b>Anfitrión:</b> ${v.host_name}</p>
     ${v.company_name ? `<p><b>Empresa:</b> ${v.company_name}</p>` : ""}
     ${v.motive ? `<p><b>Motivo:</b> ${v.motive}</p>` : ""}
