@@ -114,6 +114,23 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # ------------------------------------------------------------------
 # Auth dependency
 # ------------------------------------------------------------------
+_ROLE_ALIASES = {
+    "admin": "admin", "administrador": "admin", "administradora": "admin",
+    "supervisor": "supervisor", "supervisora": "supervisor",
+    "employee": "employee", "empleado": "employee", "empleada": "employee",
+    "user": "employee",
+}
+
+
+def normalize_role(value: Any) -> str:
+    """Normaliza cualquier variante de rol a las 3 claves canónicas
+    ('admin' | 'supervisor' | 'employee')."""
+    if not value:
+        return "employee"
+    key = str(value).strip().lower()
+    return _ROLE_ALIASES.get(key, "employee")
+
+
 async def get_current_user(request: Request) -> Dict[str, Any]:
     token = None
     auth = request.headers.get("Authorization", "")
@@ -318,6 +335,17 @@ async def on_startup() -> None:
                  {"justification_tolerance_minutes": None}]},
         {"$set": {"justification_tolerance_minutes": 20}},
     )
+
+    # Backfill: normaliza roles a las claves canónicas (admin/supervisor/employee)
+    for alias, canonical in _ROLE_ALIASES.items():
+        if alias == canonical:
+            continue
+        await db.users.update_many({"role": alias}, {"$set": {"role": canonical}})
+    # Case variants (Empleado, Supervisor, Admin, etc.) normalizados por regex
+    async for u in db.users.find({"role": {"$exists": True, "$ne": None}}, {"user_id": 1, "role": 1, "_id": 0}):
+        canonical = normalize_role(u.get("role"))
+        if u.get("role") != canonical:
+            await db.users.update_one({"user_id": u["user_id"]}, {"$set": {"role": canonical}})
 
     # Admin bootstrap (idempotent) — no toca hash existente si ya valida
     admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
@@ -690,7 +718,7 @@ async def users_import_preview(file: UploadFile = File(...),
             "email": email,
             "name": name,
             "cedula": _get(row, "cedula"),
-            "role": _get(row, "role"),
+            "role": normalize_role(_get(row, "role")),
             "position": _get(row, "position"),
             "department_id": _get(row, "department_id"),
             "site_id": _get(row, "site_id"),
@@ -785,7 +813,7 @@ async def users_import(file: UploadFile = File(...),
 
             payload_fields = {
                 "cedula": _get(row, "cedula"),
-                "role": _get(row, "role"),
+                "role": normalize_role(_get(row, "role")) if _get(row, "role") else None,
                 "position": _get(row, "position"),
                 "department_id": _get(row, "department_id"),
                 "site_id": _get(row, "site_id"),

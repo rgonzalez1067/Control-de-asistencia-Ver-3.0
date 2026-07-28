@@ -41,6 +41,20 @@ const ROLE_LABEL = {
   employee: { label: "Empleado", cls: "bg-emerald-600 text-white" },
 };
 
+// Mapea variantes de rol (ES/EN, case-insensitive) a las claves canónicas.
+const ROLE_ALIASES = {
+  admin: "admin", administrador: "admin", administradora: "admin",
+  supervisor: "supervisor", supervisora: "supervisor",
+  employee: "employee", empleado: "employee", empleada: "employee", user: "employee",
+};
+function normalizeRole(v) {
+  if (!v) return "employee";
+  return ROLE_ALIASES[String(v).trim().toLowerCase()] || "employee";
+}
+function roleBadge(v) {
+  return ROLE_LABEL[normalizeRole(v)];
+}
+
 const EMPTY_USER = {
   email: "", name: "", cedula: "", role: "employee", position: "",
   department_id: "", site_id: "", supervisor_id: "", schedule_id: "",
@@ -365,7 +379,7 @@ export default function UsersPage() {
                 <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-10">Sin resultados</TableCell></TableRow>
               )}
               {!loading && filtered.map((u) => {
-                const roleMeta = ROLE_LABEL[u.role] || { label: u.role, cls: "bg-muted text-foreground" };
+                const roleMeta = roleBadge(u.role) || { label: u.role, cls: "bg-muted text-foreground" };
                 return (
                   <TableRow key={u.user_id} data-testid={`user-row-${u.user_id}`}>
                     <TableCell>

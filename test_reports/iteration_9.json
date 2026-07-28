@@ -1,0 +1,23 @@
+{
+  "summary": "Iteration 9: verified role normalization + name preservation. Backend: 4/4 pytest cases pass (canonical roles for all 141 users, known users in Proper Case, import preview normalizes role, import commit persists canonical role + preserves Proper Case names with accents). Frontend: all badges on /usuarios are colored (no gray) — Admin=dark navy/yellow, Supervisor=fuchsia (rgb(192,38,211)), Empleado=emerald (rgb(5,150,105)). Screenshot confirms visual correctness across 21+ rows including cmarin (Carlos Marín) and jdolande (José Dolande García) which retain Proper Case.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_role_normalization.py",
+    "/app/test_reports/pytest/iter9.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1565 lines — consider splitting into routers (users, attendance, sites, schedules, imports) for maintainability.",
+    "Startup backfill loops over every user with role and issues per-doc updates; acceptable for 141 users but should use bulk_write for larger datasets.",
+    "normalize_role() default-falls-back to 'employee' for unknown strings — safe, but consider logging when a fallback happens during import so users see it in the errors tab."
+  ],
+  "updated_files": ["/app/backend/tests/test_role_normalization.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "rgonzalez@megasoft.com.ve / admin123",
+  "seed_data_creation": "Import test creates TEST_qa_* users then deletes them at end of test_import_commit_role_and_name.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Role normalization + startup backfill + frontend ROLE_ALIASES all working. 141 users all have canonical role in DB. Badge rendering on /usuarios visually confirmed colored for all rows.",
+  "rca of the issue": "Original bug: DB had mixed 'Empleado'/'employee' etc.; frontend ROLE_LABEL only keyed lowercase English. Fix: (a) server normalize_role() applied on import preview + commit, (b) startup migration unifies existing DB values, (c) frontend normalizeRole() folds all aliases before badge lookup. All three layers verified."
+}
