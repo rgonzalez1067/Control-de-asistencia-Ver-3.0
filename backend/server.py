@@ -1734,7 +1734,8 @@ async def close_visit(visit_id: str,
         if isinstance(scheduled_at, datetime):
             if scheduled_at.tzinfo is None:
                 scheduled_at = scheduled_at.replace(tzinfo=timezone.utc)
-            duration_min = round((exit_at - scheduled_at).total_seconds() / 60, 1)
+            raw = (exit_at - scheduled_at).total_seconds() / 60
+            duration_min = round(max(0.0, raw), 1)  # clamp para evitar negativos si scheduled_at es futuro
     await db.visits.update_one(
         {"visit_id": visit_id},
         {"$set": {
