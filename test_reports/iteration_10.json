@@ -1,0 +1,23 @@
+{
+  "summary": "Tested Excel import name→ID resolution for department_id/site_id/schedule_id/supervisor_id per bug report. All 5 pytest cases passed against the deployed backend URL.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_import_name_resolution.py",
+    "/app/test_reports/pytest/import_name_res.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~1724 lines — should be split into modules (routes/users, routes/import, migrations, helpers).",
+    "Preview and commit endpoints duplicate _get / _resolve logic; extract shared helper to keep behavior identical.",
+    "_resolve_ref inside commit endpoint appends errors but doesn't stop the row from being committed with None on the unresolved field — behavior matches preview but worth double-checking that partial updates don't silently drop fields the user expected."
+  ],
+  "updated_files": ["/app/backend/tests/test_import_name_resolution.py"],
+  "success_rate": {"backend": "100%", "frontend": "N/A"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / admin123 (login works)",
+  "seed_data_creation": "None — used existing atata@megasoft.com.ve for update tests. No new users created (invalid-department row was rejected as expected).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Import name-resolution fix is working end-to-end. DB state after tests: sites/schedules 0 unresolved on users collection; departments 70/137 and supervisors 9/117 still have unresolved names — expected because those names don't exist in the departments collection (data issue, not code). atata@megasoft.com.ve now has department_id=dept_30d5899f38, site_id=site_dc46e76844, schedule_id=sch_d2db7693fc, supervisor_id=user_... (rgonzalez). Template Excel /api/users/import/template correctly includes name-based examples and notes explaining names are accepted.",
+  "rca of the issue": "Not applicable — fix is verified. Preview reports 'Departamento no encontrado: <name>' in errors[] and commit path resolves names via _load_import_lookups() (departments/sites/schedules collections + users with role in {supervisor,admin} for supervisors by name/email). Raw IDs with prefix dept_/site_/sch_/user_ bypass the lookup (backward compatibility confirmed)."
+}

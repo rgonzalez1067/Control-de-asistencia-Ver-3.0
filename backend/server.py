@@ -347,6 +347,44 @@ async def on_startup() -> None:
         if u.get("role") != canonical:
             await db.users.update_one({"user_id": u["user_id"]}, {"$set": {"role": canonical}})
 
+    # Migración de datos: resolver department_id / site_id / schedule_id / supervisor_id
+    # que estén guardados como NOMBRE (en lugar de ID interno). Esto ocurrió cuando
+    # se importaban Excels con nombres antes de que existiera el resolver.
+    dept_lookup, site_lookup, sched_lookup, sup_by_name, sup_by_email = await _load_import_lookups()
+    async for u in db.users.find(
+        {"$or": [
+            {"department_id": {"$exists": True, "$ne": None, "$not": {"$regex": "^dept_"}}},
+            {"site_id": {"$exists": True, "$ne": None, "$not": {"$regex": "^site_"}}},
+            {"schedule_id": {"$exists": True, "$ne": None, "$not": {"$regex": "^sch_"}}},
+            {"supervisor_id": {"$exists": True, "$ne": None, "$not": {"$regex": "^user_"}}},
+        ]},
+        {"user_id": 1, "department_id": 1, "site_id": 1, "schedule_id": 1,
+         "supervisor_id": 1, "_id": 0},
+    ):
+        upd: Dict[str, Any] = {}
+        d = (u.get("department_id") or "").strip()
+        if d and not d.startswith("dept_"):
+            m = dept_lookup.get(d.lower())
+            if m:
+                upd["department_id"] = m
+        s = (u.get("site_id") or "").strip()
+        if s and not s.startswith("site_"):
+            m = site_lookup.get(s.lower())
+            if m:
+                upd["site_id"] = m
+        sc = (u.get("schedule_id") or "").strip()
+        if sc and not sc.startswith("sch_"):
+            m = sched_lookup.get(sc.lower())
+            if m:
+                upd["schedule_id"] = m
+        sup = (u.get("supervisor_id") or "").strip()
+        if sup and not sup.startswith("user_"):
+            m = sup_by_email.get(sup.lower()) if "@" in sup else sup_by_name.get(sup.lower())
+            if m:
+                upd["supervisor_id"] = m
+        if upd:
+            await db.users.update_one({"user_id": u["user_id"]}, {"$set": upd})
+
     # Admin bootstrap (idempotent) — no toca hash existente si ya valida
     admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
     admin_password = os.environ.get("ADMIN_PASSWORD", "")
@@ -632,11 +670,11 @@ async def users_import_template(_: Dict[str, Any] = Depends(require_roles("admin
 
     ejemplos = [
         ["jperez@empresa.com", "Juan Pérez", "12345678", "employee",
-         "Analista", "", "", "", "", "Temporal2026*", "1234"],
-        ["mrodriguez@empresa.com", "María Rodríguez", "23456789", "supervisor",
-         "Coordinadora", "", "", "", "", "", "5678"],
+         "Analista", "Ventas Pyme", "Sede Torre Banco Plaza", "atata@empresa.com", "Día Completo", "Temporal2026*", "1234"],
+        ["mrodriguez@empresa.com", "María Rodríguez", "23456789", "Supervisor",
+         "Coordinadora", "Recursos Humanos", "Sede Torre Banco Plaza", "", "Día Completo", "", "5678"],
         ["cgomez@empresa.com", "Carlos Gómez", "34567890", "employee",
-         "Técnico Soporte", "", "", "user_abc123", "sched_xyz789", "", ""],
+         "Técnico Soporte", "Soporte y Monitoreo", "Sede Los Chaguaramos", "María Rodríguez", "Turno Uno", "", ""],
     ]
     for row in ejemplos:
         ws2.append(row)
@@ -647,11 +685,14 @@ async def users_import_template(_: Dict[str, Any] = Depends(require_roles("admin
     ws2["A" + str(ws2.max_row)].font = Font(bold=True, color="B45309")
     notas = [
         "• Sólo email y name son obligatorios. El resto puede ir vacío.",
-        "• role: employee | supervisor | admin (default: employee).",
+        "• role: employee | supervisor | admin (acepta 'Empleado', 'Supervisor', 'Administrador').",
+        "• department_id / site_id / schedule_id: puedes escribir el NOMBRE tal como aparece en el sistema (ej. 'Ventas Pyme', 'Sede Torre Banco Plaza', 'Día Completo') o el ID interno (dept_xxx / site_xxx / sch_xxx).",
+        "• supervisor_id: acepta el email del supervisor (ej. 'atata@empresa.com'), su nombre completo tal cual está registrado, o el ID interno user_xxx.",
         "• Si el email ya existe → se ACTUALIZAN sólo los campos con valor (no sobrescribe con vacío).",
         "• Si el email NO existe → se INSERTA un nuevo empleado.",
         "• password: sólo se aplica al crear. Si se omite, se genera uno aleatorio.",
         "• kiosk_pin: 4 dígitos numéricos para el modo kiosco (marca con PIN).",
+        "• Cualquier NOMBRE que no exista en el sistema aparecerá en la pestaña 'Errores' del preview y NO se guardará.",
     ]
     for n in notas:
         ws2.append([n])
@@ -701,6 +742,56 @@ async def users_import_preview(file: UploadFile = File(...),
         s = str(val).strip()
         return s if s else None
 
+    # Lookup tables (name → id, y email → user_id para supervisores)
+    dept_map, site_map, sched_map, sup_by_name, sup_by_email = await _load_import_lookups()
+
+    def _resolve(kind: str, value: Optional[str], row_num: int, errors: list) -> Optional[str]:
+        """Convierte un valor de Excel a un ID válido. Acepta el ID literal
+        o el nombre. Devuelve None si el valor no se puede resolver."""
+        if value is None:
+            return None
+        raw_val = str(value).strip()
+        if not raw_val:
+            return None
+        low = raw_val.lower()
+        if kind == "department":
+            if raw_val.startswith("dept_"):
+                return raw_val
+            match = dept_map.get(low)
+            if not match:
+                errors.append({"row": row_num, "email": None,
+                               "reason": f"Departamento no encontrado: {raw_val!r}"})
+            return match
+        if kind == "site":
+            if raw_val.startswith("site_"):
+                return raw_val
+            match = site_map.get(low)
+            if not match:
+                errors.append({"row": row_num, "email": None,
+                               "reason": f"Sede no encontrada: {raw_val!r}"})
+            return match
+        if kind == "schedule":
+            if raw_val.startswith("sch_"):
+                return raw_val
+            match = sched_map.get(low)
+            if not match:
+                errors.append({"row": row_num, "email": None,
+                               "reason": f"Horario no encontrado: {raw_val!r}"})
+            return match
+        if kind == "supervisor":
+            if raw_val.startswith("user_"):
+                return raw_val
+            # Trata como email primero, luego como nombre
+            if "@" in raw_val:
+                match = sup_by_email.get(low)
+            else:
+                match = sup_by_name.get(low)
+            if not match:
+                errors.append({"row": row_num, "email": None,
+                               "reason": f"Supervisor no encontrado: {raw_val!r}"})
+            return match
+        return raw_val
+
     to_create: List[Dict[str, Any]] = []
     to_update: List[Dict[str, Any]] = []
     errors: List[Dict[str, Any]] = []
@@ -720,10 +811,10 @@ async def users_import_preview(file: UploadFile = File(...),
             "cedula": _get(row, "cedula"),
             "role": normalize_role(_get(row, "role")),
             "position": _get(row, "position"),
-            "department_id": _get(row, "department_id"),
-            "site_id": _get(row, "site_id"),
-            "supervisor_id": _get(row, "supervisor_id"),
-            "schedule_id": _get(row, "schedule_id"),
+            "department_id": _resolve("department", _get(row, "department_id"), i, errors),
+            "site_id": _resolve("site", _get(row, "site_id"), i, errors),
+            "supervisor_id": _resolve("supervisor", _get(row, "supervisor_id"), i, errors),
+            "schedule_id": _resolve("schedule", _get(row, "schedule_id"), i, errors),
             "kiosk_pin": _get(row, "kiosk_pin"),
         }
         existing = await db.users.find_one({"email": email})
@@ -753,6 +844,31 @@ async def users_import_preview(file: UploadFile = File(...),
         "to_update": to_update,
         "errors": errors,
     }
+
+
+async def _load_import_lookups() -> tuple:
+    """Devuelve 5 diccionarios lower-keyed para resolver nombres → IDs."""
+    dept_map: Dict[str, str] = {}
+    site_map: Dict[str, str] = {}
+    sched_map: Dict[str, str] = {}
+    sup_by_name: Dict[str, str] = {}
+    sup_by_email: Dict[str, str] = {}
+    async for d in db.departments.find({}, {"department_id": 1, "name": 1, "_id": 0}):
+        if d.get("name"):
+            dept_map[d["name"].strip().lower()] = d["department_id"]
+    async for s in db.sites.find({}, {"site_id": 1, "name": 1, "_id": 0}):
+        if s.get("name"):
+            site_map[s["name"].strip().lower()] = s["site_id"]
+    async for s in db.schedules.find({}, {"schedule_id": 1, "name": 1, "_id": 0}):
+        if s.get("name"):
+            sched_map[s["name"].strip().lower()] = s["schedule_id"]
+    async for u in db.users.find({"role": {"$in": ["supervisor", "admin"]}},
+                                 {"user_id": 1, "name": 1, "email": 1, "_id": 0}):
+        if u.get("name"):
+            sup_by_name[u["name"].strip().lower()] = u["user_id"]
+        if u.get("email"):
+            sup_by_email[u["email"].strip().lower()] = u["user_id"]
+    return dept_map, site_map, sched_map, sup_by_name, sup_by_email
 
 
 @api.post("/users/import")
@@ -801,6 +917,49 @@ async def users_import(file: UploadFile = File(...),
     created, updated, errors = 0, 0, []
     created_list: List[str] = []
     updated_list: List[str] = []
+    dept_map, site_map, sched_map, sup_by_name, sup_by_email = await _load_import_lookups()
+
+    def _resolve_ref(kind: str, value: Optional[str], row_num: int) -> Optional[str]:
+        if value is None:
+            return None
+        raw_val = str(value).strip()
+        if not raw_val:
+            return None
+        low = raw_val.lower()
+        if kind == "department":
+            if raw_val.startswith("dept_"):
+                return raw_val
+            match = dept_map.get(low)
+            if not match:
+                errors.append({"row": row_num, "email": None,
+                               "reason": f"Departamento no encontrado: {raw_val!r}"})
+            return match
+        if kind == "site":
+            if raw_val.startswith("site_"):
+                return raw_val
+            match = site_map.get(low)
+            if not match:
+                errors.append({"row": row_num, "email": None,
+                               "reason": f"Sede no encontrada: {raw_val!r}"})
+            return match
+        if kind == "schedule":
+            if raw_val.startswith("sch_"):
+                return raw_val
+            match = sched_map.get(low)
+            if not match:
+                errors.append({"row": row_num, "email": None,
+                               "reason": f"Horario no encontrado: {raw_val!r}"})
+            return match
+        if kind == "supervisor":
+            if raw_val.startswith("user_"):
+                return raw_val
+            match = sup_by_email.get(low) if "@" in raw_val else sup_by_name.get(low)
+            if not match:
+                errors.append({"row": row_num, "email": None,
+                               "reason": f"Supervisor no encontrado: {raw_val!r}"})
+            return match
+        return raw_val
+
     for i, row in enumerate(rows, start=2):
         if row is None or all(v is None for v in row):
             continue
@@ -815,10 +974,10 @@ async def users_import(file: UploadFile = File(...),
                 "cedula": _get(row, "cedula"),
                 "role": normalize_role(_get(row, "role")) if _get(row, "role") else None,
                 "position": _get(row, "position"),
-                "department_id": _get(row, "department_id"),
-                "site_id": _get(row, "site_id"),
-                "supervisor_id": _get(row, "supervisor_id"),
-                "schedule_id": _get(row, "schedule_id"),
+                "department_id": _resolve_ref("department", _get(row, "department_id"), i),
+                "site_id": _resolve_ref("site", _get(row, "site_id"), i),
+                "supervisor_id": _resolve_ref("supervisor", _get(row, "supervisor_id"), i),
+                "schedule_id": _resolve_ref("schedule", _get(row, "schedule_id"), i),
                 "kiosk_pin": _get(row, "kiosk_pin"),
             }
             # Descartamos None para no sobreescribir con vacío en updates.
