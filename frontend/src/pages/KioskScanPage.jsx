@@ -258,16 +258,16 @@ export default function KioskScanPage() {
       toast.success(`${user.name.split(" ")[0]} · ${marked === "in" ? "Entrada" : "Salida"} registrada`);
       setPhase("success");
       setCurrent({ ...user, marked });
-      // Detectar visitas pendientes del anfitrión (solo cuando marca entrada)
-      let pendingVisits = [];
-      if (marked === "in") {
-        try {
-          const r = await api.get(`/kiosk/pending-visits/${user.user_id}`);
-          pendingVisits = r.data || [];
-        } catch (_) { pendingVisits = []; }
-      }
-      if (pendingVisits.length > 0) {
-        setPendingVisits(pendingVisits);
+      // Detectar visitas pendientes del anfitrión.
+      // Consultamos SIEMPRE (tanto en entrada como en salida) porque una visita
+      // puede haberse agendado justo antes/después de una marca de asistencia.
+      let visits = [];
+      try {
+        const r = await api.get(`/kiosk/pending-visits/${user.user_id}`);
+        visits = r.data || [];
+      } catch (_) { visits = []; }
+      if (visits.length > 0) {
+        setPendingVisits(visits);
         // No auto-cierre — el usuario decide si atiende la visita
       } else {
         setTimeout(() => { setCurrent(null); setPhase("ready"); }, 2200);
