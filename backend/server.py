@@ -178,7 +178,7 @@ class RegisterIn(BaseModel):
 
 class ChangePasswordIn(BaseModel):
     old_password: str
-    new_password: str
+    new_password: str = Field(min_length=8, max_length=200)
 
 
 class ResetPasswordIn(BaseModel):
@@ -501,8 +501,13 @@ async def auth_change_password(payload: ChangePasswordIn,
                                user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
     if not verify_password(payload.old_password, user.get("password_hash", "")):
         raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
+    if payload.old_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="La nueva contraseña debe ser distinta a la actual")
+    if len(payload.new_password.strip()) < 8:
+        raise HTTPException(status_code=400, detail="La nueva contraseña debe tener al menos 8 caracteres")
     await db.users.update_one({"_id": user["_id"]},
-                              {"$set": {"password_hash": hash_password(payload.new_password)}})
+                              {"$set": {"password_hash": hash_password(payload.new_password),
+                                        "password_updated_at": now_utc()}})
     return {"ok": True}
 
 
