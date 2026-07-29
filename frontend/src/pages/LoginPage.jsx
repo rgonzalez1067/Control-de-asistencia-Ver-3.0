@@ -91,7 +91,7 @@ export default function LoginPage() {
           </div>
 
           {/* headline */}
-          <div className="relative max-w-xl">
+          <div className="relative max-w-xl mt-10">
             <p className="text-xs uppercase tracking-[0.3em] text-accent mb-6">
               — Suite corporativa de asistencia
             </p>
