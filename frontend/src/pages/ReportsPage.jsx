@@ -30,11 +30,13 @@ function todayISO(offsetDays = 0) {
 export default function ReportsPage() {
   const [users, setUsers] = useState([]);
   const [sites, setSites] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({
     from_date: todayISO(-30),
     to_date: todayISO(0),
+    department_id: "__all",
     user_id: "__all",
     site_id: "__all",
     type: "all",
@@ -44,9 +46,14 @@ export default function ReportsPage() {
   useEffect(() => {
     async function loadRefs() {
       try {
-        const [u, s] = await Promise.all([api.get("/users"), api.get("/sites")]);
+        const [u, s, d] = await Promise.all([
+          api.get("/users"),
+          api.get("/sites"),
+          api.get("/departments"),
+        ]);
         setUsers(u.data);
         setSites(s.data);
+        setDepartments(d.data);
       } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
     }
     loadRefs();
@@ -70,16 +77,32 @@ export default function ReportsPage() {
   useEffect(() => { fetchReports(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
   const filtered = useMemo(() => {
+    const deptUserIds = filters.department_id !== "__all"
+      ? new Set(users.filter((u) => u.department_id === filters.department_id).map((u) => u.user_id))
+      : null;
     return records.filter((r) => {
+      if (deptUserIds && !deptUserIds.has(r.user_id)) return false;
       if (filters.type !== "all" && r.type !== filters.type) return false;
       if (filters.status === "late" && !r.is_late) return false;
       if (filters.status === "ontime" && (r.is_late || r.type !== "in")) return false;
       return true;
     });
-  }, [records, filters.type, filters.status]);
+  }, [records, users, filters.department_id, filters.type, filters.status]);
 
   const userMap = useMemo(() => Object.fromEntries(users.map((u) => [u.user_id, u])), [users]);
   const siteMap = useMemo(() => Object.fromEntries(sites.map((s) => [s.site_id, s.name])), [sites]);
+
+  const employeeOptions = useMemo(() => {
+    const list = filters.department_id !== "__all"
+      ? users.filter((u) => u.department_id === filters.department_id)
+      : users;
+    return [...list].sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }));
+  }, [users, filters.department_id]);
+
+  const departmentOptions = useMemo(
+    () => [...departments].sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" })),
+    [departments],
+  );
 
   const stats = useMemo(() => {
     const ins = filtered.filter((r) => r.type === "in");
@@ -110,7 +133,16 @@ export default function ReportsPage() {
   function resetFilters() {
     setFilters({
       from_date: todayISO(-30), to_date: todayISO(0),
-      user_id: "__all", site_id: "__all", type: "all", status: "all",
+      department_id: "__all", user_id: "__all", site_id: "__all", type: "all", status: "all",
+    });
+  }
+
+  function handleDepartmentChange(v) {
+    setFilters((f) => {
+      // Si el empleado actual no pertenece al nuevo departamento, lo reseteamos
+      const stillValid = v === "__all" || (f.user_id !== "__all"
+        && users.find((u) => u.user_id === f.user_id)?.department_id === v);
+      return { ...f, department_id: v, user_id: stillValid ? f.user_id : "__all" };
     });
   }
 
@@ -123,7 +155,7 @@ export default function ReportsPage() {
             <FileBarChart2 className="h-8 w-8 text-primary/70" /> Reportes de asistencia
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Filtra por rango de fechas, empleado, sede y tipo. Descarga CSV listo para RRHH o nómina.
+            Filtra por rango de fechas, departamento, empleado, sede y tipo. Descarga CSV listo para RRHH o nómina.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -146,7 +178,7 @@ export default function ReportsPage() {
           <div className="flex items-center gap-2 mb-4 text-xs uppercase tracking-wider text-muted-foreground">
             <Filter className="h-3.5 w-3.5" /> Filtros
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Desde</Label>
               <Input type="date" value={filters.from_date} onChange={(e) => setFilters((f) => ({ ...f, from_date: e.target.value }))} data-testid="reports-from" />
@@ -156,12 +188,24 @@ export default function ReportsPage() {
               <Input type="date" value={filters.to_date} onChange={(e) => setFilters((f) => ({ ...f, to_date: e.target.value }))} data-testid="reports-to" />
             </div>
             <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground">Departamento</Label>
+              <Select value={filters.department_id} onValueChange={handleDepartmentChange}>
+                <SelectTrigger data-testid="reports-department"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all">Todos</SelectItem>
+                  {departmentOptions.map((d) => (
+                    <SelectItem key={d.department_id} value={d.department_id}>{d.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Empleado</Label>
               <Select value={filters.user_id} onValueChange={(v) => setFilters((f) => ({ ...f, user_id: v }))}>
                 <SelectTrigger data-testid="reports-user"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all">Todos</SelectItem>
-                  {users.map((u) => (
+                  {employeeOptions.map((u) => (
                     <SelectItem key={u.user_id} value={u.user_id}>{u.name}</SelectItem>
                   ))}
                 </SelectContent>
