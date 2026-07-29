@@ -1080,11 +1080,11 @@ async def settings_get() -> Dict[str, Any]:
 
 @api.get("/docs/manual-usuario", include_in_schema=False)
 async def manual_usuario():
-    """Descarga el manual de usuario en PDF (público)."""
+    """Descarga el manual de usuario en Word (público)."""
     return FileResponse(
-        "/app/manual/manual-usuario-megasoft.pdf",
-        media_type="application/pdf",
-        filename="manual-usuario-megasoft.pdf",
+        "/app/manual/manual-usuario-megasoft.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="manual-usuario-megasoft.docx",
     )
 
 
