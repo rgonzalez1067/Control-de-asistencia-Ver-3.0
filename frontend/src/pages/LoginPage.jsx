@@ -71,7 +71,7 @@ export default function LoginPage() {
               <img
                 src={logo}
                 alt="MegaSoft"
-                className="h-20 w-auto max-w-[280px] object-contain drop-shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+                className="h-28 w-auto max-w-[360px] object-contain drop-shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
                 data-testid="login-brand-logo"
               />
             ) : (
