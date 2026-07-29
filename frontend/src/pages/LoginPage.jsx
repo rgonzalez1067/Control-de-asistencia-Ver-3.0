@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import useCompanyBranding from "@/hooks/useCompanyBranding";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +17,8 @@ const HIGHLIGHTS = [
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const branding = useCompanyBranding();
+  const logo = branding?.logo_base64;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -64,13 +67,24 @@ export default function LoginPage() {
 
           {/* header */}
           <div className="relative flex items-center gap-3">
-            <div className="h-11 w-11 rounded-2xl bg-accent grid place-items-center shadow-lg shadow-accent/30">
-              <ShieldCheck className="h-5 w-5 text-foreground" />
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">MegaSoft</p>
-              <p className="text-base font-semibold">Asistencia · Web/PWA</p>
-            </div>
+            {logo ? (
+              <img
+                src={logo}
+                alt="MegaSoft"
+                className="h-20 w-auto max-w-[280px] object-contain drop-shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
+                data-testid="login-brand-logo"
+              />
+            ) : (
+              <>
+                <div className="h-11 w-11 rounded-2xl bg-accent grid place-items-center shadow-lg shadow-accent/30">
+                  <ShieldCheck className="h-5 w-5 text-foreground" />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">MegaSoft</p>
+                  <p className="text-base font-semibold">Asistencia · Web/PWA</p>
+                </div>
+              </>
+            )}
             <div className="ml-auto rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/70">
               {day} · {clock}
             </div>
@@ -128,10 +142,16 @@ export default function LoginPage() {
         <section className="relative bg-background text-foreground flex items-center justify-center px-6 py-12 sm:px-12">
           {/* mobile brand mini header */}
           <div className="absolute top-6 left-6 lg:hidden flex items-center gap-2">
-            <div className="h-9 w-9 rounded-xl bg-primary grid place-items-center">
-              <ShieldCheck className="h-4 w-4 text-accent" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">MegaSoft Asistencia</p>
+            {logo ? (
+              <img src={logo} alt="MegaSoft" className="h-9 w-auto max-w-[150px] object-contain" data-testid="login-brand-logo-mobile" />
+            ) : (
+              <>
+                <div className="h-9 w-9 rounded-xl bg-primary grid place-items-center">
+                  <ShieldCheck className="h-4 w-4 text-accent" />
+                </div>
+                <p className="text-sm font-semibold text-foreground">MegaSoft Asistencia</p>
+              </>
+            )}
           </div>
 
           <div className="w-full max-w-md">
