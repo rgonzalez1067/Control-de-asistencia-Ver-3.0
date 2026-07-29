@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Building2, User as UserIcon, Camera, Search, X, Users, Calendar, Filter, Download, IdCard, Phone, DoorClosed, Baby,
+  Building2, User as UserIcon, Camera, Search, X, Users, Calendar, Filter, Download, IdCard, Phone, DoorClosed, Baby, Trash2,
 } from "lucide-react";
 
 const TZ = "America/Caracas";
@@ -20,6 +21,8 @@ const dfDate = new Intl.DateTimeFormat("es-VE", { day: "2-digit", month: "2-digi
 const dfTime = new Intl.DateTimeFormat("es-VE", { hour: "2-digit", minute: "2-digit", timeZone: TZ });
 
 export default function HistoricoVisitasPage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [visits, setVisits] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState(null);
@@ -68,6 +71,17 @@ export default function HistoricoVisitasPage() {
     try {
       const { data } = await api.post(`/visits/${v.visit_id}/close`);
       toast.success(`Visita cerrada · duración ${data.duration_minutes ?? "?"} min`);
+      load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    }
+  }
+
+  async function deleteVisit(v) {
+    if (!window.confirm(`¿Eliminar la visita de ${v.host_name}? Esta acción no se puede deshacer.`)) return;
+    try {
+      await api.delete(`/visits/${v.visit_id}`);
+      toast.success("Visita eliminada");
       load();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
@@ -173,16 +187,29 @@ export default function HistoricoVisitasPage() {
                         <Button size="sm" variant="ghost" onClick={() => openDetail(v)} data-testid={`visit-open-${v.visit_id}`}>
                           Ver
                         </Button>
-                        {v.status !== "closed" && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => closeVisit(v)}
-                            className="ml-1 h-8 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
-                            data-testid={`visit-close-${v.visit_id}`}
-                          >
-                            <DoorClosed className="h-3 w-3 mr-1" /> Cerrar
-                          </Button>
+                        {(isAdmin || v.created_by === user?.user_id) && (
+                          <>
+                            {v.status !== "closed" && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => closeVisit(v)}
+                                className="ml-1 h-8 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                data-testid={`visit-close-${v.visit_id}`}
+                              >
+                                <DoorClosed className="h-3 w-3 mr-1" /> Cerrar
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => deleteVisit(v)}
+                              className="ml-1 h-8 text-xs border-red-300 text-red-700 hover:bg-red-50"
+                              data-testid={`visit-delete-${v.visit_id}`}
+                            >
+                              <Trash2 className="h-3 w-3 mr-1" /> Eliminar
+                            </Button>
+                          </>
                         )}
                       </TableCell>
                     </TableRow>

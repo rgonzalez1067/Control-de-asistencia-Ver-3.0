@@ -1738,12 +1738,16 @@ async def capture_visit_selfie(visit_id: str, payload: VisitSelfieIn) -> Dict[st
 async def close_visit(visit_id: str,
                       user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """Cierra manualmente una visita: registra exit_at y cambia status='closed'.
-       Requiere can_view_visit_logs o rol admin."""
+       Requiere can_view_visit_logs o rol admin.
+       Un usuario no-admin solo puede cerrar visitas que él mismo creó."""
     if not user.get("can_view_visit_logs") and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="No tienes permiso para cerrar visitas")
     doc = await db.visits.find_one({"visit_id": visit_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
+    if user.get("role") != "admin" and doc.get("created_by") != user["user_id"]:
+        raise HTTPException(status_code=403,
+                            detail="Solo puedes cerrar visitas que tú hayas programado")
     if doc.get("status") == "closed":
         raise HTTPException(status_code=400, detail="La visita ya está cerrada")
     exit_at = now_utc()
@@ -1765,6 +1769,23 @@ async def close_visit(visit_id: str,
         }},
     )
     return {"ok": True, "exit_at": exit_at.isoformat(), "duration_minutes": duration_min}
+
+
+@api.delete("/visits/{visit_id}")
+async def delete_visit(visit_id: str,
+                       user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
+    """Elimina una visita. Un usuario no-admin solo puede borrar visitas que él mismo creó.
+       Requiere can_view_visit_logs o rol admin."""
+    if not user.get("can_view_visit_logs") and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="No tienes permiso para eliminar visitas")
+    doc = await db.visits.find_one({"visit_id": visit_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Visita no encontrada")
+    if user.get("role") != "admin" and doc.get("created_by") != user["user_id"]:
+        raise HTTPException(status_code=403,
+                            detail="Solo puedes eliminar visitas que tú hayas programado")
+    await db.visits.delete_one({"visit_id": visit_id})
+    return {"ok": True}
 
 
 
