@@ -27,7 +27,6 @@ export default function HistorialPage() {
   const [loading, setLoading] = useState(true);
   const [justifying, setJustifying] = useState(null);
   const [justText, setJustText] = useState("");
-  const [checking, setChecking] = useState(false);
 
   async function load() {
     setLoading(true);

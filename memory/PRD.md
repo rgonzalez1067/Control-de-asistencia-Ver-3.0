@@ -65,6 +65,16 @@ Todos los `password_hash` (bcrypt) intactos.
   - Deploy checklist en `/app/memory/DEPLOY_CHECKLIST.md`
   - Supresión de warnings `ResizeObserver loop` en dev overlay
 
+- **Extras (2026‑02‑29 - Fork)**:
+  - **Kiosco robusto**: modo Sleep/Idle (15s), Admin biometric unlock, salida controlada, generación de `face_descriptor` desde onboarding Web.
+  - **Tolerancia dual**: `tolerance_minutes` + `justification_tolerance_minutes` (retraso leve/mayor) con badges y campos `late_minor/late_major/requires_justification`.
+  - **Timezone global UTC-4 (Caracas)** en frontend.
+  - **Import Excel .xlsx** de empleados con preview, upsert y resolución nombre→ID (openpyxl).
+  - **Change Password** desde perfil (`POST /api/auth/change-password`).
+  - **Módulo Control de Visitas**: agendar, histórico, cierre de visita, selfies secuenciales en kiosco, `is_minor` checkbox, `duration_minutes` calculada.
+  - **Roles normalizados**: admin/supervisor/employee con badges unificados y filtro por departamento en Users.
+  - **Historial estricto biométrico (2026-02-29)**: eliminados botones "Marcar Entrada/Salida" manuales de `/historial`. Toda marca debe pasar por el kiosco con reconocimiento facial.
+
 - **Extras (2026‑07‑22)**:
   - **Dashboard Ejecutivo** con backend `GET /api/stats/executive?days=N` (top‑5 tardanzas + ranking por departamento + prom. minutos tarde). Widget en dashboard con selector de rango (7/14/30/60/90) y **export PDF** (jsPDF + jsPDF-autoTable) con branding corporativo, KPIs y tablas.
   - **Modo Oscuro** con `ThemeContext` + `ThemeToggle` en el header. Persiste en localStorage, respeta `prefers-color-scheme`. Paleta `.dark` refinada. Reemplazado en batch `bg-white/80 backdrop-blur → bg-card/80 backdrop-blur` y `text-primary → text-foreground` en headings para legibilidad.
