@@ -28,7 +28,7 @@ from typing import List, Optional, Any, Dict, Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Response, UploadFile, File, Form, Query
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field, ConfigDict
@@ -1076,6 +1076,16 @@ async def settings_get() -> Dict[str, Any]:
     # normaliza: reemplaza _id por id string en respuesta
     doc["id"] = str(doc.pop("_id"))
     return doc
+
+
+@api.get("/docs/manual-usuario", include_in_schema=False)
+async def manual_usuario():
+    """Descarga el manual de usuario en PDF (público)."""
+    return FileResponse(
+        "/app/manual/manual-usuario-megasoft.pdf",
+        media_type="application/pdf",
+        filename="manual-usuario-megasoft.pdf",
+    )
 
 
 @api.put("/settings")
