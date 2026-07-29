@@ -58,27 +58,6 @@ export default function HistorialPage() {
     };
   }, [records]);
 
-  async function quickCheck(type) {
-    setChecking(true);
-    try {
-      let pos = null;
-      try {
-        pos = await new Promise((res, rej) =>
-          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 5000 })
-        );
-      } catch (_) { /* geolocation optional */ }
-      await api.post("/attendance/check", {
-        type,
-        latitude: pos?.coords?.latitude,
-        longitude: pos?.coords?.longitude,
-      });
-      toast.success(type === "in" ? "Entrada registrada" : "Salida registrada");
-      load();
-    } catch (e) {
-      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
-    } finally { setChecking(false); }
-  }
-
   async function submitJustification() {
     try {
       await api.post("/attendance/justify", {
@@ -101,18 +80,8 @@ export default function HistorialPage() {
             <History className="h-8 w-8 text-primary/70" /> Mi historial
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Todas tus marcas — incluyendo las hechas desde el kiosco. Justifica tardanzas si es necesario.
+            Todas tus marcas — hechas desde el kiosco con reconocimiento facial. Justifica tardanzas si es necesario.
           </p>
-        </div>
-        <div className="flex gap-2">
-          <Button onClick={() => quickCheck("in")} disabled={checking}
-            className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20"
-            data-testid="hist-checkin">
-            <LogIn className="h-4 w-4 mr-1.5" /> Marcar entrada
-          </Button>
-          <Button onClick={() => quickCheck("out")} disabled={checking} variant="outline" className="rounded-full" data-testid="hist-checkout">
-            <LogOut className="h-4 w-4 mr-1.5" /> Marcar salida
-          </Button>
         </div>
       </div>
 
