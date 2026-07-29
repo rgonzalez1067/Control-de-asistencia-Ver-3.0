@@ -53,8 +53,8 @@ export default function SettingsPage() {
 
   function handleLogo(file) {
     if (!file) return;
-    if (file.size > 500 * 1024) {
-      toast.error("El logo no debe superar los 500 KB");
+    if (file.size > 1024 * 1024) {
+      toast.error("El logo no debe superar 1 MB");
       return;
     }
     const reader = new FileReader();

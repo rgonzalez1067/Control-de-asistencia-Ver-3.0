@@ -97,12 +97,14 @@ export default function AppLayout() {
       <aside className="hidden lg:flex w-64 shrink-0 flex-col bg-primary text-primary-foreground">
         <div className="px-6 py-6 flex items-center gap-3 border-b border-white/10">
           {logo ? (
-            <img
-              src={logo}
-              alt="MegaSoft"
-              className="h-10 w-auto max-w-[180px] object-contain"
-              data-testid="sidebar-brand-logo"
-            />
+            <div className="bg-white/95 rounded-lg px-2 py-1.5 shadow-sm">
+              <img
+                src={logo}
+                alt="MegaSoft"
+                className="h-9 w-auto max-w-[170px] object-contain"
+                data-testid="sidebar-brand-logo"
+              />
+            </div>
           ) : (
             <>
               <div className="h-10 w-10 rounded-xl bg-accent grid place-items-center">
@@ -157,7 +159,9 @@ export default function AppLayout() {
                   <SheetHeader className="px-5 py-5 border-b border-white/10 text-left">
                     <SheetTitle className="text-primary-foreground flex items-center gap-3">
                       {logo ? (
-                        <img src={logo} alt="MegaSoft" className="h-9 w-auto max-w-[170px] object-contain" />
+                        <div className="bg-white/95 rounded-lg px-2 py-1.5 shadow-sm">
+                          <img src={logo} alt="MegaSoft" className="h-8 w-auto max-w-[160px] object-contain" />
+                        </div>
                       ) : (
                         <>
                           <div className="h-10 w-10 rounded-xl bg-accent grid place-items-center">
