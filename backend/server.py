@@ -160,6 +160,13 @@ def require_roles(*roles: str):
     return _dep
 
 
+async def supervisor_scope_ids(user: Dict[str, Any]) -> List[str]:
+    """Devuelve la lista de user_ids sobre los que un supervisor puede operar:
+    su propio user_id + los de su equipo directo (users.supervisor_id == user_id)."""
+    team = await db.users.find({"supervisor_id": user["user_id"]}, {"user_id": 1}).to_list(1000)
+    return [t["user_id"] for t in team] + [user["user_id"]]
+
+
 # ------------------------------------------------------------------
 # Pydantic models (request payloads)
 # ------------------------------------------------------------------
@@ -556,8 +563,11 @@ async def auth_reset_password(payload: ResetPasswordIn,
 # USERS (8 endpoints)
 # ==================================================================
 @api.get("/users")
-async def users_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
-    docs = await db.users.find({}, {"password_hash": 0, "pin_code_hash": 0,
+async def users_list(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    q: Dict[str, Any] = {}
+    if user.get("role") == "supervisor":
+        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
+    docs = await db.users.find(q, {"password_hash": 0, "pin_code_hash": 0,
                                     "selfie_base64": 0, "face_descriptor": 0}).to_list(1000)
     for d in docs:
         strip_mongo_id(d)
@@ -1477,8 +1487,10 @@ async def attendance_team(days: int = 7,
 async def attendance_justify(payload: JustifyIn,
                              user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
     query = {"record_id": payload.record_id}
-    if user["role"] not in {"admin", "supervisor"}:
+    if user["role"] == "employee":
         query["user_id"] = user["user_id"]
+    elif user["role"] == "supervisor":
+        query["user_id"] = {"$in": await supervisor_scope_ids(user)}
     res = await db.attendance.update_one(
         query,
         {"$set": {"justification": payload.justification, "requires_justification": False}},
@@ -1510,6 +1522,10 @@ async def novelties_create(payload: NoveltyIn,
     target = payload.user_id or user["user_id"]
     if target != user["user_id"] and user["role"] not in {"admin", "supervisor"}:
         raise HTTPException(status_code=403, detail="No autorizado")
+    if user["role"] == "supervisor" and target != user["user_id"]:
+        team_ids = await supervisor_scope_ids(user)
+        if target not in team_ids:
+            raise HTTPException(status_code=403, detail="El empleado no pertenece a tu equipo")
     doc = {
         "novelty_id": new_id("nv", 12),
         "user_id": target,
@@ -1544,8 +1560,11 @@ async def novelties_delete(novelty_id: str,
 @api.post("/novelties/bulk-decide")
 async def novelties_bulk_decide(payload: NoveltyDecideIn,
                                 user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, int]:
+    q: Dict[str, Any] = {"novelty_id": {"$in": payload.novelty_ids}, "status": "pending"}
+    if user["role"] == "supervisor":
+        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
     res = await db.novelties.update_many(
-        {"novelty_id": {"$in": payload.novelty_ids}, "status": "pending"},
+        q,
         {"$set": {"status": payload.decision, "decided_at": now_utc(),
                   "decided_by": user["user_id"], "decision_comment": payload.comment}},
     )
@@ -1754,12 +1773,18 @@ async def close_visit(visit_id: str,
 # ==================================================================
 @api.get("/stats/executive")
 async def stats_executive(days: int = 30,
-                          _: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, Any]:
+                          user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, Any]:
     """Métricas ejecutivas: top tardanzas, ranking por depto, promedio minutos tarde."""
     since = now_utc() - timedelta(days=days)
     q = {"timestamp": {"$gte": since}, "type": "in"}
 
-    users = {u["user_id"]: u async for u in db.users.find({}, {
+    scope_users_q: Dict[str, Any] = {}
+    if user["role"] == "supervisor":
+        team_ids = await supervisor_scope_ids(user)
+        q["user_id"] = {"$in": team_ids}
+        scope_users_q = {"user_id": {"$in": team_ids}}
+
+    users = {u["user_id"]: u async for u in db.users.find(scope_users_q, {
         "user_id": 1, "name": 1, "email": 1, "cedula": 1,
         "department_id": 1, "position": 1, "picture": 1, "_id": 0,
     })}
@@ -1841,28 +1866,37 @@ async def stats_executive(days: int = 30,
 
 
 @api.get("/stats/dashboard")
-async def stats_dashboard(_: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, Any]:
-    total_users = await db.users.count_documents({})
-    onboarded = await db.users.count_documents({"onboarded": True})
+async def stats_dashboard(user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, Any]:
+    scope: Dict[str, Any] = {}
+    user_scope: Dict[str, Any] = {}
+    nov_scope: Dict[str, Any] = {}
+    if user["role"] == "supervisor":
+        team_ids = await supervisor_scope_ids(user)
+        scope["user_id"] = {"$in": team_ids}
+        user_scope["user_id"] = {"$in": team_ids}
+        nov_scope["user_id"] = {"$in": team_ids}
+    total_users = await db.users.count_documents(user_scope)
+    onboarded = await db.users.count_documents({**user_scope, "onboarded": True})
     local_now = now_utc().astimezone(APP_TZ)
     start = local_now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
-    today_in = await db.attendance.count_documents({"timestamp": {"$gte": start}, "type": "in"})
-    today_late = await db.attendance.count_documents({"timestamp": {"$gte": start}, "type": "in", "is_late": True})
+    today_in = await db.attendance.count_documents({**scope, "timestamp": {"$gte": start}, "type": "in"})
+    today_late = await db.attendance.count_documents({**scope, "timestamp": {"$gte": start}, "type": "in", "is_late": True})
     today_late_major_pending = await db.attendance.count_documents({
+        **scope,
         "timestamp": {"$gte": start},
         "type": "in",
         "late_severity": "late_major",
         "requires_justification": True,
         "$or": [{"justification": None}, {"justification": ""}],
     })
-    pending_nov = await db.novelties.count_documents({"status": "pending"})
+    pending_nov = await db.novelties.count_documents({**nov_scope, "status": "pending"})
     # attendance last 7 days
     series = []
     for i in range(6, -1, -1):
         day_start = start - timedelta(days=i)
         day_end = day_start + timedelta(days=1)
-        ins = await db.attendance.count_documents({"timestamp": {"$gte": day_start, "$lt": day_end}, "type": "in"})
-        lates = await db.attendance.count_documents({"timestamp": {"$gte": day_start, "$lt": day_end}, "type": "in", "is_late": True})
+        ins = await db.attendance.count_documents({**scope, "timestamp": {"$gte": day_start, "$lt": day_end}, "type": "in"})
+        lates = await db.attendance.count_documents({**scope, "timestamp": {"$gte": day_start, "$lt": day_end}, "type": "in", "is_late": True})
         series.append({"date": day_start.astimezone(APP_TZ).strftime("%Y-%m-%d"),
                        "check_ins": ins, "late": lates})
     return {
@@ -1881,7 +1915,7 @@ async def reports_list(from_date: Optional[str] = Query(None),
                        to_date: Optional[str] = Query(None),
                        user_id: Optional[str] = Query(None),
                        site_id: Optional[str] = Query(None),
-                       _: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> List[Dict[str, Any]]:
+                       user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> List[Dict[str, Any]]:
     q: Dict[str, Any] = {}
     if user_id:
         q["user_id"] = user_id
@@ -1890,6 +1924,11 @@ async def reports_list(from_date: Optional[str] = Query(None),
     rng = _parse_date_range(from_date, to_date)
     if rng:
         q["timestamp"] = rng
+    if user["role"] == "supervisor":
+        team_ids = await supervisor_scope_ids(user)
+        if user_id and user_id not in team_ids:
+            return []
+        q["user_id"] = {"$in": team_ids} if not user_id else user_id
     docs = await db.attendance.find(q, {"selfie_base64": 0}).sort("timestamp", -1).limit(5000).to_list(5000)
     return [strip_mongo_id(d) for d in docs]
 
@@ -1897,11 +1936,13 @@ async def reports_list(from_date: Optional[str] = Query(None),
 @api.get("/reports/export")
 async def reports_export(from_date: Optional[str] = Query(None),
                          to_date: Optional[str] = Query(None),
-                         _: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> StreamingResponse:
+                         user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> StreamingResponse:
     q: Dict[str, Any] = {}
     rng = _parse_date_range(from_date, to_date)
     if rng:
         q["timestamp"] = rng
+    if user["role"] == "supervisor":
+        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
     users = {u["user_id"]: u async for u in db.users.find({}, {"user_id": 1, "name": 1, "email": 1, "cedula": 1})}
     buf = io.StringIO()
     w = csv.writer(buf)
