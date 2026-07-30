@@ -339,7 +339,7 @@ class JustifyIn(BaseModel):
 
 
 class NoveltyIn(BaseModel):
-    type: Literal["vacation", "leave", "medical", "permission", "other"]
+    type: Literal["vacation", "leave", "medical", "permission", "remote", "other"]
     start_date: str
     end_date: str
     reason: Optional[str] = None
@@ -1946,7 +1946,7 @@ async def reports_list(from_date: Optional[str] = Query(None),
                        to_date: Optional[str] = Query(None),
                        user_id: Optional[str] = Query(None),
                        site_id: Optional[str] = Query(None),
-                       user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> List[Dict[str, Any]]:
+                       user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     q: Dict[str, Any] = {}
     if user_id:
         q["user_id"] = user_id
@@ -1955,7 +1955,9 @@ async def reports_list(from_date: Optional[str] = Query(None),
     rng = _parse_date_range(from_date, to_date)
     if rng:
         q["timestamp"] = rng
-    if user["role"] == "supervisor":
+    if user["role"] == "employee":
+        q["user_id"] = user["user_id"]
+    elif user["role"] == "supervisor":
         team_ids = await supervisor_scope_ids(user)
         if user_id and user_id not in team_ids:
             return []
@@ -1967,12 +1969,14 @@ async def reports_list(from_date: Optional[str] = Query(None),
 @api.get("/reports/export")
 async def reports_export(from_date: Optional[str] = Query(None),
                          to_date: Optional[str] = Query(None),
-                         user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> StreamingResponse:
+                         user: Dict[str, Any] = Depends(get_current_user)) -> StreamingResponse:
     q: Dict[str, Any] = {}
     rng = _parse_date_range(from_date, to_date)
     if rng:
         q["timestamp"] = rng
-    if user["role"] == "supervisor":
+    if user["role"] == "employee":
+        q["user_id"] = user["user_id"]
+    elif user["role"] == "supervisor":
         q["user_id"] = {"$in": await supervisor_scope_ids(user)}
     users = {u["user_id"]: u async for u in db.users.find({}, {"user_id": 1, "name": 1, "email": 1, "cedula": 1})}
     buf = io.StringIO()

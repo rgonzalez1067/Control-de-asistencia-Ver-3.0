@@ -21,7 +21,7 @@ import {
 import { toast } from "sonner";
 import {
   Bell, Plus, CheckCircle2, XCircle, Clock, Calendar,
-  Palmtree, Stethoscope, FileText, Sparkles, Trash2,
+  Palmtree, Stethoscope, FileText, Sparkles, Trash2, Home,
 } from "lucide-react";
 
 const TYPE_META = {
@@ -29,6 +29,7 @@ const TYPE_META = {
   leave:      { label: "Reposo",         icon: Stethoscope,  tint: "bg-rose-100 text-rose-800" },
   medical:    { label: "Cita médica",    icon: Stethoscope,  tint: "bg-rose-100 text-rose-800" },
   permission: { label: "Permiso",        icon: FileText,     tint: "bg-blue-100 text-blue-800" },
+  remote:     { label: "Trabajo remoto", icon: Home,         tint: "bg-indigo-100 text-indigo-800" },
   other:      { label: "Otro",           icon: Sparkles,     tint: "bg-slate-200 text-slate-700" },
 };
 const STATUS_META = {

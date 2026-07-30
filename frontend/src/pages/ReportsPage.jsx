@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, API, getToken, formatApiErrorDetail } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,8 @@ function todayISO(offsetDays = 0) {
 }
 
 export default function ReportsPage() {
+  const { user: currentUser } = useAuth();
+  const isEmployee = currentUser?.role === "employee";
   const [users, setUsers] = useState([]);
   const [sites, setSites] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -178,7 +181,7 @@ export default function ReportsPage() {
           <div className="flex items-center gap-2 mb-4 text-xs uppercase tracking-wider text-muted-foreground">
             <Filter className="h-3.5 w-3.5" /> Filtros
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+          <div className={`grid grid-cols-2 sm:grid-cols-3 ${isEmployee ? "lg:grid-cols-5" : "lg:grid-cols-7"} gap-3`}>
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Desde</Label>
               <Input type="date" value={filters.from_date} onChange={(e) => setFilters((f) => ({ ...f, from_date: e.target.value }))} data-testid="reports-from" />
@@ -187,30 +190,34 @@ export default function ReportsPage() {
               <Label className="text-[11px] text-muted-foreground">Hasta</Label>
               <Input type="date" value={filters.to_date} onChange={(e) => setFilters((f) => ({ ...f, to_date: e.target.value }))} data-testid="reports-to" />
             </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11px] text-muted-foreground">Departamento</Label>
-              <Select value={filters.department_id} onValueChange={handleDepartmentChange}>
-                <SelectTrigger data-testid="reports-department"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all">Todos</SelectItem>
-                  {departmentOptions.map((d) => (
-                    <SelectItem key={d.department_id} value={d.department_id}>{d.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-[11px] text-muted-foreground">Empleado</Label>
-              <Select value={filters.user_id} onValueChange={(v) => setFilters((f) => ({ ...f, user_id: v }))}>
-                <SelectTrigger data-testid="reports-user"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all">Todos</SelectItem>
-                  {employeeOptions.map((u) => (
-                    <SelectItem key={u.user_id} value={u.user_id}>{u.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!isEmployee && (
+              <>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-muted-foreground">Departamento</Label>
+                  <Select value={filters.department_id} onValueChange={handleDepartmentChange}>
+                    <SelectTrigger data-testid="reports-department"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all">Todos</SelectItem>
+                      {departmentOptions.map((d) => (
+                        <SelectItem key={d.department_id} value={d.department_id}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-muted-foreground">Empleado</Label>
+                  <Select value={filters.user_id} onValueChange={(v) => setFilters((f) => ({ ...f, user_id: v }))}>
+                    <SelectTrigger data-testid="reports-user"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all">Todos</SelectItem>
+                      {employeeOptions.map((u) => (
+                        <SelectItem key={u.user_id} value={u.user_id}>{u.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Sede</Label>
               <Select value={filters.site_id} onValueChange={(v) => setFilters((f) => ({ ...f, site_id: v }))}>

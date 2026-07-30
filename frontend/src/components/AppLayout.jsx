@@ -40,6 +40,7 @@ const NAV_ADMIN = [
 const NAV_EMPLOYEE = [
   { to: "/carnet", icon: IdCard, label: "Mi carnet" },
   { to: "/historial", icon: HistoryIcon, label: "Historial" },
+  { to: "/reportes", icon: FileBarChart2, label: "Reportes" },
   { to: "/novedades", icon: Bell, label: "Novedades" },
 ];
 

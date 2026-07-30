@@ -65,7 +65,7 @@ function App() {
             <Route path="ajustes" element={<ProtectedRoute roles={ADMIN}><SettingsPage /></ProtectedRoute>} />
 
             {/* Admin + Supervisor */}
-            <Route path="reportes" element={<ProtectedRoute roles={ADMIN_OR_SUP}><ReportsPage /></ProtectedRoute>} />
+            <Route path="reportes" element={<ReportsPage />} />
             <Route path="equipo" element={<ProtectedRoute roles={ADMIN_OR_SUP}><TeamPage /></ProtectedRoute>} />
 
             {/* Todos los roles */}
