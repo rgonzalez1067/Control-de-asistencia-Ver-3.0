@@ -342,6 +342,8 @@ class NoveltyIn(BaseModel):
     type: Literal["vacation", "leave", "medical", "permission", "remote", "other"]
     start_date: str
     end_date: str
+    start_time: Optional[str] = None  # HH:MM (no aplica a "vacation")
+    end_time: Optional[str] = None    # HH:MM (no aplica a "vacation")
     reason: Optional[str] = None
     user_id: Optional[str] = None  # admin/supervisor can create for others
 
@@ -1536,12 +1538,22 @@ async def novelties_create(payload: NoveltyIn,
         team_ids = await supervisor_scope_ids(user)
         if target not in team_ids:
             raise HTTPException(status_code=403, detail="El empleado no pertenece a tu equipo")
+    # Validación: rango horario obligatorio salvo para vacaciones
+    if payload.type != "vacation":
+        if not payload.start_time or not payload.end_time:
+            raise HTTPException(status_code=400,
+                                detail="Debes indicar rango horario (hora inicio y hora fin)")
+        if payload.start_time >= payload.end_time and payload.start_date == payload.end_date:
+            raise HTTPException(status_code=400,
+                                detail="La hora fin debe ser mayor a la hora inicio")
     doc = {
         "novelty_id": new_id("nv", 12),
         "user_id": target,
         "type": payload.type,
         "start_date": payload.start_date,
         "end_date": payload.end_date,
+        "start_time": payload.start_time if payload.type != "vacation" else None,
+        "end_time": payload.end_time if payload.type != "vacation" else None,
         "reason": payload.reason,
         "status": "pending",
         "created_by": user["user_id"],

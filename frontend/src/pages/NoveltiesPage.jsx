@@ -38,7 +38,7 @@ const STATUS_META = {
   rejected: { label: "Rechazada",  icon: XCircle,      cls: "bg-destructive text-white" },
 };
 
-const EMPTY_FORM = { type: "permission", start_date: "", end_date: "", reason: "", user_id: "" };
+const EMPTY_FORM = { type: "permission", start_date: "", end_date: "", start_time: "08:00", end_time: "17:00", reason: "", user_id: "" };
 
 export default function NoveltiesPage() {
   const { user } = useAuth();
@@ -78,8 +78,15 @@ export default function NoveltiesPage() {
 
   async function createNovelty() {
     if (!form.start_date || !form.end_date) { toast.error("Selecciona las fechas"); return; }
+    if (form.type !== "vacation" && (!form.start_time || !form.end_time)) {
+      toast.error("Indica el rango horario"); return;
+    }
     try {
       const payload = { ...form };
+      if (payload.type === "vacation") {
+        delete payload.start_time;
+        delete payload.end_time;
+      }
       if (!isManager) delete payload.user_id;
       else if (!payload.user_id) delete payload.user_id;
       await api.post("/novelties", payload);
@@ -278,6 +285,28 @@ export default function NoveltiesPage() {
                 <Input type="date" value={form.end_date} onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))} data-testid="novelties-form-to" />
               </div>
             </div>
+            {form.type !== "vacation" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Hora inicio</Label>
+                  <Input
+                    type="time"
+                    value={form.start_time || ""}
+                    onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))}
+                    data-testid="novelties-form-time-from"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Hora fin</Label>
+                  <Input
+                    type="time"
+                    value={form.end_time || ""}
+                    onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))}
+                    data-testid="novelties-form-time-to"
+                  />
+                </div>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>Motivo <span className="text-muted-foreground/60 text-xs">(opcional)</span></Label>
               <Textarea rows={3} value={form.reason || ""} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} placeholder="Ej. viaje familiar programado" data-testid="novelties-form-reason" />
@@ -285,7 +314,15 @@ export default function NoveltiesPage() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setCreating(false)}>Cancelar</Button>
-            <Button onClick={createNovelty} disabled={!form.start_date || !form.end_date} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground" data-testid="novelties-form-submit">
+            <Button
+              onClick={createNovelty}
+              disabled={
+                !form.start_date || !form.end_date ||
+                (form.type !== "vacation" && (!form.start_time || !form.end_time))
+              }
+              className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground"
+              data-testid="novelties-form-submit"
+            >
               Enviar solicitud
             </Button>
           </DialogFooter>
@@ -356,6 +393,11 @@ function NoveltyRow({ n, user, isManager, isMine, isSelected, onToggle, onDelete
         </div>
         <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
           <Calendar className="h-3 w-3" /> {n.start_date} — {n.end_date}
+          {n.start_time && n.end_time && (
+            <span className="ml-2 inline-flex items-center gap-1 text-slate-500">
+              <Clock className="h-3 w-3" /> {n.start_time} — {n.end_time}
+            </span>
+          )}
         </p>
         {n.reason && <p className="text-sm text-muted-foreground mt-1 italic">&ldquo;{n.reason}&rdquo;</p>}
         {n.decision_comment && (
