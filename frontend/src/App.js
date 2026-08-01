@@ -18,6 +18,7 @@ import OnboardingPage from "@/pages/OnboardingPage";
 import KioskUnlockPage from "@/pages/KioskUnlockPage";
 import KioskScanPage from "@/pages/KioskScanPage";
 import ReportsPage from "@/pages/ReportsPage";
+import ReporteMatricialPage from "@/pages/ReporteMatricialPage";
 import NoveltiesPage from "@/pages/NoveltiesPage";
 import TeamPage from "@/pages/TeamPage";
 import AgendarVisitaPage from "@/pages/AgendarVisitaPage";
@@ -66,6 +67,7 @@ function App() {
 
             {/* Admin + Supervisor */}
             <Route path="reportes" element={<ReportsPage />} />
+            <Route path="reporte-matricial" element={<ReporteMatricialPage />} />
             <Route path="equipo" element={<ProtectedRoute roles={ADMIN_OR_SUP}><TeamPage /></ProtectedRoute>} />
 
             {/* Todos los roles */}

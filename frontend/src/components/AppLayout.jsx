@@ -23,6 +23,7 @@ import {
   Fingerprint, FileBarChart2, Bell, LogOut, Settings2, ShieldCheck,
   IdCard, History as HistoryIcon, ChevronDown, UserCircle2,
   Menu, ScanFace, KeyRound, Eye, EyeOff, UserPlus, ClipboardList,
+  LayoutGrid,
 } from "lucide-react";
 
 const NAV_ADMIN = [
@@ -33,6 +34,7 @@ const NAV_ADMIN = [
   { to: "/departamentos", icon: Building2, label: "Departamentos" },
   { to: "/horarios", icon: CalendarClock, label: "Horarios" },
   { to: "/reportes", icon: FileBarChart2, label: "Reportes" },
+  { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz de asistencia" },
   { to: "/novedades", icon: Bell, label: "Novedades" },
   { to: "/ajustes", icon: Settings2, label: "Ajustes" },
 ];
@@ -41,13 +43,13 @@ const NAV_EMPLOYEE = [
   { to: "/carnet", icon: IdCard, label: "Mi carnet" },
   { to: "/historial", icon: HistoryIcon, label: "Historial" },
   { to: "/reportes", icon: FileBarChart2, label: "Reportes" },
+  { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz" },
   { to: "/novedades", icon: Bell, label: "Novedades" },
 ];
 
 const NAV_SUPERVISOR = [
   ...NAV_EMPLOYEE,
   { to: "/equipo", icon: Users, label: "Mi equipo" },
-  { to: "/reportes", icon: FileBarChart2, label: "Reportes" },
 ];
 
 function initials(name) {
