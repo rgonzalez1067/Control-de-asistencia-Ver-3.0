@@ -163,7 +163,7 @@ export default function ReporteMatricialPage() {
             <Filter className="h-4 w-4 text-primary" />
             <p className="text-sm font-semibold text-foreground">Filtros</p>
           </div>
-          <div className={`grid grid-cols-2 sm:grid-cols-3 ${isEmployee ? "lg:grid-cols-5" : "lg:grid-cols-7"} gap-3`}>
+          <div className={`grid gap-3 grid-cols-2 sm:grid-cols-3 ${isEmployee ? "lg:grid-cols-4" : "lg:grid-cols-4"}`}>
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Desde</Label>
               <Input type="date" value={filters.from_date} onChange={(e) => setFilters((f) => ({ ...f, from_date: e.target.value }))} data-testid="matrix-from" />
@@ -172,10 +172,10 @@ export default function ReporteMatricialPage() {
               <Label className="text-[11px] text-muted-foreground">Hasta</Label>
               <Input type="date" value={filters.to_date} onChange={(e) => setFilters((f) => ({ ...f, to_date: e.target.value }))} data-testid="matrix-to" />
             </div>
-            <div className="space-y-1.5">
+            <div className="space-y-1.5 col-span-2 sm:col-span-1">
               <Label className="text-[11px] text-muted-foreground">Tipo de horario *</Label>
               <Select value={filters.schedule_id} onValueChange={(v) => setFilters((f) => ({ ...f, schedule_id: v }))}>
-                <SelectTrigger data-testid="matrix-schedule"><SelectValue placeholder="Selecciona…" /></SelectTrigger>
+                <SelectTrigger data-testid="matrix-schedule" className="truncate"><SelectValue placeholder="Selecciona…" /></SelectTrigger>
                 <SelectContent>
                   {schedules.map((s) => (
                     <SelectItem key={s.schedule_id} value={s.schedule_id}>
@@ -185,12 +185,24 @@ export default function ReporteMatricialPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground">Sede</Label>
+              <Select value={filters.site_id} onValueChange={(v) => setFilters((f) => ({ ...f, site_id: v }))}>
+                <SelectTrigger data-testid="matrix-site" className="truncate"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all">Todas</SelectItem>
+                  {sites.map((s) => (
+                    <SelectItem key={s.site_id} value={s.site_id}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {!isEmployee && (
               <>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 sm:col-span-1 lg:col-span-1">
                   <Label className="text-[11px] text-muted-foreground">Departamento</Label>
                   <Select value={filters.department_id} onValueChange={(v) => setFilters((f) => ({ ...f, department_id: v, user_id: "__all" }))}>
-                    <SelectTrigger data-testid="matrix-department"><SelectValue /></SelectTrigger>
+                    <SelectTrigger data-testid="matrix-department" className="truncate"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__all">Todos</SelectItem>
                       {departmentOptions.map((d) => (
@@ -199,10 +211,10 @@ export default function ReporteMatricialPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 sm:col-span-2 lg:col-span-2">
                   <Label className="text-[11px] text-muted-foreground">Empleado</Label>
                   <Select value={filters.user_id} onValueChange={(v) => setFilters((f) => ({ ...f, user_id: v }))}>
-                    <SelectTrigger data-testid="matrix-user"><SelectValue /></SelectTrigger>
+                    <SelectTrigger data-testid="matrix-user" className="truncate"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__all">Todos</SelectItem>
                       {employeeOptions.map((u) => (
@@ -213,22 +225,10 @@ export default function ReporteMatricialPage() {
                 </div>
               </>
             )}
-            <div className="space-y-1.5">
-              <Label className="text-[11px] text-muted-foreground">Sede</Label>
-              <Select value={filters.site_id} onValueChange={(v) => setFilters((f) => ({ ...f, site_id: v }))}>
-                <SelectTrigger data-testid="matrix-site"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all">Todas</SelectItem>
-                  {sites.map((s) => (
-                    <SelectItem key={s.site_id} value={s.site_id}>{s.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-end">
+            <div className="flex items-end col-span-2 sm:col-span-1 lg:col-span-1">
               <Button onClick={load} disabled={loading || !filters.schedule_id} className="w-full rounded-full" data-testid="matrix-apply">
                 <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-                {loading ? "Cargando…" : "Aplicar"}
+                {loading ? "Cargando…" : "Aplicar filtros"}
               </Button>
             </div>
           </div>
