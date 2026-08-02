@@ -337,7 +337,7 @@ def _schedule_dto(s: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 def _day_headers(blocks_per_day: int) -> List[str]:
     if blocks_per_day >= 2:
         return ["E1", "S1", "E2", "S2"]
-    return ["E", "S"]
+    return ["E1", "S1"]
 
 
 def export_xlsx(matrix: Dict[str, Any]) -> bytes:
@@ -524,7 +524,9 @@ def export_pdf(matrix: Dict[str, Any], company_name: str = "MegaSoft", logo_base
 
     n_static = 3
     day_start_col = n_static
-    day_col_width_mm = 7 if bpd >= 2 else 10
+    # 1 bloque (2 casillas): más ancho para aprovechar espacio horizontal.
+    # 2 bloques (4 casillas): compacto para caber en la página.
+    day_col_width_mm = 7 if bpd >= 2 else 13
 
     for r in matrix["rows"]:
         row = [r["name"], r["cedula"], r["department"]]

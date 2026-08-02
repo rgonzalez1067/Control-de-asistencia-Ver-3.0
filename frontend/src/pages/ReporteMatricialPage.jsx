@@ -118,7 +118,7 @@ export default function ReporteMatricialPage() {
   }
 
   const bpd = data.blocks_per_day || 1;
-  const dayLabels = bpd >= 2 ? ["E1", "S1", "E2", "S2"] : ["E", "S"];
+  const dayLabels = bpd >= 2 ? ["E1", "S1", "E2", "S2"] : ["E1", "S1"];
   const perDay = 2 * bpd;
 
   const partialByRowDay = useMemo(() => {
