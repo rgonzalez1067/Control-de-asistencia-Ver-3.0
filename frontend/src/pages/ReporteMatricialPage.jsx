@@ -5,14 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import {
-  LayoutGrid, Download, RefreshCw, FileText, FileSpreadsheet,
-  Filter, ChevronDown,
+  LayoutGrid, RefreshCw, FileText, FileSpreadsheet, Filter,
 } from "lucide-react";
 
 const TZ = "America/Caracas";
@@ -24,16 +22,6 @@ function todayISO(offsetDays = 0) {
   return d.toISOString().slice(0, 10);
 }
 
-const STATUS_STYLE = {
-  normal:            { cls: "bg-emerald-50 text-emerald-700",    label: "OK" },
-  late_justified:    { cls: "bg-amber-100 text-amber-800",       label: "Tarde-J" },
-  late_unjustified:  { cls: "bg-red-100 text-red-800 font-bold", label: "Tarde-NJ" },
-  novelty:           { cls: "bg-blue-100 text-blue-800",         label: "Novedad" },
-  absent:            { cls: "bg-red-100 text-red-800 font-bold", label: "Falta" },
-  non_working:       { cls: "bg-slate-100 text-slate-400",       label: "—" },
-  future:            { cls: "bg-white text-slate-300",           label: "" },
-};
-
 export default function ReporteMatricialPage() {
   const { user } = useAuth();
   const isEmployee = user?.role === "employee";
@@ -44,32 +32,39 @@ export default function ReporteMatricialPage() {
     department_id: "__all",
     user_id: "__all",
     site_id: "__all",
+    schedule_id: "",
   });
   const [departments, setDepartments] = useState([]);
   const [users, setUsers] = useState([]);
   const [sites, setSites] = useState([]);
-  const [data, setData] = useState({ days: [], rows: [] });
+  const [schedules, setSchedules] = useState([]);
+  const [data, setData] = useState({ days: [], rows: [], blocks_per_day: 1 });
   const [loading, setLoading] = useState(false);
-  const [exporting, setExporting] = useState(null); // 'pdf' | 'xlsx' | null
+  const [exporting, setExporting] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const calls = [api.get("/users"), api.get("/sites")];
+        const calls = [api.get("/users"), api.get("/sites"), api.get("/schedules")];
         if (!isEmployee) calls.push(api.get("/departments"));
-        const [u, s, d] = await Promise.all(calls);
+        const [u, s, sch, d] = await Promise.all(calls);
         setUsers(u.data);
         setSites(s.data);
+        setSchedules(sch.data);
         if (d) setDepartments(d.data);
+        // seleccionar por defecto el primer horario disponible
+        if (sch.data?.length && !filters.schedule_id) {
+          setFilters((f) => ({ ...f, schedule_id: sch.data[0].schedule_id }));
+        }
       } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
     })();
+    // eslint-disable-next-line
   }, [isEmployee]);
 
   const departmentOptions = useMemo(
     () => [...departments].sort((a, b) => (a.name || "").localeCompare(b.name || "", "es")),
     [departments],
   );
-
   const employeeOptions = useMemo(() => {
     const list = filters.department_id !== "__all"
       ? users.filter((u) => u.department_id === filters.department_id)
@@ -78,11 +73,13 @@ export default function ReporteMatricialPage() {
   }, [users, filters.department_id]);
 
   async function load() {
+    if (!filters.schedule_id) { toast.error("Selecciona un tipo de horario"); return; }
     setLoading(true);
     try {
       const params = {
         from_date: filters.from_date,
         to_date: filters.to_date,
+        schedule_id: filters.schedule_id,
       };
       if (filters.department_id !== "__all") params.department_ids = filters.department_id;
       if (filters.user_id !== "__all") params.user_ids = filters.user_id;
@@ -93,14 +90,15 @@ export default function ReporteMatricialPage() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { if (filters.schedule_id) load(); /* eslint-disable-next-line */ }, [filters.schedule_id]);
 
   async function download(kind) {
+    if (!filters.schedule_id) { toast.error("Selecciona un tipo de horario"); return; }
     setExporting(kind);
     try {
       const params = new URLSearchParams({
-        from_date: filters.from_date,
-        to_date: filters.to_date,
+        from_date: filters.from_date, to_date: filters.to_date,
+        schedule_id: filters.schedule_id,
       });
       if (filters.department_id !== "__all") params.set("department_ids", filters.department_id);
       if (filters.user_id !== "__all") params.set("user_ids", filters.user_id);
@@ -119,9 +117,25 @@ export default function ReporteMatricialPage() {
     finally { setExporting(null); }
   }
 
+  const bpd = data.blocks_per_day || 1;
+  const dayLabels = bpd >= 2 ? ["E1", "S1", "E2", "S2"] : ["E", "S"];
+  const perDay = 2 * bpd;
+
+  const partialByRowDay = useMemo(() => {
+    const m = {};
+    (data.rows || []).forEach((r) => {
+      if (!r.partial_novelties?.length) return;
+      const byDay = {};
+      for (const pn of r.partial_novelties) {
+        byDay[pn.date] = byDay[pn.date] ? [...byDay[pn.date], pn] : [pn];
+      }
+      m[r.user_id] = byDay;
+    });
+    return m;
+  }, [data.rows]);
+
   return (
     <div className="space-y-6" data-testid="matrix-report-page">
-      {/* Header */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="flex items-center gap-2">
@@ -130,8 +144,7 @@ export default function ReporteMatricialPage() {
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-primary mt-1">Reporte matricial de asistencia</h1>
           <p className="text-sm text-muted-foreground max-w-2xl">
-            Matriz consolidada de entradas, salidas y novedades por empleado y día. Incluye totales de minutos perdidos y
-            desglose por tipo de novedad.
+            Matriz consolidada de entradas, salidas y novedades por empleado y día — adaptada al tipo de horario.
           </p>
         </div>
         <div className="flex gap-2">
@@ -144,14 +157,13 @@ export default function ReporteMatricialPage() {
         </div>
       </div>
 
-      {/* Filtros */}
       <Card className="border-border/70 bg-card/70 backdrop-blur">
         <CardContent className="p-5">
           <div className="flex items-center gap-2 mb-3">
             <Filter className="h-4 w-4 text-primary" />
             <p className="text-sm font-semibold text-foreground">Filtros</p>
           </div>
-          <div className={`grid grid-cols-2 sm:grid-cols-3 ${isEmployee ? "lg:grid-cols-4" : "lg:grid-cols-6"} gap-3`}>
+          <div className={`grid grid-cols-2 sm:grid-cols-3 ${isEmployee ? "lg:grid-cols-5" : "lg:grid-cols-7"} gap-3`}>
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Desde</Label>
               <Input type="date" value={filters.from_date} onChange={(e) => setFilters((f) => ({ ...f, from_date: e.target.value }))} data-testid="matrix-from" />
@@ -159,6 +171,19 @@ export default function ReporteMatricialPage() {
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Hasta</Label>
               <Input type="date" value={filters.to_date} onChange={(e) => setFilters((f) => ({ ...f, to_date: e.target.value }))} data-testid="matrix-to" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground">Tipo de horario *</Label>
+              <Select value={filters.schedule_id} onValueChange={(v) => setFilters((f) => ({ ...f, schedule_id: v }))}>
+                <SelectTrigger data-testid="matrix-schedule"><SelectValue placeholder="Selecciona…" /></SelectTrigger>
+                <SelectContent>
+                  {schedules.map((s) => (
+                    <SelectItem key={s.schedule_id} value={s.schedule_id}>
+                      {s.name} {s.blocks?.length >= 2 ? " · 2 bloques" : " · 1 bloque"}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             {!isEmployee && (
               <>
@@ -201,23 +226,23 @@ export default function ReporteMatricialPage() {
               </Select>
             </div>
             <div className="flex items-end">
-              <Button onClick={load} disabled={loading} className="w-full rounded-full" data-testid="matrix-apply">
+              <Button onClick={load} disabled={loading || !filters.schedule_id} className="w-full rounded-full" data-testid="matrix-apply">
                 <RefreshCw className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`} />
                 {loading ? "Cargando…" : "Aplicar"}
               </Button>
             </div>
           </div>
 
-          {/* Leyenda */}
           <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
-            {Object.entries(STATUS_STYLE).filter(([k]) => k !== "future").map(([k, v]) => (
-              <span key={k} className={`px-2 py-0.5 rounded ${v.cls}`}>{v.label || k}</span>
-            ))}
+            <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700">Hora <b className="text-black">negro</b> = dentro de tolerancia</span>
+            <span className="px-2 py-0.5 rounded bg-red-100 text-red-800"><b>Rojo</b> = tardanza no justificada</span>
+            <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">Vacaciones / Reposo / Trabajo Remoto = día completo</span>
+            <span className="px-2 py-0.5 rounded bg-red-100 text-red-800">Falta = día laboral sin marcaje</span>
+            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">Sub-fila = Cita médica / Permiso</span>
           </div>
         </CardContent>
       </Card>
 
-      {/* Matriz */}
       <Card className="border-border/70 bg-card/70 backdrop-blur">
         <CardContent className="p-0 overflow-hidden">
           <div className="overflow-auto max-h-[70vh]">
@@ -228,7 +253,7 @@ export default function ReporteMatricialPage() {
                   <th rowSpan={2} className="px-2 py-2 border-r border-white/10">Cédula</th>
                   <th rowSpan={2} className="px-2 py-2 border-r border-white/10">Depto</th>
                   {data.days.map((day) => (
-                    <th key={day} colSpan={3} className="px-2 py-1 text-center border-r border-white/10 whitespace-nowrap">
+                    <th key={day} colSpan={perDay} className="px-2 py-1 text-center border-r border-white/10 whitespace-nowrap">
                       {dfDayLabel.format(new Date(day + "T12:00"))}
                     </th>
                   ))}
@@ -236,11 +261,9 @@ export default function ReporteMatricialPage() {
                 </tr>
                 <tr className="text-[10px] uppercase tracking-wider">
                   {data.days.map((day) => (
-                    <>
-                      <th key={day + "in"}  className="px-1 py-1 border-r border-white/10">Ent.</th>
-                      <th key={day + "out"} className="px-1 py-1 border-r border-white/10">Sal.</th>
-                      <th key={day + "st"}  className="px-1 py-1 border-r border-white/10">Est.</th>
-                    </>
+                    dayLabels.map((lab) => (
+                      <th key={day + lab} className="px-1 py-1 border-r border-white/10">{lab}</th>
+                    ))
                   ))}
                   <th className="px-1 py-1 bg-slate-800">Min. perd.</th>
                   <th className="px-1 py-1 bg-slate-800">T-J</th>
@@ -250,45 +273,91 @@ export default function ReporteMatricialPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/40">
-                {loading && (
-                  <tr><td className="p-8 text-center text-muted-foreground" colSpan={99}>Cargando matriz…</td></tr>
-                )}
+                {loading && (<tr><td className="p-8 text-center text-muted-foreground" colSpan={99}>Cargando…</td></tr>)}
                 {!loading && data.rows.length === 0 && (
                   <tr><td className="p-10 text-center text-muted-foreground" colSpan={99}>Sin resultados para los filtros aplicados.</td></tr>
                 )}
                 {!loading && data.rows.map((r) => {
                   const novTotal = r.totals.vacation_days + r.totals.leave_days + r.totals.remote_days + r.totals.permission_days + (r.totals.medical_days || 0);
+                  const partials = partialByRowDay[r.user_id] || {};
+                  const hasPartials = Object.keys(partials).length > 0;
                   return (
-                    <tr key={r.user_id} className="hover:bg-muted/30" data-testid={`matrix-row-${r.user_id}`}>
-                      <td className="sticky left-0 bg-card px-3 py-1.5 font-medium whitespace-nowrap border-r border-border/50">
-                        <div className="text-foreground">{r.name}</div>
-                        <div className="text-[10px] text-muted-foreground">{r.position || "—"}</div>
-                      </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap border-r border-border/50">{r.cedula || "—"}</td>
-                      <td className="px-2 py-1.5 whitespace-nowrap border-r border-border/50">{r.department || "—"}</td>
-                      {data.days.map((day) => {
-                        const c = r.cells[day] || {};
-                        const st = STATUS_STYLE[c.status] || STATUS_STYLE.normal;
-                        const isNoInfo = c.status === "future";
-                        return (
-                          <>
-                            <td key={day + "in"}  className="px-1 py-1 text-center whitespace-nowrap border-r border-border/40">{c.check_in || (isNoInfo ? "" : "–")}</td>
-                            <td key={day + "out"} className="px-1 py-1 text-center whitespace-nowrap border-r border-border/40">{c.check_out || (isNoInfo ? "" : "–")}</td>
-                            <td key={day + "st"}  className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${st.cls}`} title={c.novelty_label || c.reason || ""}>
-                              {c.status === "novelty"
-                                ? (c.novelty_label || "Novedad")
-                                : (st.label || "")}
-                              {c.status === "late_unjustified" && c.late_minutes ? ` (${c.late_minutes}m)` : ""}
+                    <>
+                      <tr key={r.user_id} className="hover:bg-muted/30" data-testid={`matrix-row-${r.user_id}`}>
+                        <td className="sticky left-0 bg-card px-3 py-1.5 font-medium whitespace-nowrap border-r border-border/50">
+                          <div className="text-foreground">{r.name}</div>
+                          <div className="text-[10px] text-muted-foreground">{r.position || "—"}</div>
+                        </td>
+                        <td className="px-2 py-1.5 whitespace-nowrap border-r border-border/50">{r.cedula || "—"}</td>
+                        <td className="px-2 py-1.5 whitespace-nowrap border-r border-border/50">{r.department || "—"}</td>
+                        {data.days.map((day) => {
+                          const c = r.cells[day] || {};
+                          if (c.status === "novelty_full") {
+                            return (
+                              <td key={day} colSpan={perDay}
+                                className="px-2 py-2 text-center bg-blue-100 text-blue-800 font-bold uppercase tracking-wide whitespace-nowrap border-r border-border/40"
+                                title={c.reason || ""}>
+                                {c.novelty_label}
+                              </td>
+                            );
+                          }
+                          if (c.status === "absent") {
+                            return (
+                              <td key={day} colSpan={perDay}
+                                className="px-2 py-2 text-center bg-red-100 text-red-800 font-bold whitespace-nowrap border-r border-border/40">
+                                FALTA
+                              </td>
+                            );
+                          }
+                          if (c.status === "non_working") {
+                            return (
+                              <td key={day} colSpan={perDay} className="px-2 py-1 text-center bg-slate-50 text-slate-300 border-r border-border/40">—</td>
+                            );
+                          }
+                          if (c.status === "future") {
+                            return (
+                              <td key={day} colSpan={perDay} className="px-2 py-1 text-center bg-white text-slate-300 border-r border-border/40"></td>
+                            );
+                          }
+                          const blocks = c.blocks || [];
+                          const cells = [];
+                          for (let i = 0; i < bpd; i++) {
+                            const b = blocks[i] || {};
+                            cells.push(
+                              <td key={day + "in" + i} className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${b.in_late ? "text-red-700 font-bold" : "text-slate-900"}`}>
+                                {b.in || "–"}
+                              </td>
+                            );
+                            cells.push(
+                              <td key={day + "out" + i} className="px-1 py-1 text-center whitespace-nowrap border-r border-border/40 text-slate-900">
+                                {b.out || "–"}
+                              </td>
+                            );
+                          }
+                          return cells;
+                        })}
+                        <td className="px-1 py-1 text-center bg-slate-50 font-semibold text-red-700">{r.totals.lost_minutes}</td>
+                        <td className="px-1 py-1 text-center bg-slate-50">{r.totals.late_justified}</td>
+                        <td className="px-1 py-1 text-center bg-slate-50 font-semibold text-red-700">{r.totals.late_unjustified}</td>
+                        <td className="px-1 py-1 text-center bg-slate-50">{novTotal}</td>
+                        <td className="px-1 py-1 text-center bg-slate-50 font-semibold text-red-700">{r.totals.absent_days}</td>
+                      </tr>
+                      {hasPartials && (
+                        <tr className="bg-indigo-50/60" data-testid={`matrix-partial-${r.user_id}`}>
+                          <td className="sticky left-0 bg-indigo-50/60 px-3 py-1 text-[11px] italic text-indigo-700 whitespace-nowrap border-r border-border/50" colSpan={3}>
+                            ↳ Novedades parciales
+                          </td>
+                          {data.days.map((day) => (
+                            <td key={day + "p"} colSpan={perDay} className="px-1 py-1 text-[11px] text-indigo-800 text-center whitespace-nowrap border-r border-border/40 italic">
+                              {(partials[day] || []).map((pn, i) => (
+                                <div key={i}>{pn.label}: {pn.start_time || "?"}–{pn.end_time || "?"}</div>
+                              ))}
                             </td>
-                          </>
-                        );
-                      })}
-                      <td className="px-1 py-1 text-center bg-slate-50 font-semibold text-red-700">{r.totals.lost_minutes}</td>
-                      <td className="px-1 py-1 text-center bg-slate-50">{r.totals.late_justified}</td>
-                      <td className="px-1 py-1 text-center bg-slate-50 font-semibold text-red-700">{r.totals.late_unjustified}</td>
-                      <td className="px-1 py-1 text-center bg-slate-50">{novTotal}</td>
-                      <td className="px-1 py-1 text-center bg-slate-50 font-semibold text-red-700">{r.totals.absent_days}</td>
-                    </tr>
+                          ))}
+                          <td className="bg-slate-50" colSpan={5}></td>
+                        </tr>
+                      )}
+                    </>
                   );
                 })}
               </tbody>

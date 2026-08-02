@@ -2043,6 +2043,7 @@ async def reports_matrix(from_date: str = Query(...),
                          department_ids: Optional[str] = Query(None),
                          user_ids: Optional[str] = Query(None),
                          site_id: Optional[str] = Query(None),
+                         schedule_id: Optional[str] = Query(None),
                          user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     scope = await _matrix_scope_ids(user)
     return await build_matrix(
@@ -2051,6 +2052,7 @@ async def reports_matrix(from_date: str = Query(...),
         department_ids=_parse_list_query(department_ids),
         user_ids=_parse_list_query(user_ids),
         site_id=site_id or None,
+        schedule_id=schedule_id or None,
     )
 
 
@@ -2060,6 +2062,7 @@ async def reports_matrix_xlsx(from_date: str = Query(...),
                               department_ids: Optional[str] = Query(None),
                               user_ids: Optional[str] = Query(None),
                               site_id: Optional[str] = Query(None),
+                              schedule_id: Optional[str] = Query(None),
                               user: Dict[str, Any] = Depends(get_current_user)) -> StreamingResponse:
     scope = await _matrix_scope_ids(user)
     matrix = await build_matrix(
@@ -2068,6 +2071,7 @@ async def reports_matrix_xlsx(from_date: str = Query(...),
         department_ids=_parse_list_query(department_ids),
         user_ids=_parse_list_query(user_ids),
         site_id=site_id or None,
+        schedule_id=schedule_id or None,
     )
     xlsx_bytes = export_xlsx(matrix)
     filename = f"matriz_asistencia_{from_date}_a_{to_date}.xlsx"
@@ -2084,6 +2088,7 @@ async def reports_matrix_pdf(from_date: str = Query(...),
                              department_ids: Optional[str] = Query(None),
                              user_ids: Optional[str] = Query(None),
                              site_id: Optional[str] = Query(None),
+                             schedule_id: Optional[str] = Query(None),
                              user: Dict[str, Any] = Depends(get_current_user)) -> StreamingResponse:
     scope = await _matrix_scope_ids(user)
     matrix = await build_matrix(
@@ -2092,6 +2097,7 @@ async def reports_matrix_pdf(from_date: str = Query(...),
         department_ids=_parse_list_query(department_ids),
         user_ids=_parse_list_query(user_ids),
         site_id=site_id or None,
+        schedule_id=schedule_id or None,
     )
     settings = await db.settings.find_one({"_id": "company"}) or {}
     pdf_bytes = export_pdf(matrix,
