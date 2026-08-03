@@ -17,11 +17,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# PATH explícito por si acaso (asegura que /usr/local/bin esté al frente)
+ENV PATH="/usr/local/bin:${PATH}"
+
 # Instala dependencias primero para cacheo eficiente
 COPY requirements.txt .
 RUN pip install --upgrade pip \
-    && pip install -r requirements.txt \
-    && pip install "emergentintegrations" --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ || true
+    && pip install --no-cache-dir -r requirements.txt \
+    && python -c "import uvicorn, fastapi; print('deps OK', uvicorn.__version__)"
+# emergentintegrations (opcional — si el registro no está disponible, no rompe el build)
+RUN pip install --no-cache-dir "emergentintegrations" \
+        --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
+        || echo "emergentintegrations no instalado (opcional)"
 
 # Copia el código y assets (manual, tests, etc.)
 COPY . .
@@ -36,4 +43,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8001/api/settings || exit 1
 
 # Producción: 2 workers uvicorn. Ajusta --workers según núcleos.
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2", "--proxy-headers"]
+# `python -m uvicorn` evita problemas de PATH cuando el binario está
+# instalado en un directorio no incluido en $PATH del usuario no-root.
+CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2", "--proxy-headers"]
