@@ -23,12 +23,10 @@ ENV PATH="/usr/local/bin:${PATH}"
 # Instala dependencias primero para cacheo eficiente
 COPY requirements.txt .
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir \
+         --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
+         -r requirements.txt \
     && python -c "import uvicorn, fastapi; print('deps OK', uvicorn.__version__)"
-# emergentintegrations (opcional — si el registro no está disponible, no rompe el build)
-RUN pip install --no-cache-dir "emergentintegrations" \
-        --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
-        || echo "emergentintegrations no instalado (opcional)"
 
 # Copia el código y assets (manual, tests, etc.)
 COPY . .
