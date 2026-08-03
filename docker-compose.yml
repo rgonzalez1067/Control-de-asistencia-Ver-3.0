@@ -1,0 +1,52 @@
+# =====================================================================
+# MegaSoft Asistencia — Stack completo (Mongo + Backend + Frontend)
+# Uso:
+#   1) cp backend/.env.example backend/.env  &&  editar valores
+#   2) exportar la URL pública o dejar http://localhost
+#      export REACT_APP_BACKEND_URL="https://asistencia.tudominio.com"
+#   3) docker compose up -d --build
+# =====================================================================
+version: "3.9"
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: megasoft-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    networks: [megasoft]
+
+  backend:
+    build: ./backend
+    container_name: megasoft-backend
+    restart: unless-stopped
+    env_file: ./backend/.env
+    depends_on:
+      - mongo
+    networks: [megasoft]
+    # Descomenta si quieres exponer el backend directamente al host (útil para debug):
+    # ports:
+    #   - "8001:8001"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # ⚠️  IMPORTANTE: CRA baja las variables en build time.
+        # Aquí pon la URL PÚBLICA con la que los usuarios accederán.
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-http://localhost}
+    container_name: megasoft-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    networks: [megasoft]
+
+volumes:
+  mongo_data:
+
+networks:
+  megasoft:
+    driver: bridge
