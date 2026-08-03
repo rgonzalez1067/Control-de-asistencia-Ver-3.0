@@ -12,8 +12,13 @@ ARG REACT_APP_BACKEND_URL
 ENV REACT_APP_BACKEND_URL=${REACT_APP_BACKEND_URL}
 
 # Instala dependencias primero
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile
+# `yarn.lock*` con wildcard: no falla si el archivo no existe en el repo
+COPY package.json yarn.lock* ./
+RUN if [ -f yarn.lock ]; then \
+      yarn install --frozen-lockfile ; \
+    else \
+      echo "⚠️ yarn.lock ausente — build no reproducible" && yarn install ; \
+    fi
 
 # Copia código y compila
 COPY . .
