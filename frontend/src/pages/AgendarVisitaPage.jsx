@@ -154,7 +154,7 @@ function HostAndDate({ hostUserId, setHostUserId, employees, scheduledAt, setSch
             <SelectValue placeholder="Selecciona un empleado…" />
           </SelectTrigger>
           <SelectContent>
-            {employees.map((u) => (
+            {[...employees].sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" })).map((u) => (
               <SelectItem key={u.user_id} value={u.user_id}>
                 {u.name} <span className="text-muted-foreground text-xs">· {u.email}</span>
               </SelectItem>

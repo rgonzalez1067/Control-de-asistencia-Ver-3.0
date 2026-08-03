@@ -128,7 +128,7 @@ export default function UsersPage() {
         (u.email || "").toLowerCase().includes(needle) ||
         (u.cedula || "").toLowerCase().includes(needle)
       );
-    });
+    }).sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }));
   }, [users, q, roleFilter, deptFilter]);
 
   async function saveUser(form) {
@@ -643,9 +643,11 @@ function UserFormDialog({ state, onCancel, onSave, departments, sites, schedules
               <SelectTrigger data-testid="user-form-supervisor"><SelectValue placeholder="—" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none">Sin supervisor</SelectItem>
-                {supervisors.filter((s) => s.user_id !== form.user_id).map((s) => (
-                  <SelectItem key={s.user_id} value={s.user_id}>{s.name}</SelectItem>
-                ))}
+                {[...supervisors.filter((s) => s.user_id !== form.user_id)]
+                  .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }))
+                  .map((s) => (
+                    <SelectItem key={s.user_id} value={s.user_id}>{s.name}</SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>

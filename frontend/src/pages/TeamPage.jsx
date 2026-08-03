@@ -79,7 +79,10 @@ export default function TeamPage() {
   const dayList = useMemo(() => daysBackList(Number(days)), [days]);
   const matrix = useMemo(() => {
     // For each user: { user, days: {'2026-07-22': {first_in, last_out, late, severity, needs_justif}} }
-    return teamMembers.map((m) => {
+    const sortedMembers = [...teamMembers].sort(
+      (a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }),
+    );
+    return sortedMembers.map((m) => {
       const byDay = {};
       for (const d of dayList) {
         const key = d.toLocaleDateString("en-CA", { timeZone: TZ });

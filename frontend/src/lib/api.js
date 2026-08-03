@@ -33,3 +33,10 @@ export function formatApiErrorDetail(detail) {
   if (detail && typeof detail.msg === "string") return detail.msg;
   return String(detail);
 }
+
+/** Ordena alfabéticamente (locale español, case-insensitive) por `name`. */
+export function sortByName(list) {
+  return [...(list || [])].sort((a, b) =>
+    (a?.name || "").localeCompare(b?.name || "", "es", { sensitivity: "base" }),
+  );
+}

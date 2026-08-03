@@ -257,9 +257,11 @@ export default function NoveltiesPage() {
                   <SelectTrigger data-testid="novelties-form-user"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value={user?.user_id}>Yo — {user?.name}</SelectItem>
-                    {users.filter((u) => u.user_id !== user?.user_id).map((u) => (
-                      <SelectItem key={u.user_id} value={u.user_id}>{u.name}</SelectItem>
-                    ))}
+                    {[...users.filter((u) => u.user_id !== user?.user_id)]
+                      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }))
+                      .map((u) => (
+                        <SelectItem key={u.user_id} value={u.user_id}>{u.name}</SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
