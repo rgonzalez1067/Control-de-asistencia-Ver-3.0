@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, formatApiErrorDetail } from "@/lib/api";
+import { api, API, getToken, formatApiErrorDetail } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink } from "lucide-react";
+import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle } from "lucide-react";
 
 const TIMEZONES = [
   "America/Caracas", "America/Bogota", "America/Mexico_City", "America/Buenos_Aires",
@@ -190,6 +191,8 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      <BackupCard />
+
       <div className="flex items-center gap-2 justify-end sticky bottom-4 rounded-2xl bg-card/90 backdrop-blur border border-border/60 shadow-xl shadow-primary/10 px-3 py-2">
         <Button variant="outline" onClick={load} className="rounded-full" data-testid="settings-reset">
           <RefreshCw className="h-4 w-4 mr-1.5" /> Descartar
@@ -201,5 +204,206 @@ export default function SettingsPage() {
       {/* Spacer para que el sticky no tape la última tarjeta */}
       <div className="h-4" />
     </div>
+  );
+}
+
+
+// =====================================================================
+// Backup / Restore card — solo admin
+// =====================================================================
+function BackupCard() {
+  const { user } = useAuth();
+  const [collections, setCollections] = useState([]);
+  const [selected, setSelected] = useState(new Set());
+  const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [mode, setMode] = useState("upsert");
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    (async () => {
+      try {
+        const { data } = await api.get("/admin/collections");
+        setCollections(data);
+        setSelected(new Set(data.map((c) => c.name))); // por defecto todas
+      } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+      finally { setLoading(false); }
+    })();
+  }, [user?.role]);
+
+  if (user?.role !== "admin") return null;
+
+  const toggleAll = () => {
+    setSelected((s) => s.size === collections.length ? new Set() : new Set(collections.map((c) => c.name)));
+  };
+  const toggleOne = (name) => {
+    setSelected((s) => {
+      const n = new Set(s);
+      n.has(name) ? n.delete(name) : n.add(name);
+      return n;
+    });
+  };
+
+  async function doExport() {
+    if (!selected.size) { toast.error("Selecciona al menos una colección"); return; }
+    setExporting(true);
+    try {
+      const resp = await fetch(`${API}/admin/export`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${getToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ collections: Array.from(selected) }),
+      });
+      if (!resp.ok) throw new Error("Error al exportar");
+      const blob = await resp.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `megasoft-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success(`Backup generado (${selected.size} colección/es)`);
+    } catch (e) { toast.error(e.message); }
+    finally { setExporting(false); }
+  }
+
+  async function doImport(file) {
+    if (!file) return;
+    const warn = mode === "replace"
+      ? "⚠️ MODO REEMPLAZO: se BORRARÁN los datos actuales de las colecciones seleccionadas antes de restaurar. ¿Continuar?"
+      : "Se importarán los datos del archivo (upsert por llave natural). ¿Continuar?";
+    if (!window.confirm(warn)) return;
+    setImporting(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const qs = new URLSearchParams({
+        mode,
+        collections: Array.from(selected).join(","),
+      });
+      const resp = await fetch(`${API}/admin/import?${qs}`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${getToken()}` },
+        body: fd,
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.detail || "Error al importar");
+      const restoredTotal = Object.values(data.restored || {}).reduce((a, b) => a + b, 0);
+      toast.success(`Restauración OK — ${restoredTotal} documento(s) en ${Object.keys(data.restored || {}).length} colección(es)`);
+    } catch (e) { toast.error(e.message); }
+    finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  const allSelected = selected.size === collections.length;
+
+  return (
+    <Card className="border-amber-200 bg-amber-50/40" data-testid="backup-card">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Database className="h-5 w-5 text-amber-700" />
+          <CardTitle className="text-amber-900">Copia de seguridad — Backup & restauración</CardTitle>
+        </div>
+        <CardDescription className="text-amber-900/80">
+          Exporta o restaura configuraciones y catálogos (usuarios, sedes, departamentos, horarios, novedades, visitas, ajustes).
+          El registro de <b>asistencia (entradas/salidas) queda excluido</b> por regla del producto.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-foreground">Colecciones ({selected.size}/{collections.length})</p>
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="text-xs font-semibold text-amber-700 hover:underline"
+            data-testid="backup-toggle-all"
+          >
+            {allSelected ? "Deseleccionar todas" : "Seleccionar todas"}
+          </button>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+          {collections.map((c) => (
+            <label
+              key={c.name}
+              className={`flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer text-sm transition ${
+                selected.has(c.name)
+                  ? "border-amber-400 bg-amber-100/50 text-amber-900"
+                  : "border-border/60 bg-card hover:border-amber-300"
+              }`}
+              data-testid={`backup-col-${c.name}`}
+            >
+              <input
+                type="checkbox"
+                className="accent-amber-600"
+                checked={selected.has(c.name)}
+                onChange={() => toggleOne(c.name)}
+              />
+              <span className="flex-1 capitalize">{c.name}</span>
+              <span className="text-[11px] text-muted-foreground">{c.count}</span>
+            </label>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3 pt-2">
+          <Label className="text-xs text-muted-foreground">Modo importación:</Label>
+          <Select value={mode} onValueChange={setMode}>
+            <SelectTrigger className="w-56 h-8 text-xs" data-testid="backup-mode">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="upsert">Upsert (mezcla sin borrar)</SelectItem>
+              <SelectItem value="replace">Reemplazo total (peligroso)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {mode === "replace" && (
+          <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800">
+            <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+            <div>
+              Modo <b>Reemplazo total</b>: se eliminarán todos los documentos existentes en las colecciones seleccionadas
+              antes de restaurar. Úsalo solo para migrar a un servidor nuevo o revertir después de una prueba controlada.
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-wrap gap-2 pt-2">
+          <Button
+            onClick={doExport}
+            disabled={exporting || !selected.size || loading}
+            className="rounded-full bg-amber-600 hover:bg-amber-700 text-white"
+            data-testid="backup-export"
+          >
+            <Download className="h-4 w-4 mr-1.5" />
+            {exporting ? "Exportando…" : `Exportar backup (${selected.size})`}
+          </Button>
+
+          <input
+            type="file"
+            accept="application/json,.json"
+            ref={fileRef}
+            className="hidden"
+            onChange={(e) => doImport(e.target.files?.[0])}
+            data-testid="backup-file-input"
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            className="rounded-full border-amber-300 text-amber-800 hover:bg-amber-100"
+            data-testid="backup-import"
+          >
+            <Upload className="h-4 w-4 mr-1.5" />
+            {importing ? "Importando…" : "Importar backup…"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
