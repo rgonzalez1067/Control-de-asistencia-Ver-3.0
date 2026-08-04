@@ -32,34 +32,15 @@ FROM nginx:1.27-alpine
 # Limpia default
 RUN rm /etc/nginx/conf.d/default.conf
 
-# Config: SPA fallback + proxy backend
-RUN printf '%s\n' \
-  'server {' \
-  '    listen 80;' \
-  '    server_name _;' \
-  '    root /usr/share/nginx/html;' \
-  '    index index.html;' \
-  '    client_max_body_size 25M;' \
-  '    gzip on;' \
-  '    gzip_types text/plain text/css application/json application/javascript image/svg+xml;' \
-  '    location /api/ {' \
-  '        proxy_pass http://backend:8001;' \
-  '        proxy_set_header Host $host;' \
-  '        proxy_set_header X-Real-IP $remote_addr;' \
-  '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' \
-  '        proxy_set_header X-Forwarded-Proto $scheme;' \
-  '        proxy_read_timeout 90s;' \
-  '    }' \
-  '    location / {' \
-  '        try_files $uri /index.html;' \
-  '    }' \
-  '}' > /etc/nginx/conf.d/megasoft.conf
+# Copia la configuración SSL desde el repo. Los certificados se montan
+# como volumen /etc/nginx/ssl desde el host en el docker-compose.
+COPY nginx-ssl.conf /etc/nginx/conf.d/megasoft.conf
 
 COPY --from=builder /app/build /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 80 443
 
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD wget --spider -q http://localhost/ || exit 1
+    CMD wget --spider -q --no-check-certificate https://localhost/ || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

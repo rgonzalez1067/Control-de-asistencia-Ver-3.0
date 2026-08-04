@@ -35,13 +35,19 @@ services:
       args:
         # ⚠️  IMPORTANTE: CRA baja las variables en build time.
         # Aquí pon la URL PÚBLICA con la que los usuarios accederán.
-        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-http://localhost}
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-https://asistencia.tudominio.com}
     container_name: megasoft-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "80:80"
+      - "80:80"      # redirige a 443
+      - "443:443"    # HTTPS
+    volumes:
+      # Monta los certificados del host en el contenedor. Los archivos deben
+      # llamarse exactamente fullchain.pem y privkey.pem (o cambia los nombres
+      # en frontend/nginx-ssl.conf).
+      - /opt/ssl:/etc/nginx/ssl:ro
     networks: [megasoft]
 
 volumes:
