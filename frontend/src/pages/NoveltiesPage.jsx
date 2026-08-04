@@ -21,7 +21,7 @@ import {
 import { toast } from "sonner";
 import {
   Bell, Plus, CheckCircle2, XCircle, Clock, Calendar,
-  Palmtree, Stethoscope, FileText, Sparkles, Trash2, Home,
+  Palmtree, Stethoscope, FileText, Sparkles, Trash2, Home, Pencil,
 } from "lucide-react";
 
 const TYPE_META = {
@@ -43,15 +43,17 @@ const EMPTY_FORM = { type: "permission", start_date: "", end_date: "", start_tim
 export default function NoveltiesPage() {
   const { user } = useAuth();
   const isManager = user?.role === "admin" || user?.role === "supervisor";
+  const isAdmin = user?.role === "admin";
 
   const [items, setItems] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState(isManager ? "pending" : "mine");
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null); // objeto novelty o null
   const [form, setForm] = useState(EMPTY_FORM);
   const [selected, setSelected] = useState(new Set());
-  const [decisionModal, setDecisionModal] = useState(null); // { decision, ids }
+  const [decisionModal, setDecisionModal] = useState(null);
   const [decisionComment, setDecisionComment] = useState("");
 
   async function load() {
@@ -96,6 +98,53 @@ export default function NoveltiesPage() {
   }
 
   async function deleteMine(nov) {
+    try {
+      await api.delete(`/novelties/${nov.novelty_id}`);
+      toast.success("Novedad eliminada");
+      load();
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+  }
+
+  // ----- Admin: editar y borrar cualquier novedad -----
+  function startEdit(nov) {
+    setEditing(nov);
+    setForm({
+      type: nov.type,
+      start_date: nov.start_date || "",
+      end_date: nov.end_date || "",
+      start_time: nov.start_time || "08:00",
+      end_time: nov.end_time || "17:00",
+      reason: nov.reason || "",
+      user_id: nov.user_id || "",
+    });
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    if (!form.start_date || !form.end_date) { toast.error("Selecciona las fechas"); return; }
+    if (form.type !== "vacation" && (!form.start_time || !form.end_time)) {
+      toast.error("Indica el rango horario"); return;
+    }
+    try {
+      const payload = {
+        type: form.type,
+        start_date: form.start_date,
+        end_date: form.end_date,
+        reason: form.reason,
+      };
+      if (form.type !== "vacation") {
+        payload.start_time = form.start_time;
+        payload.end_time = form.end_time;
+      }
+      if (form.user_id && form.user_id !== editing.user_id) payload.user_id = form.user_id;
+      await api.patch(`/novelties/${editing.novelty_id}`, payload);
+      toast.success("Novedad actualizada");
+      setEditing(null); setForm(EMPTY_FORM); load();
+    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+  }
+
+  async function adminDelete(nov) {
+    if (!window.confirm(`¿Eliminar la novedad de ${users.find((u) => u.user_id === nov.user_id)?.name || "este empleado"}? Esta acción no se puede deshacer.`)) return;
     try {
       await api.delete(`/novelties/${nov.novelty_id}`);
       toast.success("Novedad eliminada");
@@ -228,10 +277,13 @@ export default function NoveltiesPage() {
                     n={n}
                     user={userMap[n.user_id]}
                     isManager={isManager}
+                    isAdmin={isAdmin}
                     isMine={n.user_id === user?.user_id}
                     isSelected={selected.has(n.novelty_id)}
                     onToggle={() => toggleOne(n.novelty_id)}
                     onDelete={() => deleteMine(n)}
+                    onEdit={() => startEdit(n)}
+                    onAdminDelete={() => adminDelete(n)}
                     onApprove={() => setDecisionModal({ decision: "approved", ids: new Set([n.novelty_id]) })}
                     onReject={() => setDecisionModal({ decision: "rejected", ids: new Set([n.novelty_id]) })}
                   />
@@ -331,6 +383,78 @@ export default function NoveltiesPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Edit dialog (admin only) */}
+      <Dialog open={!!editing} onOpenChange={(v) => { if (!v) { setEditing(null); setForm(EMPTY_FORM); } }}>
+        <DialogContent className="max-w-lg" data-testid="novelties-edit-dialog">
+          <DialogHeader>
+            <DialogTitle>Editar novedad (admin)</DialogTitle>
+            <DialogDescription>
+              Modifica cualquier campo de la novedad. Los cambios se guardan de inmediato.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label>Empleado</Label>
+              <Select value={form.user_id || editing?.user_id || ""} onValueChange={(v) => setForm((f) => ({ ...f, user_id: v }))}>
+                <SelectTrigger data-testid="novelties-edit-user"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[...users].sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" })).map((u) => (
+                    <SelectItem key={u.user_id} value={u.user_id}>{u.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Tipo</Label>
+              <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: v }))}>
+                <SelectTrigger data-testid="novelties-edit-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {Object.entries(TYPE_META).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>{v.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Desde</Label>
+                <Input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Hasta</Label>
+                <Input type="date" value={form.end_date} onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))} />
+              </div>
+            </div>
+            {form.type !== "vacation" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Hora inicio</Label>
+                  <Input type="time" value={form.start_time || ""} onChange={(e) => setForm((f) => ({ ...f, start_time: e.target.value }))} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Hora fin</Label>
+                  <Input type="time" value={form.end_time || ""} onChange={(e) => setForm((f) => ({ ...f, end_time: e.target.value }))} />
+                </div>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label>Motivo</Label>
+              <Textarea rows={3} value={form.reason || ""} onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setEditing(null); setForm(EMPTY_FORM); }}>Cancelar</Button>
+            <Button
+              onClick={saveEdit}
+              className="rounded-full bg-blue-600 hover:bg-blue-700 text-white"
+              data-testid="novelties-edit-submit"
+            >
+              Guardar cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Decision dialog */}
       <Dialog open={!!decisionModal} onOpenChange={(v) => !v && setDecisionModal(null)}>
         <DialogContent data-testid="novelties-decide-dialog">
@@ -367,7 +491,7 @@ export default function NoveltiesPage() {
   );
 }
 
-function NoveltyRow({ n, user, isManager, isMine, isSelected, onToggle, onDelete, onApprove, onReject }) {
+function NoveltyRow({ n, user, isManager, isAdmin, isMine, isSelected, onToggle, onDelete, onEdit, onAdminDelete, onApprove, onReject }) {
   const t = TYPE_META[n.type] || TYPE_META.other;
   const st = STATUS_META[n.status] || STATUS_META.pending;
   const TypeIcon = t.icon;
@@ -419,7 +543,31 @@ function NoveltyRow({ n, user, isManager, isMine, isSelected, onToggle, onDelete
             </Button>
           </>
         )}
-        {isMine && n.status === "pending" && (
+        {isAdmin && (
+          <>
+            <Button
+              size="icon"
+              variant="ghost"
+              title="Editar (admin)"
+              className="text-blue-700 hover:bg-blue-50"
+              onClick={onEdit}
+              data-testid={`novelty-admin-edit-${n.novelty_id}`}
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              title="Eliminar (admin)"
+              className="text-destructive hover:bg-destructive/10"
+              onClick={onAdminDelete}
+              data-testid={`novelty-admin-delete-${n.novelty_id}`}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </>
+        )}
+        {!isAdmin && isMine && n.status === "pending" && (
           <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={onDelete} data-testid={`novelty-delete-${n.novelty_id}`}>
             <Trash2 className="h-4 w-4" />
           </Button>

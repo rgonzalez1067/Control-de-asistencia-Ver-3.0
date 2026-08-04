@@ -356,6 +356,20 @@ class NoveltyDecideIn(BaseModel):
     comment: Optional[str] = None
 
 
+class NoveltyPatchIn(BaseModel):
+    """Payload para edición de novedad por parte del administrador.
+    Todos los campos son opcionales — solo se actualizan los que se envían."""
+    type: Optional[Literal["vacation", "leave", "medical", "permission", "remote", "other"]] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    reason: Optional[str] = None
+    status: Optional[Literal["pending", "approved", "rejected"]] = None
+    decision_comment: Optional[str] = None
+    user_id: Optional[str] = None
+
+
 # ------------------------------------------------------------------
 # Startup: indexes + admin seed
 # ------------------------------------------------------------------
@@ -1572,13 +1586,45 @@ async def novelties_create(payload: NoveltyIn,
 async def novelties_delete(novelty_id: str,
                            user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
     q: Dict[str, Any] = {"novelty_id": novelty_id}
-    if user["role"] not in {"admin", "supervisor"}:
+    # Admin puede borrar cualquier novedad en cualquier estado.
+    if user["role"] == "supervisor":
+        # Supervisor puede borrar novedades de su equipo (cualquier estado).
+        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
+    elif user["role"] != "admin":
+        # Empleados solo las suyas y solo si están pendientes.
         q["user_id"] = user["user_id"]
         q["status"] = "pending"
     res = await db.novelties.delete_one(q)
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Novedad no encontrada")
     return {"ok": True}
+
+
+@api.patch("/novelties/{novelty_id}")
+async def novelties_patch(novelty_id: str,
+                          payload: NoveltyPatchIn,
+                          user: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    """Solo administradores pueden modificar cualquier campo de una novedad."""
+    doc = await db.novelties.find_one({"novelty_id": novelty_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Novedad no encontrada")
+    updates: Dict[str, Any] = {}
+    data = payload.model_dump(exclude_none=True)
+    # Si cambia el tipo a "vacation", quita horas
+    if data.get("type") == "vacation":
+        data["start_time"] = None
+        data["end_time"] = None
+    for field in ("type", "start_date", "end_date", "start_time", "end_time",
+                  "reason", "status", "decision_comment", "user_id"):
+        if field in data:
+            updates[field] = data[field]
+    if updates.get("status") in ("approved", "rejected"):
+        updates["decided_at"] = now_utc()
+        updates["decided_by"] = user["user_id"]
+    if not updates:
+        return {"ok": True, "unchanged": True}
+    await db.novelties.update_one({"novelty_id": novelty_id}, {"$set": updates})
+    return {"ok": True, "updated_fields": list(updates.keys())}
 
 
 @api.post("/novelties/bulk-decide")
