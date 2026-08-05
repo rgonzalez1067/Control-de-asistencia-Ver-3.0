@@ -278,7 +278,7 @@ export default function ReporteMatricialPage() {
                   <tr><td className="p-10 text-center text-muted-foreground" colSpan={99}>Sin resultados para los filtros aplicados.</td></tr>
                 )}
                 {!loading && data.rows.map((r) => {
-                  const novTotal = r.totals.vacation_days + r.totals.leave_days + r.totals.remote_days + r.totals.permission_days + (r.totals.medical_days || 0);
+                  const novTotal = r.totals.vacation_days + r.totals.leave_days + r.totals.remote_days + r.totals.permission_days + (r.totals.medical_days || 0) + (r.totals.client_visit_days || 0);
                   const partials = partialByRowDay[r.user_id] || {};
                   const hasPartials = Object.keys(partials).length > 0;
                   return (

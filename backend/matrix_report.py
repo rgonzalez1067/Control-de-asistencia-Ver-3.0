@@ -20,15 +20,16 @@ from zoneinfo import ZoneInfo
 APP_TZ = ZoneInfo("America/Caracas")
 
 FULL_DAY_TYPES = {"vacation", "leave", "remote"}
-PARTIAL_TYPES = {"medical", "permission"}
+PARTIAL_TYPES = {"medical", "permission", "client_visit"}
 
 NOVELTY_LABEL = {
-    "vacation":   "VACACIONES",
-    "leave":      "REPOSO",
-    "medical":    "Cita médica",
-    "permission": "Permiso",
-    "remote":     "TRABAJO REMOTO",
-    "other":      "Novedad",
+    "vacation":     "VACACIONES",
+    "leave":        "REPOSO",
+    "medical":      "Cita médica",
+    "permission":   "Permiso",
+    "remote":       "TRABAJO REMOTO",
+    "client_visit": "Visita a Clientes/Integradores",
+    "other":        "Novedad",
 }
 
 STATUS_NORMAL = "normal"
@@ -182,7 +183,8 @@ async def build_matrix(
         totals = {
             "lost_minutes": 0, "late_justified": 0, "late_unjustified": 0,
             "vacation_days": 0, "leave_days": 0, "remote_days": 0,
-            "permission_days": 0, "medical_days": 0, "absent_days": 0,
+            "permission_days": 0, "medical_days": 0, "client_visit_days": 0,
+            "absent_days": 0,
         }
         partial_novelties: List[Dict[str, Any]] = []
         cells: Dict[str, Any] = {}

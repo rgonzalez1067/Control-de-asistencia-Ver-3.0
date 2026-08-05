@@ -21,16 +21,17 @@ import {
 import { toast } from "sonner";
 import {
   Bell, Plus, CheckCircle2, XCircle, Clock, Calendar,
-  Palmtree, Stethoscope, FileText, Sparkles, Trash2, Home, Pencil,
+  Palmtree, Stethoscope, FileText, Sparkles, Trash2, Home, Pencil, Briefcase,
 } from "lucide-react";
 
 const TYPE_META = {
-  vacation:   { label: "Vacaciones",     icon: Palmtree,     tint: "bg-emerald-100 text-emerald-800" },
-  leave:      { label: "Reposo",         icon: Stethoscope,  tint: "bg-rose-100 text-rose-800" },
-  medical:    { label: "Cita médica",    icon: Stethoscope,  tint: "bg-rose-100 text-rose-800" },
-  permission: { label: "Permiso",        icon: FileText,     tint: "bg-blue-100 text-blue-800" },
-  remote:     { label: "Trabajo remoto", icon: Home,         tint: "bg-indigo-100 text-indigo-800" },
-  other:      { label: "Otro",           icon: Sparkles,     tint: "bg-slate-200 text-slate-700" },
+  vacation:     { label: "Vacaciones",     icon: Palmtree,     tint: "bg-emerald-100 text-emerald-800" },
+  leave:        { label: "Reposo",         icon: Stethoscope,  tint: "bg-rose-100 text-rose-800" },
+  medical:      { label: "Cita médica",    icon: Stethoscope,  tint: "bg-rose-100 text-rose-800" },
+  permission:   { label: "Permiso",        icon: FileText,     tint: "bg-blue-100 text-blue-800" },
+  remote:       { label: "Trabajo remoto", icon: Home,         tint: "bg-indigo-100 text-indigo-800" },
+  client_visit: { label: "Visita a Clientes/Integradores", icon: Briefcase, tint: "bg-cyan-100 text-cyan-800" },
+  other:        { label: "Otro",           icon: Sparkles,     tint: "bg-slate-200 text-slate-700" },
 };
 const STATUS_META = {
   pending:  { label: "Pendiente",  icon: Clock,        cls: "bg-amber-100 text-amber-800" },

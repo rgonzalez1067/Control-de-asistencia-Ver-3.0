@@ -341,7 +341,7 @@ class JustifyIn(BaseModel):
 
 
 class NoveltyIn(BaseModel):
-    type: Literal["vacation", "leave", "medical", "permission", "remote", "other"]
+    type: Literal["vacation", "leave", "medical", "permission", "remote", "client_visit", "other"]
     start_date: str
     end_date: str
     start_time: Optional[str] = None  # HH:MM (no aplica a "vacation")
@@ -359,7 +359,7 @@ class NoveltyDecideIn(BaseModel):
 class NoveltyPatchIn(BaseModel):
     """Payload para edición de novedad por parte del administrador.
     Todos los campos son opcionales — solo se actualizan los que se envían."""
-    type: Optional[Literal["vacation", "leave", "medical", "permission", "remote", "other"]] = None
+    type: Optional[Literal["vacation", "leave", "medical", "permission", "remote", "client_visit", "other"]] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     start_time: Optional[str] = None
