@@ -235,10 +235,11 @@ export default function ReporteMatricialPage() {
 
           <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
             <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700">Hora <b className="text-black">negro</b> = dentro de tolerancia</span>
-            <span className="px-2 py-0.5 rounded bg-red-100 text-red-800"><b>Rojo</b> = tardanza no justificada</span>
+            <span className="px-2 py-0.5 rounded bg-red-100 text-red-800"><b>Rojo</b> = tardanza o descanso &gt; 60 min</span>
+            <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 italic">Ámbar cursiva = salida auto-imputada 23:59</span>
             <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">Vacaciones / Reposo / Trabajo Remoto = día completo</span>
             <span className="px-2 py-0.5 rounded bg-red-100 text-red-800">Falta = día laboral sin marcaje</span>
-            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">Sub-fila = Cita médica / Permiso</span>
+            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">Sub-fila = Cita médica / Permiso / Visita</span>
           </div>
         </CardContent>
       </Card>
@@ -323,13 +324,21 @@ export default function ReporteMatricialPage() {
                           const cells = [];
                           for (let i = 0; i < bpd; i++) {
                             const b = blocks[i] || {};
+                            const inRed = b.in_late || b.break_over;
+                            const inTitle = b.break_over
+                              ? `Exceso de descanso: +${b.break_excess_minutes} min sumados a Min. perdidos`
+                              : undefined;
                             cells.push(
-                              <td key={day + "in" + i} className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${b.in_late ? "text-red-700 font-bold" : "text-slate-900"}`}>
+                              <td key={day + "in" + i}
+                                title={inTitle}
+                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${inRed ? "text-red-700 font-bold" : "text-slate-900"}`}>
                                 {b.in || "–"}
                               </td>
                             );
                             cells.push(
-                              <td key={day + "out" + i} className="px-1 py-1 text-center whitespace-nowrap border-r border-border/40 text-slate-900">
+                              <td key={day + "out" + i}
+                                title={b.auto_closed ? "Salida imputada automáticamente al cierre del día (23:59)" : undefined}
+                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${b.auto_closed ? "text-amber-700 italic" : "text-slate-900"}`}>
                                 {b.out || "–"}
                               </td>
                             );

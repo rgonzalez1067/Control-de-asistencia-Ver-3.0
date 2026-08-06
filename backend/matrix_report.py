@@ -220,10 +220,11 @@ async def build_matrix(
                 continue
 
             # Emparejar por bloques
-            block_records = []  # cada uno: {in, out, in_late, in_minutes, in_reason}
+            block_records = []  # cada uno: {in, out, in_late, in_minutes, in_reason, break_over}
             for i, bm in enumerate(block_mins):
                 rec = {"in": None, "out": None, "in_late": False,
-                       "late_minutes": 0, "reason": None, "just": False}
+                       "late_minutes": 0, "reason": None, "just": False,
+                       "break_over": False, "break_excess_minutes": 0}
                 # in
                 if i < len(ins):
                     dt_in = ins[i]
@@ -238,6 +239,38 @@ async def build_matrix(
                 if i < len(outs):
                     rec["out"] = outs[i].strftime("%H:%M")
                 block_records.append(rec)
+
+            # === Regla 3: exceso de descanso entre S1 y E2 (solo 2 bloques) ===
+            if len(block_mins) >= 2 and len(block_records) >= 2:
+                b1, b2 = block_records[0], block_records[1]
+                # Necesita S1 (b1.out) y E2 (b2.in) reales
+                if b1.get("out") and b2.get("in"):
+                    try:
+                        s1h, s1m = map(int, b1["out"].split(":"))
+                        e2h, e2m = map(int, b2["in"].split(":"))
+                        gap = (e2h * 60 + e2m) - (s1h * 60 + s1m)
+                        if gap > 60:
+                            excess = gap - 60
+                            b2["break_over"] = True
+                            b2["break_excess_minutes"] = excess
+                            totals["lost_minutes"] += excess
+                    except Exception:
+                        pass
+
+            # === Regla 4: cierre automático S2 a las 23:59 si es día pasado ===
+            # Aplica solo si el turno es de 2 bloques Y el día ya pasó Y el último
+            # marcaje fue una entrada (E2 sin S2, o solo E1 sin salidas).
+            if len(block_mins) >= 2 and day < today_iso:
+                last_block = block_records[-1]
+                any_out = any(b.get("out") for b in block_records)
+                # Caso: hay E2 sin S2 (o E1 y no hay ninguna salida)
+                needs_auto_close = (
+                    (last_block.get("in") and not last_block.get("out"))
+                    or (block_records[0].get("in") and not any_out)
+                )
+                if needs_auto_close:
+                    last_block["out"] = "23:59"
+                    last_block["auto_closed"] = True
 
             # Si hay más marcajes que bloques, los últimos se concatenan al último bloque
             if len(ins) > len(block_mins):
@@ -427,10 +460,12 @@ def export_xlsx(matrix: Dict[str, Any]) -> bytes:
                     out_val = b.get("out") or ""
                     cin = ws.cell(row=row_idx, column=c + offset, value=in_val)
                     cin.alignment = Alignment(horizontal="center")
-                    if b.get("in_late"):
+                    if b.get("in_late") or b.get("break_over"):
                         cin.font = Font(color="B91C1C", bold=True)
                     cout = ws.cell(row=row_idx, column=c + offset + 1, value=out_val)
                     cout.alignment = Alignment(horizontal="center")
+                    if b.get("auto_closed"):
+                        cout.font = Font(color="B45309", italic=True)
                     offset += 2
             c += per_day
         # Totales
@@ -562,11 +597,16 @@ def export_pdf(matrix: Dict[str, Any], company_name: str = "MegaSoft", logo_base
                     in_val = b.get("in") or "-"
                     out_val = b.get("out") or "-"
                     row.append(in_val); row.append(out_val)
-                    if b.get("in_late"):
+                    if b.get("in_late") or b.get("break_over"):
                         col_in = day_start_col + d_idx * per_day + i * 2
                         row_style_extras.append(("TEXTCOLOR", (col_in, row_i), (col_in, row_i),
                                                  colors.HexColor("#B91C1C")))
                         row_style_extras.append(("FONTNAME", (col_in, row_i), (col_in, row_i), "Helvetica-Bold"))
+                    if b.get("auto_closed"):
+                        col_out = day_start_col + d_idx * per_day + i * 2 + 1
+                        row_style_extras.append(("TEXTCOLOR", (col_out, row_i), (col_out, row_i),
+                                                 colors.HexColor("#B45309")))
+                        row_style_extras.append(("FONTNAME", (col_out, row_i), (col_out, row_i), "Helvetica-Oblique"))
         t = r["totals"]
         row.extend([t["lost_minutes"], t["late_justified"], t["late_unjustified"],
                     t["vacation_days"], t["leave_days"], t["remote_days"],
