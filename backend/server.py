@@ -78,6 +78,27 @@ def verify_password(pw: str, hashed: str) -> bool:
         return False
 
 
+PASSWORD_POLICY_MSG = (
+    "La contraseña debe tener al menos 8 caracteres, "
+    "una mayúscula, una minúscula, un número y un carácter especial."
+)
+
+
+def validate_password_policy(pw: str) -> None:
+    """Lanza HTTPException 400 si la contraseña no cumple la política."""
+    import re as _re
+    if not pw or len(pw) < 8:
+        raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
+    if not _re.search(r"[A-Z]", pw):
+        raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
+    if not _re.search(r"[a-z]", pw):
+        raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
+    if not _re.search(r"\d", pw):
+        raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
+    if not _re.search(r"[^A-Za-z0-9]", pw):
+        raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
+
+
 def create_access_token(user_id: str, role: str) -> str:
     payload = {
         "sub": user_id,
@@ -557,11 +578,11 @@ async def auth_change_password(payload: ChangePasswordIn,
         raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
     if payload.old_password == payload.new_password:
         raise HTTPException(status_code=400, detail="La nueva contraseña debe ser distinta a la actual")
-    if len(payload.new_password.strip()) < 8:
-        raise HTTPException(status_code=400, detail="La nueva contraseña debe tener al menos 8 caracteres")
+    validate_password_policy(payload.new_password)
     await db.users.update_one({"_id": user["_id"]},
                               {"$set": {"password_hash": hash_password(payload.new_password),
-                                        "password_updated_at": now_utc()}})
+                                        "password_updated_at": now_utc(),
+                                        "must_change_password": False}})
     return {"ok": True}
 
 
@@ -570,11 +591,35 @@ async def auth_reset_password(payload: ResetPasswordIn,
                               _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
     res = await db.users.update_one(
         {"user_id": payload.user_id},
-        {"$set": {"password_hash": hash_password(payload.new_password)}},
+        {"$set": {"password_hash": hash_password(payload.new_password),
+                  "must_change_password": True}},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return {"ok": True}
+
+
+@api.post("/admin/reset-all-passwords")
+async def admin_reset_all_passwords(
+    payload: Dict[str, Any],
+    _: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
+    """Resetea la contraseña de TODOS los usuarios no-admin al valor indicado y
+    marca `must_change_password=true` para forzar cambio al primer login.
+    Payload: {"new_password": "Mega2026*"}"""
+    new_password = (payload or {}).get("new_password")
+    if not new_password:
+        raise HTTPException(status_code=400, detail="Falta new_password")
+    hashed = hash_password(new_password)
+    res = await db.users.update_many(
+        {"role": {"$ne": "admin"}},
+        {"$set": {
+            "password_hash": hashed,
+            "must_change_password": True,
+            "password_updated_at": now_utc(),
+        }},
+    )
+    return {"ok": True, "affected": res.modified_count}
 
 
 # ==================================================================

@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import MandatoryPasswordChange from "@/pages/MandatoryPasswordChange";
 
 export default function ProtectedRoute({ children, roles }) {
   const { user } = useAuth();
@@ -14,6 +15,10 @@ export default function ProtectedRoute({ children, roles }) {
   }
   if (user === null) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+  // Bloqueo global: si el usuario debe cambiar la contraseña, no puede ir a ninguna otra ruta.
+  if (user.must_change_password) {
+    return <MandatoryPasswordChange />;
   }
   if (roles && !roles.includes(user.role)) {
     return <Navigate to="/" replace />;
