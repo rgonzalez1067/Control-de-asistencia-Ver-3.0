@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle } from "lucide-react";
+import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound } from "lucide-react";
 
 const TIMEZONES = [
   "America/Caracas", "America/Bogota", "America/Mexico_City", "America/Buenos_Aires",
@@ -192,6 +192,7 @@ export default function SettingsPage() {
       </Card>
 
       <BackupCard />
+      <ResetAllPasswordsCard />
 
       <div className="flex items-center gap-2 justify-end sticky bottom-4 rounded-2xl bg-card/90 backdrop-blur border border-border/60 shadow-xl shadow-primary/10 px-3 py-2">
         <Button variant="outline" onClick={load} className="rounded-full" data-testid="settings-reset">
@@ -403,6 +404,103 @@ function BackupCard() {
             {importing ? "Importando…" : "Importar backup…"}
           </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// =====================================================================
+// Reset masivo de contraseñas — solo admin
+// =====================================================================
+function ResetAllPasswordsCard() {
+  const { user } = useAuth();
+  const [newPw, setNewPw] = useState("Mega2026*");
+  const [running, setRunning] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  if (user?.role !== "admin") return null;
+
+  async function doReset() {
+    const confirm1 = window.confirm(
+      `Se reseteará la contraseña de TODOS los usuarios NO administradores a "${newPw}" y se les obligará a cambiarla en el próximo login. ¿Continuar?`,
+    );
+    if (!confirm1) return;
+    const confirm2 = window.prompt(
+      'Esta acción es masiva e irreversible.\n\nEscribe la palabra CONFIRMAR (en mayúsculas) para proceder:',
+    );
+    if (confirm2 !== "CONFIRMAR") { toast.error("Cancelado — palabra de confirmación incorrecta"); return; }
+    setRunning(true);
+    try {
+      const { data } = await api.post("/admin/reset-all-passwords", { new_password: newPw });
+      toast.success(`Contraseñas reseteadas: ${data.affected} usuario(s)`);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setRunning(false); }
+  }
+
+  return (
+    <Card className="border-red-200 bg-red-50/40" data-testid="reset-all-passwords-card">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <KeyRound className="h-5 w-5 text-red-700" />
+          <CardTitle className="text-red-900">Reset masivo de contraseñas</CardTitle>
+        </div>
+        <CardDescription className="text-red-900/80">
+          Resetea la contraseña de <b>todos los usuarios no-administradores</b> a un valor único y los obliga a cambiarla
+          al próximo login. Los admins NO se ven afectados.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!expanded ? (
+          <Button
+            variant="outline"
+            onClick={() => setExpanded(true)}
+            className="rounded-full border-red-300 text-red-800 hover:bg-red-100"
+            data-testid="reset-all-passwords-expand"
+          >
+            <AlertTriangle className="h-4 w-4 mr-1.5" /> Mostrar acción destructiva
+          </Button>
+        ) : (
+          <>
+            <div className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-900">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <div>
+                Acción <b>masiva e irreversible</b>. Todos los usuarios (excepto admins) tendrán que iniciar sesión con
+                esta clave temporal y cambiarla al primer acceso. Úsala solo en migraciones o bootstrap inicial.
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Nueva contraseña temporal</Label>
+              <Input
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                data-testid="reset-all-passwords-input"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Los usuarios deberán cambiarla al primer login (política: 8+ caracteres, mayúscula, minúscula, número y especial).
+              </p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                onClick={doReset}
+                disabled={running || !newPw}
+                className="rounded-full bg-red-600 hover:bg-red-700 text-white"
+                data-testid="reset-all-passwords-run"
+              >
+                <KeyRound className="h-4 w-4 mr-1.5" />
+                {running ? "Ejecutando…" : "Resetear todas las contraseñas ahora"}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setExpanded(false)}
+                className="rounded-full text-muted-foreground"
+              >
+                Cancelar
+              </Button>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
