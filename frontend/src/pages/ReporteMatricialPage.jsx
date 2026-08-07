@@ -327,18 +327,25 @@ export default function ReporteMatricialPage() {
                             const inRed = b.in_late || b.break_over;
                             const inTitle = b.break_over
                               ? `Exceso de descanso: +${b.break_excess_minutes} min sumados a Min. perdidos`
-                              : undefined;
+                              : b.in_site_mismatch ? "Marcaje en sede distinta a la asignada" : undefined;
+                            const inCls = b.in_site_mismatch
+                              ? "bg-orange-100 text-orange-800 font-semibold"
+                              : inRed ? "text-red-700 font-bold" : "text-slate-900";
+                            const outTitle = b.auto_closed
+                              ? "Salida imputada automáticamente al cierre del día (23:59)"
+                              : b.out_site_mismatch ? "Marcaje en sede distinta a la asignada" : undefined;
+                            const outCls = b.out_site_mismatch
+                              ? "bg-orange-100 text-orange-800 font-semibold"
+                              : b.auto_closed ? "text-amber-700 italic" : "text-slate-900";
                             cells.push(
-                              <td key={day + "in" + i}
-                                title={inTitle}
-                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${inRed ? "text-red-700 font-bold" : "text-slate-900"}`}>
+                              <td key={day + "in" + i} title={inTitle}
+                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${inCls}`}>
                                 {b.in || "–"}
                               </td>
                             );
                             cells.push(
-                              <td key={day + "out" + i}
-                                title={b.auto_closed ? "Salida imputada automáticamente al cierre del día (23:59)" : undefined}
-                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${b.auto_closed ? "text-amber-700 italic" : "text-slate-900"}`}>
+                              <td key={day + "out" + i} title={outTitle}
+                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${outCls}`}>
                                 {b.out || "–"}
                               </td>
                             );

@@ -1371,6 +1371,16 @@ async def kiosk_unlock_face(payload: KioskFaceUnlockIn) -> Dict[str, Any]:
     }
 
 
+@api.get("/kiosk/sites")
+async def kiosk_sites() -> List[Dict[str, Any]]:
+    """Lista pública de sedes para el selector del Kiosco (no requiere sesión).
+    El Kiosco se autentica primero con contraseña de admin (/kiosk/unlock)
+    antes de asociarse a una sede via /kiosk/session/open."""
+    docs = await db.sites.find({}, {"site_id": 1, "name": 1, "address": 1, "_id": 0}).to_list(500)
+    docs.sort(key=lambda s: (s.get("name") or "").lower())
+    return docs
+
+
 @api.get("/kiosk/roster")
 async def kiosk_roster() -> List[Dict[str, Any]]:
     """Lista de usuarios con datos mínimos para reconocimiento en el kiosco."""
@@ -1381,6 +1391,68 @@ async def kiosk_roster() -> List[Dict[str, Any]]:
          "selfie_base64": 1, "face_descriptor": 1, "_id": 0},
     ).to_list(2000)
     return docs
+
+
+# ---- Kiosk Sessions (1 activo por sede) ---------------------------
+# TTL: se considera "activo" si el heartbeat es reciente (< 5 min).
+KIOSK_SESSION_TTL_MIN = 5
+
+
+@api.post("/kiosk/session/open", include_in_schema=False)
+async def kiosk_session_open(payload: Dict[str, Any]) -> Dict[str, Any]:
+    site_id = (payload or {}).get("site_id")
+    if not site_id:
+        raise HTTPException(status_code=400, detail="Falta site_id")
+    site = await db.sites.find_one({"site_id": site_id})
+    if not site:
+        raise HTTPException(status_code=404, detail="Sede no registrada")
+    # Verifica que no exista otra sesión activa en esa sede
+    cutoff = now_utc() - timedelta(minutes=KIOSK_SESSION_TTL_MIN)
+    existing = await db.kiosk_sessions.find_one({
+        "site_id": site_id,
+        "closed_at": None,
+        "last_heartbeat": {"$gte": cutoff},
+    })
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ya existe un kiosco activo para la sede '{site.get('name') or site_id}'. "
+                   f"Ciérralo antes de abrir uno nuevo.",
+        )
+    session_id = new_id("kiosk_sess", 12)
+    await db.kiosk_sessions.insert_one({
+        "session_id": session_id,
+        "site_id": site_id,
+        "site_name": site.get("name"),
+        "opened_at": now_utc(),
+        "last_heartbeat": now_utc(),
+        "closed_at": None,
+    })
+    return {"session_id": session_id, "site_id": site_id, "site_name": site.get("name")}
+
+
+@api.post("/kiosk/session/heartbeat", include_in_schema=False)
+async def kiosk_session_heartbeat(payload: Dict[str, Any]) -> Dict[str, bool]:
+    session_id = (payload or {}).get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Falta session_id")
+    res = await db.kiosk_sessions.update_one(
+        {"session_id": session_id, "closed_at": None},
+        {"$set": {"last_heartbeat": now_utc()}},
+    )
+    return {"ok": res.matched_count > 0}
+
+
+@api.post("/kiosk/session/close", include_in_schema=False)
+async def kiosk_session_close(payload: Dict[str, Any]) -> Dict[str, bool]:
+    session_id = (payload or {}).get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Falta session_id")
+    await db.kiosk_sessions.update_one(
+        {"session_id": session_id},
+        {"$set": {"closed_at": now_utc()}},
+    )
+    return {"ok": True}
 
 
 @api.post("/kiosk/verify-pin")

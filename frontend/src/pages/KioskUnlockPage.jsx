@@ -6,12 +6,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import {
   ScanFace, LockKeyhole, ArrowRight, ArrowLeft, KeyRound, Loader2, RefreshCw,
+  MapPin, Play,
 } from "lucide-react";
 
 const KIOSK_KEY = "megasoft.kiosk.unlocked";
+const KIOSK_SITE_KEY = "megasoft.kiosk.site_id";
+const KIOSK_SITE_NAME_KEY = "megasoft.kiosk.site_name";
+const KIOSK_SESSION_KEY = "megasoft.kiosk.session_id";
 const FACEAPI_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
 const MODELS_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
 
@@ -23,6 +30,29 @@ export function setKioskUnlocked(v) {
   try {
     if (v) sessionStorage.setItem(KIOSK_KEY, "1");
     else sessionStorage.removeItem(KIOSK_KEY);
+  } catch (_) { /* noop */ }
+}
+export function getKioskSite() {
+  try {
+    return {
+      site_id: sessionStorage.getItem(KIOSK_SITE_KEY) || null,
+      site_name: sessionStorage.getItem(KIOSK_SITE_NAME_KEY) || null,
+      session_id: sessionStorage.getItem(KIOSK_SESSION_KEY) || null,
+    };
+  } catch (_) { return { site_id: null, site_name: null, session_id: null }; }
+}
+export function clearKioskSite() {
+  try {
+    sessionStorage.removeItem(KIOSK_SITE_KEY);
+    sessionStorage.removeItem(KIOSK_SITE_NAME_KEY);
+    sessionStorage.removeItem(KIOSK_SESSION_KEY);
+  } catch (_) { /* noop */ }
+}
+function setKioskSite({ site_id, site_name, session_id }) {
+  try {
+    sessionStorage.setItem(KIOSK_SITE_KEY, site_id);
+    sessionStorage.setItem(KIOSK_SITE_NAME_KEY, site_name || "");
+    sessionStorage.setItem(KIOSK_SESSION_KEY, session_id);
   } catch (_) { /* noop */ }
 }
 
@@ -50,10 +80,18 @@ async function loadFaceModels(faceapi) {
 
 export default function KioskUnlockPage() {
   const nav = useNavigate();
+  // Pasos: 'auth' → 'site'
+  const [step, setStep] = useState("auth");
 
-  function handleSuccess(msg = "Kiosco desbloqueado") {
+  function handleAuthSuccess() {
+    // No marcamos unlocked=1 aún; pedimos la sede antes de entrar al kiosco.
+    setStep("site");
+  }
+
+  function handleSiteConfirmed({ site_id, site_name, session_id }) {
+    setKioskSite({ site_id, site_name, session_id });
     setKioskUnlocked(true);
-    toast.success(msg);
+    toast.success(`Kiosco activo en “${site_name || "sede"}”`);
     nav("/kiosk/scan", { replace: true });
   }
 
@@ -66,39 +104,50 @@ export default function KioskUnlockPage() {
         <CardContent className="pt-8 pb-6 space-y-5">
           <div className="flex flex-col items-center text-center">
             <div className="h-16 w-16 rounded-2xl bg-accent grid place-items-center shadow-lg shadow-accent/30 mb-4">
-              <ScanFace className="h-8 w-8 text-foreground" />
+              {step === "site" ? <MapPin className="h-8 w-8 text-foreground" /> : <ScanFace className="h-8 w-8 text-foreground" />}
             </div>
             <p className="text-xs uppercase tracking-[0.3em] text-white/50">MegaSoft · Modo</p>
-            <h1 className="text-3xl font-bold mt-1">Kiosco compartido</h1>
-            <p className="font-serif-display text-accent/80 text-xl mt-1">desbloquéalo con tu rostro o clave.</p>
+            <h1 className="text-3xl font-bold mt-1">
+              {step === "site" ? "Elige la sede" : "Kiosco compartido"}
+            </h1>
+            <p className="font-serif-display text-accent/80 text-xl mt-1">
+              {step === "site" ? "asócialo al lugar físico." : "desbloquéalo con tu rostro o clave."}
+            </p>
           </div>
 
-          <Tabs defaultValue="face" className="w-full">
-            <TabsList className="grid grid-cols-2 bg-white/5 border border-white/10 rounded-full h-11 p-1">
-              <TabsTrigger
-                value="face"
-                data-testid="tab-face-unlock"
-                className="rounded-full data-[state=active]:bg-accent data-[state=active]:text-foreground text-white/70 gap-2"
-              >
-                <ScanFace className="h-4 w-4" /> Rostro
-              </TabsTrigger>
-              <TabsTrigger
-                value="credentials"
-                data-testid="tab-credentials-unlock"
-                className="rounded-full data-[state=active]:bg-accent data-[state=active]:text-foreground text-white/70 gap-2"
-              >
-                <KeyRound className="h-4 w-4" /> Credenciales
-              </TabsTrigger>
-            </TabsList>
+          {step === "auth" ? (
+            <Tabs defaultValue="face" className="w-full">
+              <TabsList className="grid grid-cols-2 bg-white/5 border border-white/10 rounded-full h-11 p-1">
+                <TabsTrigger
+                  value="face"
+                  data-testid="tab-face-unlock"
+                  className="rounded-full data-[state=active]:bg-accent data-[state=active]:text-foreground text-white/70 gap-2"
+                >
+                  <ScanFace className="h-4 w-4" /> Rostro
+                </TabsTrigger>
+                <TabsTrigger
+                  value="credentials"
+                  data-testid="tab-credentials-unlock"
+                  className="rounded-full data-[state=active]:bg-accent data-[state=active]:text-foreground text-white/70 gap-2"
+                >
+                  <KeyRound className="h-4 w-4" /> Credenciales
+                </TabsTrigger>
+              </TabsList>
 
-            <TabsContent value="face" className="mt-5">
-              <FaceUnlockPanel onSuccess={handleSuccess} />
-            </TabsContent>
+              <TabsContent value="face" className="mt-5">
+                <FaceUnlockPanel onSuccess={handleAuthSuccess} />
+              </TabsContent>
 
-            <TabsContent value="credentials" className="mt-5">
-              <CredentialsUnlockPanel onSuccess={handleSuccess} />
-            </TabsContent>
-          </Tabs>
+              <TabsContent value="credentials" className="mt-5">
+                <CredentialsUnlockPanel onSuccess={handleAuthSuccess} />
+              </TabsContent>
+            </Tabs>
+          ) : (
+            <SiteSelectionPanel
+              onBack={() => setStep("auth")}
+              onSuccess={handleSiteConfirmed}
+            />
+          )}
 
           <div className="pt-4 border-t border-white/10 text-center">
             <button
@@ -113,6 +162,122 @@ export default function KioskUnlockPage() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/** Selector de sede — asocia el kiosco a un lugar físico antes de activarlo. */
+function SiteSelectionPanel({ onBack, onSuccess }) {
+  const [sites, setSites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [siteId, setSiteId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const { data } = await api.get("/kiosk/sites");
+        if (cancel) return;
+        setSites(Array.isArray(data) ? data : []);
+      } catch (e) {
+        setErr(formatApiErrorDetail(e.response?.data?.detail) || "No se pudieron cargar las sedes");
+      } finally {
+        if (!cancel) setLoading(false);
+      }
+    })();
+    return () => { cancel = true; };
+  }, []);
+
+  async function activate() {
+    if (!siteId) { toast.error("Selecciona una sede"); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      const { data } = await api.post("/kiosk/session/open", { site_id: siteId });
+      onSuccess({
+        site_id: data.site_id,
+        site_name: data.site_name,
+        session_id: data.session_id,
+      });
+    } catch (e) {
+      const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
+      setErr(msg);
+      toast.error(msg);
+    } finally { setBusy(false); }
+  }
+
+  const chosen = sites.find((s) => s.site_id === siteId);
+
+  return (
+    <div className="space-y-4" data-testid="kiosk-site-selector">
+      <div className="space-y-1.5">
+        <Label className="text-xs text-white/70">Sede física de este kiosco</Label>
+        {loading ? (
+          <div className="h-11 rounded-md bg-white/10 border border-white/10 flex items-center justify-center">
+            <Loader2 className="h-4 w-4 animate-spin text-white/60" />
+          </div>
+        ) : (
+          <Select value={siteId} onValueChange={setSiteId}>
+            <SelectTrigger
+              className="h-12 bg-white/10 border-white/10 text-white focus:ring-accent"
+              data-testid="kiosk-site-select"
+            >
+              <SelectValue placeholder="— Selecciona la sede —" />
+            </SelectTrigger>
+            <SelectContent>
+              {sites.length === 0 && (
+                <div className="px-3 py-2 text-sm text-muted-foreground">
+                  No hay sedes registradas.
+                </div>
+              )}
+              {sites.map((s) => (
+                <SelectItem key={s.site_id} value={s.site_id} data-testid={`kiosk-site-opt-${s.site_id}`}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {chosen?.address && (
+          <p className="text-[11px] text-white/50 mt-1">{chosen.address}</p>
+        )}
+      </div>
+
+      {err && (
+        <div className="rounded-md border border-red-400/30 bg-red-500/10 p-3 text-xs text-red-200" data-testid="kiosk-site-error">
+          {err}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          onClick={onBack}
+          disabled={busy}
+          className="h-12 rounded-full bg-white/5 border-white/20 text-white hover:bg-white/10 flex-1"
+          data-testid="kiosk-site-back"
+        >
+          <ArrowLeft className="h-4 w-4 mr-1.5" /> Atrás
+        </Button>
+        <Button
+          type="button"
+          onClick={activate}
+          disabled={busy || !siteId || loading}
+          className="h-12 rounded-full bg-accent hover:bg-accent/90 text-foreground font-semibold flex-[1.4] shadow-lg shadow-accent/20"
+          data-testid="kiosk-site-activate"
+        >
+          {busy
+            ? (<><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Activando…</>)
+            : (<><Play className="h-4 w-4 mr-1.5" /> Activar kiosco <ArrowRight className="h-4 w-4 ml-1.5" /></>)}
+        </Button>
+      </div>
+
+      <p className="text-[11px] text-white/50 text-center">
+        Sólo puede haber un kiosco activo por sede. Si otro dispositivo ya está en esa sede, deberás cerrarlo primero.
+      </p>
     </div>
   );
 }
@@ -168,10 +333,10 @@ function CredentialsUnlockPanel({ onSuccess }) {
       >
         {busy
           ? (<><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Desbloqueando…</>)
-          : (<><LockKeyhole className="h-4 w-4 mr-2" /> Desbloquear kiosco <ArrowRight className="h-4 w-4 ml-2" /></>)}
+          : (<><LockKeyhole className="h-4 w-4 mr-2" /> Continuar <ArrowRight className="h-4 w-4 ml-2" /></>)}
       </Button>
       <p className="text-[11px] text-white/50 text-center pt-1">
-        Al desbloquear, la pantalla mostrará la cámara y aceptará marcas de cualquier empleado.
+        Luego elegirás la sede física a la que se asociará este kiosco.
       </p>
     </form>
   );
@@ -213,7 +378,7 @@ function FaceUnlockPanel({ onSuccess }) {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   async function scanAndUnlock() {
     if (!videoRef.current) return;

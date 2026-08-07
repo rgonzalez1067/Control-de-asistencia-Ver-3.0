@@ -147,8 +147,8 @@ async def build_matrix(
         "timestamp": {"$gte": d1, "$lt": d2},
     }, {"selfie_base64": 0}).to_list(20000)
 
-    # user × day → {ins: [datetime,...], outs: [datetime,...]}
-    att_map: Dict[str, Dict[str, Dict[str, List[datetime]]]] = {}
+    # user × day → {ins: [{ts, site}, ...], outs: [{ts, site}, ...]}
+    att_map: Dict[str, Dict[str, Dict[str, List[Any]]]] = {}
     for a in att_docs:
         ts = a.get("timestamp")
         if not isinstance(ts, datetime):
@@ -156,10 +156,11 @@ async def build_matrix(
         local = ts.astimezone(APP_TZ)
         day = local.strftime("%Y-%m-%d")
         bucket = att_map.setdefault(a["user_id"], {}).setdefault(day, {"ins": [], "outs": []})
+        entry = {"ts": local, "site": a.get("site_id")}
         if a.get("type") == "in":
-            bucket["ins"].append(local)
+            bucket["ins"].append(entry)
         elif a.get("type") == "out":
-            bucket["outs"].append(local)
+            bucket["outs"].append(entry)
 
     # ---- Novedades aprobadas ----
     nov_docs = await db.novelties.find({
@@ -203,9 +204,9 @@ async def build_matrix(
             full_nov = next((n for n in day_novs if n.get("type") in FULL_DAY_TYPES), None)
             partial_novs = [n for n in day_novs if n.get("type") in PARTIAL_TYPES]
 
-            # Marcajes crudos
-            ins = sorted(att_days.get(day, {}).get("ins", []))
-            outs = sorted(att_days.get(day, {}).get("outs", []))
+            # Marcajes crudos (cada uno: {ts, site})
+            ins  = sorted(att_days.get(day, {}).get("ins", []),  key=lambda x: x["ts"])
+            outs = sorted(att_days.get(day, {}).get("outs", []), key=lambda x: x["ts"])
 
             # Novedad de día completo → no muestro marcajes
             if full_nov:
@@ -220,15 +221,20 @@ async def build_matrix(
                 continue
 
             # Emparejar por bloques
-            block_records = []  # cada uno: {in, out, in_late, in_minutes, in_reason, break_over}
+            user_site = u.get("site_id")
+            block_records = []
             for i, bm in enumerate(block_mins):
                 rec = {"in": None, "out": None, "in_late": False,
                        "late_minutes": 0, "reason": None, "just": False,
-                       "break_over": False, "break_excess_minutes": 0}
+                       "break_over": False, "break_excess_minutes": 0,
+                       "in_site_mismatch": False, "out_site_mismatch": False}
                 # in
                 if i < len(ins):
-                    dt_in = ins[i]
+                    dt_in = ins[i]["ts"]
                     rec["in"] = dt_in.strftime("%H:%M")
+                    in_site = ins[i].get("site")
+                    if user_site and in_site and in_site != user_site:
+                        rec["in_site_mismatch"] = True
                     if bm.get("start") is not None:
                         in_min = dt_in.hour * 60 + dt_in.minute
                         delta = in_min - int(bm["start"])
@@ -237,7 +243,10 @@ async def build_matrix(
                             rec["late_minutes"] = max(0, delta - tolerance)
                 # out
                 if i < len(outs):
-                    rec["out"] = outs[i].strftime("%H:%M")
+                    rec["out"] = outs[i]["ts"].strftime("%H:%M")
+                    out_site = outs[i].get("site")
+                    if user_site and out_site and out_site != user_site:
+                        rec["out_site_mismatch"] = True
                 block_records.append(rec)
 
             # === Regla 3: exceso de descanso entre S1 y E2 (solo 2 bloques) ===
@@ -274,10 +283,10 @@ async def build_matrix(
 
             # Si hay más marcajes que bloques, los últimos se concatenan al último bloque
             if len(ins) > len(block_mins):
-                extra_in = ins[len(block_mins)]
+                extra_in = ins[len(block_mins)]["ts"]
                 block_records[-1]["in"] = block_records[-1]["in"] or extra_in.strftime("%H:%M")
             if len(outs) > len(block_mins):
-                block_records[-1]["out"] = outs[-1].strftime("%H:%M")
+                block_records[-1]["out"] = outs[-1]["ts"].strftime("%H:%M")
 
             # Justificación / totales sobre el primer bloque tardío
             first_late = next((b for b in block_records if b["in_late"]), None)

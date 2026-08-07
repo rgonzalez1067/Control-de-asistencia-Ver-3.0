@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, formatApiErrorDetail } from "@/lib/api";
-import { isKioskUnlocked, setKioskUnlocked } from "@/pages/KioskUnlockPage";
+import { isKioskUnlocked, setKioskUnlocked, getKioskSite, clearKioskSite } from "@/pages/KioskUnlockPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import {
   ScanFace, LogIn, LogOut as LogOutIcon, Loader2, LockKeyhole,
-  KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight, RefreshCcw, DoorOpen, Camera,
+  KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight, RefreshCcw, DoorOpen, Camera, MapPin,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
@@ -50,6 +50,7 @@ async function loadModels(faceapi) {
 
 export default function KioskScanPage() {
   const nav = useNavigate();
+  const kioskSite = useMemo(() => getKioskSite(), []);
   const [phase, setPhase] = useState("boot");
   const [status, setStatus] = useState("Cargando reconocimiento facial…");
   const [roster, setRoster] = useState([]);
@@ -63,6 +64,7 @@ export default function KioskScanPage() {
   const [reenrollCapture, setReenrollCapture] = useState(null);  // {user_id, name, pin} lista para capturar
   const [reenrollSaving, setReenrollSaving] = useState(false);
   const [showExit, setShowExit] = useState(false);
+  const [showLock, setShowLock] = useState(false);
   const [clock, setClock] = useState(new Date());
   const [idle, setIdle] = useState(false);
   const [pendingVisits, setPendingVisits] = useState([]);
@@ -95,9 +97,41 @@ export default function KioskScanPage() {
 
   useEffect(() => {
     if (!isKioskUnlocked()) { nav("/kiosk", { replace: true }); return; }
+    if (!kioskSite.site_id || !kioskSite.session_id) {
+      // Falta la asociación de sede — regresa al desbloqueo para elegirla.
+      clearKioskSite();
+      setKioskUnlocked(false);
+      nav("/kiosk", { replace: true });
+      return;
+    }
     let cancelled = false;
 
     clockRef.current = setInterval(() => setClock(new Date()), 1000);
+
+    // Heartbeat cada 2 min para mantener la sesión activa (TTL backend: 5 min).
+    const heartbeatId = setInterval(() => {
+      api.post("/kiosk/session/heartbeat", { session_id: kioskSite.session_id })
+        .catch(() => null);
+    }, 120_000);
+
+    // Bloqueo de navegación mientras el kiosco esté activo.
+    function onBeforeUnload(e) {
+      e.preventDefault();
+      e.returnValue = "";
+      return "";
+    }
+    function onKeyDown(e) {
+      // Bloquea F5, Ctrl+R, Ctrl+W, Alt+F4 (silencioso — el navegador respeta lo que puede).
+      const k = (e.key || "").toLowerCase();
+      if (k === "f5" || (e.ctrlKey && (k === "r" || k === "w")) || (e.altKey && k === "f4")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }
+    function onContextMenu(e) { e.preventDefault(); }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("contextmenu", onContextMenu);
 
     async function boot() {
       try {
@@ -244,6 +278,10 @@ export default function KioskScanPage() {
       cancelled = true;
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (clockRef.current) clearInterval(clockRef.current);
+      clearInterval(heartbeatId);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("contextmenu", onContextMenu);
       streamRef.current?.getTracks().forEach((t) => t.stop());
     };
   }, []);
@@ -253,6 +291,7 @@ export default function KioskScanPage() {
       const { data } = await api.post("/kiosk/attendance/check", {
         user_id: user.user_id,
         type: "auto",  // backend decide para evitar races
+        site_id: kioskSite.site_id || null,
       });
       const marked = data?.type || expectedType || "in";
       toast.success(`${user.name.split(" ")[0]} · ${marked === "in" ? "Entrada" : "Salida"} registrada`);
@@ -278,12 +317,20 @@ export default function KioskScanPage() {
   }
 
   function lockKiosk() {
+    // Cierra sesión y devuelve el kiosco al desbloqueo (donde se pedirá auth admin + sede).
+    const sid = kioskSite.session_id;
+    if (sid) api.post("/kiosk/session/close", { session_id: sid }).catch(() => null);
+    clearKioskSite();
     setKioskUnlocked(false);
     streamRef.current?.getTracks().forEach((t) => t.stop());
+    if (intervalRef.current) clearInterval(intervalRef.current);
     nav("/kiosk", { replace: true });
   }
 
   function exitToAdmin() {
+    const sid = kioskSite.session_id;
+    if (sid) api.post("/kiosk/session/close", { session_id: sid }).catch(() => null);
+    clearKioskSite();
     setKioskUnlocked(false);
     streamRef.current?.getTracks().forEach((t) => t.stop());
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -347,13 +394,18 @@ export default function KioskScanPage() {
 
       {/* Header */}
       <header className="relative flex items-center justify-between px-4 py-4 border-b border-white/5">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-accent grid place-items-center">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="h-10 w-10 rounded-xl bg-accent grid place-items-center shrink-0">
             <ScanFace className="h-5 w-5 text-primary" />
           </div>
-          <div>
+          <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-[0.3em] text-white/50 leading-none">MegaSoft</p>
             <p className="text-sm font-semibold leading-tight mt-0.5">Kiosco de asistencia</p>
+            {kioskSite.site_name && (
+              <p className="text-[11px] text-accent/90 leading-none mt-1 truncate flex items-center gap-1" data-testid="kiosk-site-badge">
+                <MapPin className="h-3 w-3 shrink-0" /> {kioskSite.site_name}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -446,7 +498,7 @@ export default function KioskScanPage() {
 
       {/* Bottom actions */}
       <div className="relative px-4 pb-6 pt-2 border-t border-white/5 flex items-center gap-2">
-        <Button variant="ghost" onClick={lockKiosk}
+        <Button variant="ghost" onClick={() => setShowLock(true)}
           className="rounded-full h-12 text-white/70 hover:bg-white/10 hover:text-white flex-1"
           data-testid="kiosk-lock-btn">
           <LockKeyhole className="h-4 w-4 mr-1.5" /> Bloquear
@@ -638,6 +690,17 @@ export default function KioskScanPage() {
         onCancel={() => setShowExit(false)}
         onSuccess={() => { setShowExit(false); exitToAdmin(); }}
       />
+
+      {/* Bloquear kiosco — también requiere credenciales admin */}
+      <ExitKioskDialog
+        open={showLock}
+        title="Bloquear kiosco"
+        description="Confirma con tus credenciales de administrador para liberar la sede y bloquear este dispositivo."
+        confirmLabel="Bloquear"
+        icon="lock"
+        onCancel={() => setShowLock(false)}
+        onSuccess={() => { setShowLock(false); lockKiosk(); }}
+      />
     </div>
   );
 }
@@ -818,7 +881,7 @@ function PinEnterDialog({ target, onCancel, onSuccess }) {
 }
 
 /** Dialog para salir del kiosco — pide credenciales de administrador */
-function ExitKioskDialog({ open, onCancel, onSuccess }) {
+function ExitKioskDialog({ open, onCancel, onSuccess, title, description, confirmLabel, icon }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -833,23 +896,25 @@ function ExitKioskDialog({ open, onCancel, onSuccess }) {
     setBusy(true);
     try {
       await api.post("/kiosk/unlock", { email: email.trim(), password });
-      toast.success("Saliendo del modo kiosco…");
+      toast.success("Credenciales válidas");
       onSuccess();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Credenciales inválidas");
     } finally { setBusy(false); }
   }
 
+  const Icon = icon === "lock" ? LockKeyhole : DoorOpen;
+
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
       <DialogContent className="max-w-sm" data-testid="kiosk-exit-dialog">
         <DialogHeader className="items-center text-center">
           <div className="h-14 w-14 rounded-2xl bg-primary/10 grid place-items-center mb-2">
-            <DoorOpen className="h-7 w-7 text-primary dark:text-foreground" />
+            <Icon className="h-7 w-7 text-primary dark:text-foreground" />
           </div>
-          <DialogTitle>Salir del kiosco</DialogTitle>
+          <DialogTitle>{title || "Salir del kiosco"}</DialogTitle>
           <DialogDescription>
-            Confirma con tus credenciales de administrador para regresar al panel.
+            {description || "Confirma con tus credenciales de administrador para regresar al panel."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={verify} className="space-y-3">
@@ -884,7 +949,7 @@ function ExitKioskDialog({ open, onCancel, onSuccess }) {
             <Button type="submit" disabled={busy}
               className="h-12 rounded-full flex-1 bg-primary hover:bg-primary/90 font-semibold"
               data-testid="kiosk-exit-confirm">
-              {busy ? "Verificando…" : (<>Salir <ArrowRight className="h-4 w-4 ml-1.5" /></>)}
+              {busy ? "Verificando…" : (<>{confirmLabel || "Salir"} <ArrowRight className="h-4 w-4 ml-1.5" /></>)}
             </Button>
           </DialogFooter>
         </form>

@@ -106,3 +106,29 @@ Ver `/app/memory/test_credentials.md`.
   `/app/frontend/src/pages/LoginPage.jsx`, `/app/frontend/src/pages/DashboardPlaceholder.jsx`
 - PWA: `/app/frontend/public/manifest.webmanifest`, `/app/frontend/public/sw.js`
 - Handoff: `/app/handoff/megasoft_handoff/` (blueprint, backup, README)
+
+## Adendo Kiosco (Feb 2026)
+
+### Fase 1 — Reglas de asistencia ✅
+- Cálculo de `break_excess_minutes` cuando el break > 60 min.
+- Auto-cierre a 23:59 (America/Caracas) con `auto_closed = True`.
+
+### Fase 2 — Kiosco pineado por sede ✅
+- **Backend** (implementado):
+  - `GET  /api/kiosk/sites` — listado público de sedes (para el selector del kiosco antes de autenticar).
+  - `POST /api/kiosk/session/open` — abre sesión de kiosco por sede; rechaza (409) si hay otra sesión activa en la misma sede (TTL 5 min).
+  - `POST /api/kiosk/session/heartbeat` — mantiene sesión viva (frontend envía cada 2 min).
+  - `POST /api/kiosk/session/close` — cierra la sesión (al bloquear/salir).
+  - `matrix_report.py` marca `site_mismatch` cuando un empleado marca en una sede distinta a la suya (resaltado en `ReporteMatricialPage`).
+- **Frontend** (implementado 07-Feb-2026):
+  - `KioskUnlockPage`: paso 1 auth (rostro/credenciales) → paso 2 selector de sede → llama `session/open` y guarda `session_id`, `site_id`, `site_name` en `sessionStorage`.
+  - `KioskScanPage`: valida sesión en mount; muestra badge de sede en header; envía `site_id` en cada `attendance/check`; heartbeat cada 2 min; bloquea `beforeunload`, F5/Ctrl+R/Ctrl+W/Alt+F4, context menu.
+  - Botones "Bloquear" y "Salir" ahora exigen credenciales de administrador y cierran la sesión al éxito.
+
+## Backlog restante (post-Adendo)
+- **P1**: Reportes Ejecutivos programados (PDF semanal por email a directores).
+- **P1**: Panel semaforizado en Dashboard (tardanzas/faltas).
+- **P1**: Alertas de novedades vía Slack/Email (requiere webhook del usuario).
+- **P2**: Contador "Mi equipo · N miembros" en sidebar del supervisor.
+- **Refactor**: modularizar `/app/backend/server.py` en routers.
+
