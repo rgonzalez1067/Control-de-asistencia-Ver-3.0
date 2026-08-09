@@ -672,7 +672,7 @@ function UserFormDialog({ state, onCancel, onSave, departments, sites, schedules
           {isEdit && (
             <div className="sm:col-span-2 rounded-xl border border-dashed p-3 space-y-2 bg-muted/30">
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-                <ClipboardList className="h-3.5 w-3.5" /> Permisos · Control de visitas
+                <ClipboardList className="h-3.5 w-3.5" /> Permisos especiales
               </div>
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
@@ -693,6 +693,16 @@ function UserFormDialog({ state, onCancel, onSave, departments, sites, schedules
                   data-testid="user-form-can-view-visit-logs"
                 />
                 <span>Acceso al <b>histórico de visitas</b> con selfies</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.can_manage_schedules}
+                  onChange={(e) => setForm((f) => ({ ...f, can_manage_schedules: e.target.checked }))}
+                  className="h-4 w-4 accent-primary"
+                  data-testid="user-form-can-manage-schedules"
+                />
+                <span>Puede <b>crear horarios</b> y asignarlos a los empleados de su equipo</span>
               </label>
             </div>
           )}

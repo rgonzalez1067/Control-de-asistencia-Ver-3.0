@@ -62,7 +62,11 @@ function App() {
             <Route path="usuarios" element={<ProtectedRoute roles={ADMIN}><UsersPage /></ProtectedRoute>} />
             <Route path="sedes" element={<ProtectedRoute roles={ADMIN}><SedesPage /></ProtectedRoute>} />
             <Route path="departamentos" element={<ProtectedRoute roles={ADMIN}><DepartmentsPage /></ProtectedRoute>} />
-            <Route path="horarios" element={<ProtectedRoute roles={ADMIN}><SchedulesPage /></ProtectedRoute>} />
+            <Route path="horarios" element={
+              <ProtectedRoute check={(u) => u.role === "admin" || u.can_manage_schedules}>
+                <SchedulesPage />
+              </ProtectedRoute>
+            } />
             <Route path="ajustes" element={<ProtectedRoute roles={ADMIN}><SettingsPage /></ProtectedRoute>} />
 
             {/* Admin + Supervisor */}

@@ -71,6 +71,7 @@ export default function AppLayout() {
 
   const canCreateVisits = user?.role === "admin" || user?.can_create_visits;
   const canViewVisitLogs = user?.role === "admin" || user?.can_view_visit_logs;
+  const canManageSchedules = user?.role === "admin" || user?.can_manage_schedules;
 
   const baseItems =
     user?.role === "admin" ? NAV_ADMIN :
@@ -79,7 +80,14 @@ export default function AppLayout() {
   const visitItems = [];
   if (canCreateVisits) visitItems.push({ to: "/visitas/agendar", icon: UserPlus, label: "Agendar visita" });
   if (canViewVisitLogs) visitItems.push({ to: "/visitas/historico", icon: ClipboardList, label: "Histórico de visitas" });
-  const items = [...baseItems, ...visitItems];
+
+  // "Horarios" para no-admin sólo si tiene permiso especial
+  const extraItems = [];
+  if (canManageSchedules && user?.role !== "admin") {
+    extraItems.push({ to: "/horarios", icon: CalendarClock, label: "Horarios" });
+  }
+
+  const items = [...baseItems, ...extraItems, ...visitItems];
   const isAdmin = user?.role === "admin";
 
   async function handleLogout() {

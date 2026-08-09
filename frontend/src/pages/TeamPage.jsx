@@ -32,21 +32,25 @@ export default function TeamPage() {
   const [records, setRecords] = useState([]);
   const [users, setUsers] = useState([]);
   const [depts, setDepts] = useState([]);
+  const [schedules, setSchedules] = useState([]);
   const [days, setDays] = useState("7");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [assigning, setAssigning] = useState(null); // user_id in progress
 
   async function load() {
     setLoading(true);
     try {
-      const [{ data: recs }, { data: allUsers }, { data: allDepts }] = await Promise.all([
+      const [{ data: recs }, { data: allUsers }, { data: allDepts }, { data: allSchedules }] = await Promise.all([
         api.get(`/attendance/team?days=${days}`),
         api.get("/users"),
         api.get("/departments"),
+        api.get("/schedules"),
       ]);
       setRecords(recs);
       setUsers(allUsers);
       setDepts(allDepts);
+      setSchedules(allSchedules);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     } finally { setLoading(false); setRefreshing(false); }
@@ -54,6 +58,28 @@ export default function TeamPage() {
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [days]);
 
   const isAdmin = user?.role === "admin";
+  const canManageSchedules = isAdmin || !!user?.can_manage_schedules;
+  const scheduleMap = useMemo(
+    () => Object.fromEntries((schedules || []).map((s) => [s.schedule_id, s.name])),
+    [schedules],
+  );
+  const sortedSchedules = useMemo(
+    () => [...(schedules || [])].sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" })),
+    [schedules],
+  );
+
+  async function assignSchedule(userId, scheduleId) {
+    setAssigning(userId);
+    try {
+      await api.patch(`/users/${userId}/schedule`, { schedule_id: scheduleId || null });
+      setUsers((prev) => prev.map((u) => u.user_id === userId ? { ...u, schedule_id: scheduleId || null } : u));
+      toast.success("Horario actualizado");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally {
+      setAssigning(null);
+    }
+  }
   const teamMembers = useMemo(() => {
     if (isAdmin) return users.filter((u) => u.role !== "admin");
     return users.filter((u) => u.supervisor_id === user?.user_id);
@@ -164,7 +190,7 @@ export default function TeamPage() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/40">
-                  <TableHead className="min-w-[240px] sticky left-0 bg-muted/40">Empleado</TableHead>
+                  <TableHead className="min-w-[280px] sticky left-0 bg-muted/40">Empleado</TableHead>
                   {dayList.map((d) => (
                     <TableHead key={d.toISOString()} className="text-center whitespace-nowrap">
                       <div className="text-[11px] text-muted-foreground uppercase tracking-wide">
@@ -192,11 +218,38 @@ export default function TeamPage() {
                           {m.picture ? <img src={m.picture} alt="" className="h-full w-full object-cover" /> :
                             m.name.split(" ").slice(0, 2).map((p) => p[0]).join("")}
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <p className="text-sm font-medium text-foreground leading-tight">{m.name}</p>
                           <p className="text-[11px] text-muted-foreground leading-tight flex items-center gap-1">
                             <Building2 className="h-3 w-3" /> {deptMap[m.department_id] || m.position || "—"}
                           </p>
+                          {canManageSchedules ? (
+                            <div className="mt-1.5 flex items-center gap-1.5" data-testid={`team-schedule-assign-${m.user_id}`}>
+                              <CalendarClock className="h-3 w-3 text-muted-foreground shrink-0" />
+                              <Select
+                                value={m.schedule_id || "__none"}
+                                onValueChange={(v) => assignSchedule(m.user_id, v === "__none" ? "" : v)}
+                                disabled={assigning === m.user_id}
+                              >
+                                <SelectTrigger
+                                  className="h-7 text-[11px] px-2 min-w-[160px] max-w-[220px]"
+                                  data-testid={`team-schedule-select-${m.user_id}`}
+                                >
+                                  <SelectValue placeholder="— sin horario —" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none">— sin horario —</SelectItem>
+                                  {sortedSchedules.map((s) => (
+                                    <SelectItem key={s.schedule_id} value={s.schedule_id}>{s.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          ) : m.schedule_id && (
+                            <p className="text-[11px] text-muted-foreground leading-tight mt-0.5 flex items-center gap-1">
+                              <CalendarClock className="h-3 w-3" /> {scheduleMap[m.schedule_id] || "—"}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </TableCell>

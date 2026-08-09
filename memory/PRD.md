@@ -132,3 +132,14 @@ Ver `/app/memory/test_credentials.md`.
 - **P2**: Contador "Mi equipo · N miembros" en sidebar del supervisor.
 - **Refactor**: modularizar `/app/backend/server.py` en routers.
 
+### Permisos especiales (Feb 2026)
+- Sección renombrada en la ficha de empleado: **"Permisos · Control de visitas" → "Permisos especiales"**.
+- Nuevo permiso `can_manage_schedules` en `UserUpdate` (backend) y checkbox `user-form-can-manage-schedules` (UsersPage).
+- **Efecto**:
+  - `POST/PUT/DELETE /api/schedules` — permitido a admin **o** cualquier usuario con `can_manage_schedules=True` (nuevo dependency `_require_admin_or_schedules_manager`).
+  - Nuevo endpoint `PATCH /api/users/{user_id}/schedule` — asigna/desasigna horario a un empleado. Permitido a admin, o supervisor directo del empleado con `can_manage_schedules=True`.
+  - Sidebar: si el usuario tiene el permiso, aparece el link "Horarios".
+  - Ruta `/horarios`: guard `check={(u) => u.role === "admin" || u.can_manage_schedules}` (nuevo prop `check` en `ProtectedRoute`).
+  - `TeamPage`: para admin y supervisores con permiso, cada empleado del equipo muestra un `Select` compacto para asignar horario en línea.
+
+

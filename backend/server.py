@@ -246,6 +246,7 @@ class UserUpdate(BaseModel):
     onboarded: Optional[bool] = None
     can_create_visits: Optional[bool] = None
     can_view_visit_logs: Optional[bool] = None
+    can_manage_schedules: Optional[bool] = None
 
 
 class VisitorIn(BaseModel):
@@ -1264,6 +1265,13 @@ async def departments_delete(department_id: str,
 # ==================================================================
 # SCHEDULES (3 endpoints)
 # ==================================================================
+async def _require_admin_or_schedules_manager(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Admin siempre puede; empleado/supervisor puede si tiene can_manage_schedules=True."""
+    if user.get("role") == "admin" or user.get("can_manage_schedules"):
+        return user
+    raise HTTPException(status_code=403, detail="Se requiere permiso 'Puede crear y asignar horarios'.")
+
+
 @api.get("/schedules")
 async def schedules_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     docs = await db.schedules.find({}).to_list(500)
@@ -1272,7 +1280,7 @@ async def schedules_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[
 
 @api.post("/schedules")
 async def schedules_create(payload: ScheduleIn,
-                           _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+                           _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
     doc = payload.model_dump()
     doc["schedule_id"] = new_id("sch", 10)
     doc["created_at"] = now_utc()
@@ -1282,7 +1290,7 @@ async def schedules_create(payload: ScheduleIn,
 
 @api.put("/schedules/{schedule_id}")
 async def schedules_update(schedule_id: str, payload: ScheduleIn,
-                           _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+                           _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
     updates = payload.model_dump(exclude_unset=True)
     res = await db.schedules.update_one({"schedule_id": schedule_id}, {"$set": updates})
     if res.matched_count == 0:
@@ -1293,11 +1301,42 @@ async def schedules_update(schedule_id: str, payload: ScheduleIn,
 
 @api.delete("/schedules/{schedule_id}")
 async def schedules_delete(schedule_id: str,
-                           _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+                           _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, bool]:
     res = await db.schedules.delete_one({"schedule_id": schedule_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Horario no encontrado")
     return {"ok": True}
+
+
+@api.patch("/users/{user_id}/schedule")
+async def users_assign_schedule(user_id: str, payload: Dict[str, Any],
+                                current: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Asigna (o desasigna con null) un horario a un empleado.
+       Permitido a: admin, o cualquier usuario con can_manage_schedules=True
+       que sea el supervisor directo del empleado objetivo."""
+    schedule_id = (payload or {}).get("schedule_id")
+    target = await db.users.find_one({"user_id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    is_admin = current.get("role") == "admin"
+    has_perm = bool(current.get("can_manage_schedules"))
+    is_supervisor_of_target = target.get("supervisor_id") == current["user_id"]
+
+    if not (is_admin or (has_perm and is_supervisor_of_target)):
+        raise HTTPException(
+            status_code=403,
+            detail="No autorizado. Necesitas ser admin, o supervisor del empleado con permiso 'Puede crear y asignar horarios'.",
+        )
+
+    if schedule_id:
+        sch = await db.schedules.find_one({"schedule_id": schedule_id})
+        if not sch:
+            raise HTTPException(status_code=404, detail="Horario no encontrado")
+
+    await db.users.update_one({"user_id": user_id}, {"$set": {"schedule_id": schedule_id or None}})
+    u = await db.users.find_one({"user_id": user_id}, {"password_hash": 0, "pin_code_hash": 0})
+    return strip_mongo_id(u)
 
 
 # ==================================================================
