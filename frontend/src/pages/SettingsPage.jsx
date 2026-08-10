@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound, MonitorSmartphone, Unlock, MapPin, Clock } from "lucide-react";
+import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound, MonitorSmartphone, Unlock, MapPin, Clock, BookText, FileText } from "lucide-react";
 
 const TIMEZONES = [
   "America/Caracas", "America/Bogota", "America/Mexico_City", "America/Buenos_Aires",
@@ -193,6 +193,7 @@ export default function SettingsPage() {
 
       <BackupCard />
       <KioskSessionsCard />
+      <ManualsCard />
       <ResetAllPasswordsCard />
 
       <div className="flex items-center gap-2 justify-end sticky bottom-4 rounded-2xl bg-card/90 backdrop-blur border border-border/60 shadow-xl shadow-primary/10 px-3 py-2">
@@ -696,3 +697,67 @@ function KioskSessionsCard() {
     </Card>
   );
 }
+
+
+// =====================================================================
+// Manuales de usuario (Word) — descarga directa
+// =====================================================================
+function ManualsCard() {
+  const { user } = useAuth();
+  if (user?.role !== "admin") return null;
+
+  const manuals = [
+    {
+      title: "Manual del empleado",
+      description: "Pantalla principal, cambio obligatorio de contraseña y registro de rostro. Ideal para nuevos usuarios.",
+      href: `${API}/docs/manual-empleado`,
+      filename: "manual-empleado-megasoft.docx",
+      testid: "download-manual-empleado",
+      icon: BookText,
+    },
+    {
+      title: "Manual del supervisor",
+      description: "Uso detallado de Mi equipo, Novedades, Matriz de asistencia, Horarios y Reportes.",
+      href: `${API}/docs/manual-supervisor`,
+      filename: "manual-supervisor-megasoft.docx",
+      testid: "download-manual-supervisor",
+      icon: FileText,
+    },
+  ];
+
+  return (
+    <Card className="border-slate-200" data-testid="manuals-card">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <BookText className="h-4 w-4" /> Manuales de usuario
+        </CardTitle>
+        <CardDescription>
+          Documentos en Word listos para compartir con tus empleados y supervisores.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3 sm:grid-cols-2">
+        {manuals.map((m) => (
+          <a
+            key={m.filename}
+            href={m.href}
+            download={m.filename}
+            data-testid={m.testid}
+            className="group rounded-xl border border-slate-200 bg-white hover:border-primary hover:shadow-md transition-all p-4 flex items-start gap-3"
+          >
+            <div className="h-10 w-10 rounded-lg bg-primary/10 grid place-items-center shrink-0 group-hover:bg-primary/20 transition-colors">
+              <m.icon className="h-5 w-5 text-primary dark:text-foreground" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-foreground">{m.title}</p>
+              <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">{m.description}</p>
+              <div className="mt-2 inline-flex items-center gap-1 text-[11px] text-primary dark:text-foreground font-medium">
+                <Download className="h-3 w-3" /> Descargar .docx
+              </div>
+            </div>
+          </a>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+

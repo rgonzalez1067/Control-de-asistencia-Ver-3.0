@@ -1144,11 +1144,31 @@ async def settings_get() -> Dict[str, Any]:
 
 @api.get("/docs/manual-usuario", include_in_schema=False)
 async def manual_usuario():
-    """Descarga el manual de usuario en Word (público)."""
+    """Descarga el manual de usuario legado (retro-compatibilidad)."""
     return FileResponse(
         "/app/manual/manual-usuario-megasoft.docx",
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         filename="manual-usuario-megasoft.docx",
+    )
+
+
+@api.get("/docs/manual-empleado", include_in_schema=False)
+async def manual_empleado():
+    """Descarga el manual del empleado (inicio, cambio de contraseña, registro de rostro)."""
+    return FileResponse(
+        "/app/manual/manual-empleado-megasoft.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="manual-empleado-megasoft.docx",
+    )
+
+
+@api.get("/docs/manual-supervisor", include_in_schema=False)
+async def manual_supervisor():
+    """Descarga el manual del supervisor (Mi equipo, Novedades, Matriz, Horarios, Reportes)."""
+    return FileResponse(
+        "/app/manual/manual-supervisor-megasoft.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="manual-supervisor-megasoft.docx",
     )
 
 
