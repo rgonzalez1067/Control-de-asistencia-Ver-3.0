@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { PasswordInput } from "@/components/ui/password-input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -315,14 +316,15 @@ function CredentialsUnlockPanel({ onSuccess }) {
       </div>
       <div className="space-y-1.5">
         <Label className="text-xs text-white/70">Contraseña</Label>
-        <Input
-          type="password"
+        <PasswordInput
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="••••••••"
           required
           className="h-11 bg-white/10 border-white/10 text-white placeholder:text-white/40 focus-visible:ring-accent"
+          toggleClassName="text-white/60 hover:text-accent hover:bg-white/10"
           data-testid="kiosk-password"
+          toggleTestId="kiosk-password-toggle"
         />
       </div>
       <Button

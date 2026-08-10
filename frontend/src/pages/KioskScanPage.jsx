@@ -13,6 +13,7 @@ import {
   KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight, RefreshCcw, DoorOpen, Camera, MapPin,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 
 const FACEAPI_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
@@ -731,8 +732,7 @@ function ReenrollPinDialog({ target, onCancel, onSuccess }) {
             {target?.name?.split(" ")[0]}, ingresa tu PIN para reemplazar tu rostro registrado.
           </DialogDescription>
         </DialogHeader>
-        <Input
-          type="password"
+        <PasswordInput
           inputMode="numeric"
           pattern="[0-9]*"
           value={pin}
@@ -740,6 +740,7 @@ function ReenrollPinDialog({ target, onCancel, onSuccess }) {
           placeholder="••••"
           className="text-3xl text-center h-16 tracking-widest font-mono"
           data-testid="kiosk-reenroll-pin-input"
+          toggleTestId="kiosk-reenroll-pin-toggle"
           autoFocus
         />
         <DialogFooter className="flex-row gap-2 sm:justify-stretch">
@@ -851,8 +852,7 @@ function PinEnterDialog({ target, onCancel, onSuccess }) {
           {isIn ? "Próxima: ENTRADA" : "Próxima: SALIDA"}
         </div>
 
-        <Input
-          type="password"
+        <PasswordInput
           inputMode="numeric"
           pattern="[0-9]*"
           value={pin}
@@ -860,6 +860,7 @@ function PinEnterDialog({ target, onCancel, onSuccess }) {
           placeholder="••••"
           className="text-3xl text-center h-16 tracking-widest font-mono mt-2"
           data-testid="kiosk-pin-input"
+          toggleTestId="kiosk-pin-input-toggle"
           autoFocus
         />
         <DialogFooter className="flex-row gap-2 sm:justify-stretch">
@@ -932,13 +933,13 @@ function ExitKioskDialog({ open, onCancel, onSuccess, title, description, confir
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Contraseña</Label>
-            <Input
-              type="password"
+            <PasswordInput
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               className="h-11"
               data-testid="kiosk-exit-password"
+              toggleTestId="kiosk-exit-password-toggle"
             />
           </div>
           <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">

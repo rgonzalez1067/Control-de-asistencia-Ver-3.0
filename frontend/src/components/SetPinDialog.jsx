@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
@@ -47,8 +47,7 @@ export default function SetPinDialog({ open, onOpenChange, userId, userName, onS
         <div className="space-y-3">
           <div className="space-y-1.5">
             <Label>Nuevo PIN</Label>
-            <Input
-              type="password"
+            <PasswordInput
               inputMode="numeric"
               pattern="[0-9]*"
               value={pin}
@@ -56,13 +55,13 @@ export default function SetPinDialog({ open, onOpenChange, userId, userName, onS
               placeholder="••••"
               className="text-2xl text-center h-14 tracking-widest font-mono"
               data-testid="set-pin-input"
+              toggleTestId="set-pin-input-toggle"
               autoFocus
             />
           </div>
           <div className="space-y-1.5">
             <Label>Confirmar PIN</Label>
-            <Input
-              type="password"
+            <PasswordInput
               inputMode="numeric"
               pattern="[0-9]*"
               value={confirm}
@@ -70,6 +69,7 @@ export default function SetPinDialog({ open, onOpenChange, userId, userName, onS
               placeholder="••••"
               className="text-2xl text-center h-14 tracking-widest font-mono"
               data-testid="set-pin-confirm"
+              toggleTestId="set-pin-confirm-toggle"
             />
             {confirm.length > 0 && confirm !== pin && (
               <p className="text-xs text-destructive">Los PINs no coinciden</p>
