@@ -394,18 +394,24 @@ export default function KioskScanPage() {
       <div className={"flex-1 flex flex-col transition-[filter,opacity] duration-[1200ms] ease-out " + (idle ? "brightness-[0.06] opacity-70" : "brightness-100 opacity-100")}>
 
       {/* Header */}
-      <header className="relative flex items-center justify-between px-4 py-4 border-b border-white/5">
-        <div className="flex items-center gap-3 min-w-0">
+      <header className="relative flex items-center justify-between gap-3 px-4 py-4 border-b border-white/5">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="h-10 w-10 rounded-xl bg-accent grid place-items-center shrink-0">
             <ScanFace className="h-5 w-5 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-[0.3em] text-white/50 leading-none">MegaSoft</p>
-            <p className="text-sm font-semibold leading-tight mt-0.5">Kiosco de asistencia</p>
-            {kioskSite.site_name && (
-              <p className="text-[11px] text-accent/90 leading-none mt-1 truncate flex items-center gap-1" data-testid="kiosk-site-badge">
-                <MapPin className="h-3 w-3 shrink-0" /> {kioskSite.site_name}
+            <p className="text-[10px] uppercase tracking-[0.3em] text-white/50 leading-none">MegaSoft · Kiosco</p>
+            {kioskSite.site_name ? (
+              <p
+                className="mt-1 flex items-center gap-2 text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-accent leading-tight truncate drop-shadow-[0_0_12px_rgba(250,204,21,0.25)]"
+                data-testid="kiosk-site-badge"
+                title={kioskSite.site_name}
+              >
+                <MapPin className="h-6 w-6 sm:h-7 sm:w-7 shrink-0" />
+                <span className="truncate">{kioskSite.site_name}</span>
               </p>
+            ) : (
+              <p className="text-sm font-semibold leading-tight mt-0.5">Kiosco de asistencia</p>
             )}
           </div>
         </div>
