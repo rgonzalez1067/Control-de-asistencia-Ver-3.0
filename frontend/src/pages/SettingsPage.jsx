@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound } from "lucide-react";
+import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound, MonitorSmartphone, Unlock, MapPin, Clock } from "lucide-react";
 
 const TIMEZONES = [
   "America/Caracas", "America/Bogota", "America/Mexico_City", "America/Buenos_Aires",
@@ -192,6 +192,7 @@ export default function SettingsPage() {
       </Card>
 
       <BackupCard />
+      <KioskSessionsCard />
       <ResetAllPasswordsCard />
 
       <div className="flex items-center gap-2 justify-end sticky bottom-4 rounded-2xl bg-card/90 backdrop-blur border border-border/60 shadow-xl shadow-primary/10 px-3 py-2">
@@ -500,6 +501,196 @@ function ResetAllPasswordsCard() {
               </Button>
             </div>
           </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+
+// =====================================================================
+// Kioscos activos — liberación manual de sedes (solo admin)
+// =====================================================================
+function KioskSessionsCard() {
+  const { user } = useAuth();
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState(null);
+  const [confirmTarget, setConfirmTarget] = useState(null);
+
+  const isAdmin = user?.role === "admin";
+
+  async function load() {
+    if (!isAdmin) { setLoading(false); return; }
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/kiosk/sessions");
+      setSessions(Array.isArray(data) ? data : []);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function forceClose(session) {
+    setBusyId(session.session_id);
+    try {
+      const { data } = await api.post("/admin/kiosk/sessions/force-close", {
+        session_id: session.session_id,
+      });
+      toast.success(`Sede liberada · ${data.closed || 0} sesión(es) cerrada(s)`);
+      setConfirmTarget(null);
+      await load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setBusyId(null); }
+  }
+
+  if (!isAdmin) return null;
+
+  function fmt(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString("es-VE", { dateStyle: "short", timeStyle: "short" });
+    } catch (_) { return iso; }
+  }
+  function heartbeatAgo(iso) {
+    if (!iso) return "—";
+    const ms = Date.now() - new Date(iso).getTime();
+    if (ms < 0) return "ahora";
+    const s = Math.floor(ms / 1000);
+    if (s < 60) return `${s}s`;
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    return `${h}h ${m % 60}m`;
+  }
+
+  return (
+    <Card className="border-blue-200 bg-blue-50/40" data-testid="kiosk-sessions-card">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-blue-900 flex items-center gap-2">
+              <MonitorSmartphone className="h-4 w-4" /> Kioscos activos por sede
+            </CardTitle>
+            <CardDescription className="text-blue-900/80 mt-1">
+              Si un kiosco se cae sin cerrar sesión, su sede queda “pegada” y no puede ser reasignada.
+              Aquí puedes liberarla manualmente para que otro dispositivo pueda tomarla.
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={load}
+            disabled={loading}
+            className="rounded-full h-8 shrink-0 border-blue-200 text-blue-900 hover:bg-blue-100"
+            data-testid="kiosk-sessions-refresh"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 mr-1.5 ${loading ? "animate-spin" : ""}`} />
+            Refrescar
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <p className="text-sm text-blue-900/70 py-4 text-center">Cargando kioscos activos…</p>
+        ) : sessions.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-blue-200 bg-white/60 p-6 text-center" data-testid="kiosk-sessions-empty">
+            <MonitorSmartphone className="h-6 w-6 text-blue-400 mx-auto mb-2" />
+            <p className="text-sm text-blue-900/80">No hay kioscos activos en este momento.</p>
+            <p className="text-[11px] text-blue-900/60 mt-1">Todas las sedes están libres para asignación.</p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-blue-200 bg-white/70 divide-y divide-blue-100 overflow-hidden">
+            {sessions.map((s) => (
+              <div
+                key={s.session_id}
+                className="p-3 flex items-start gap-3"
+                data-testid={`kiosk-session-row-${s.site_id}`}
+              >
+                <div className={`mt-0.5 h-2.5 w-2.5 rounded-full ${s.stale ? "bg-amber-500 animate-pulse" : "bg-emerald-500"}`} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-blue-950 flex items-center gap-1.5">
+                      <MapPin className="h-3.5 w-3.5" /> {s.site_name || s.site_id}
+                    </p>
+                    {s.stale ? (
+                      <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-900 text-[10px] px-1.5 py-0">
+                        Sin heartbeat · posiblemente caído
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-emerald-300 bg-emerald-50 text-emerald-900 text-[10px] px-1.5 py-0">
+                        Activo
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-blue-900/70 mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" /> Abierta: {fmt(s.opened_at)}
+                    </span>
+                    <span>
+                      Último heartbeat: hace <b>{heartbeatAgo(s.last_heartbeat)}</b>
+                    </span>
+                    <span className="font-mono text-blue-800/70">{s.session_id}</span>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setConfirmTarget(s)}
+                  disabled={busyId === s.session_id}
+                  className="rounded-full border-blue-300 bg-white text-blue-900 hover:bg-blue-100 shrink-0"
+                  data-testid={`kiosk-session-force-close-${s.site_id}`}
+                >
+                  <Unlock className="h-3.5 w-3.5 mr-1.5" />
+                  {busyId === s.session_id ? "Liberando…" : "Liberar sede"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {confirmTarget && (
+          <div
+            className="rounded-xl border border-amber-300 bg-amber-50 p-4 space-y-3"
+            data-testid="kiosk-session-confirm"
+          >
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
+              <div className="text-sm text-amber-900">
+                <p className="font-semibold">¿Liberar la sede “{confirmTarget.site_name || confirmTarget.site_id}”?</p>
+                <p className="text-xs mt-1">
+                  Cerrará forzosamente la sesión activa. Si el dispositivo original sigue vivo, dejará de poder marcar
+                  hasta que se reinicie el kiosco.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmTarget(null)}
+                className="rounded-full text-amber-900 hover:bg-amber-100"
+                data-testid="kiosk-session-confirm-cancel"
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => forceClose(confirmTarget)}
+                disabled={busyId === confirmTarget.session_id}
+                className="rounded-full bg-amber-600 hover:bg-amber-700 text-white"
+                data-testid="kiosk-session-confirm-ok"
+              >
+                <Unlock className="h-3.5 w-3.5 mr-1.5" />
+                {busyId === confirmTarget.session_id ? "Cerrando…" : "Sí, liberar sede"}
+              </Button>
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

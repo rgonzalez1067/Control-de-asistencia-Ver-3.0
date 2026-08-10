@@ -1494,6 +1494,49 @@ async def kiosk_session_close(payload: Dict[str, Any]) -> Dict[str, bool]:
     return {"ok": True}
 
 
+@api.get("/admin/kiosk/sessions")
+async def admin_kiosk_sessions_list(_: Dict[str, Any] = Depends(require_roles("admin"))) -> List[Dict[str, Any]]:
+    """Lista de sesiones de kiosco activas (heartbeat reciente). Uso: liberación manual desde Ajustes."""
+    cutoff = now_utc() - timedelta(minutes=KIOSK_SESSION_TTL_MIN)
+    docs = await db.kiosk_sessions.find({
+        "closed_at": None,
+        "last_heartbeat": {"$gte": cutoff},
+    }).sort("opened_at", -1).to_list(200)
+    # Incluye también sesiones "colgadas" (sin heartbeat reciente) para permitir cerrarlas.
+    stale = await db.kiosk_sessions.find({
+        "closed_at": None,
+        "last_heartbeat": {"$lt": cutoff},
+    }).sort("opened_at", -1).to_list(200)
+    def _fmt(d, stale_flag):
+        return {
+            "session_id": d.get("session_id"),
+            "site_id": d.get("site_id"),
+            "site_name": d.get("site_name"),
+            "opened_at": d.get("opened_at").isoformat() if d.get("opened_at") else None,
+            "last_heartbeat": d.get("last_heartbeat").isoformat() if d.get("last_heartbeat") else None,
+            "stale": stale_flag,
+        }
+    return [_fmt(d, False) for d in docs] + [_fmt(d, True) for d in stale]
+
+
+@api.post("/admin/kiosk/sessions/force-close")
+async def admin_kiosk_session_force_close(payload: Dict[str, Any],
+                                          _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    """Cierra manualmente una o varias sesiones de kiosco.
+    Payload admite: {session_id}  ó  {site_id}  (libera todas las activas de esa sede)."""
+    session_id = (payload or {}).get("session_id")
+    site_id = (payload or {}).get("site_id")
+    if not session_id and not site_id:
+        raise HTTPException(status_code=400, detail="Envía 'session_id' o 'site_id'")
+    q: Dict[str, Any] = {"closed_at": None}
+    if session_id:
+        q["session_id"] = session_id
+    if site_id:
+        q["site_id"] = site_id
+    res = await db.kiosk_sessions.update_many(q, {"$set": {"closed_at": now_utc(), "closed_forced": True}})
+    return {"ok": True, "closed": res.modified_count}
+
+
 @api.post("/kiosk/verify-pin")
 async def kiosk_verify_pin(payload: KioskPinIn) -> Dict[str, bool]:
     user = await db.users.find_one({"user_id": payload.user_id})
