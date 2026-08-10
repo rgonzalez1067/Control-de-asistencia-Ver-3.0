@@ -27,7 +27,7 @@ export default function ReporteMatricialPage() {
   const isEmployee = user?.role === "employee";
 
   const [filters, setFilters] = useState({
-    from_date: todayISO(-14),
+    from_date: todayISO(0),
     to_date: todayISO(0),
     department_id: "__all",
     user_id: "__all",
@@ -52,9 +52,13 @@ export default function ReporteMatricialPage() {
         setSites(s.data);
         setSchedules(sch.data);
         if (d) setDepartments(d.data);
-        // seleccionar por defecto el primer horario disponible
+        // Selección por defecto del horario:
+        //   1º) Preferimos el primer horario de 2 bloques (donde suele estar la mayoría del personal).
+        //   2º) Si no hay ninguno de 2 bloques, tomamos el primero disponible.
         if (sch.data?.length && !filters.schedule_id) {
-          setFilters((f) => ({ ...f, schedule_id: sch.data[0].schedule_id }));
+          const twoBlock = sch.data.find((s) => (s.blocks?.length || 0) >= 2);
+          const defaultSch = twoBlock || sch.data[0];
+          setFilters((f) => ({ ...f, schedule_id: defaultSch.schedule_id }));
         }
       } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
     })();
