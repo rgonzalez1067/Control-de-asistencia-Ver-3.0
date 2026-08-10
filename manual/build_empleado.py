@@ -6,6 +6,10 @@ from _style import (
     add_image, callout,
 )
 
+
+def page_break(doc):
+    doc.add_page_break()
+
 IMGS = "/app/manual/imgs"
 OUT = "/app/manual/manual-empleado-megasoft.docx"
 
@@ -64,6 +68,7 @@ callout(doc,
 # ================================================================
 # 2 · CAMBIO OBLIGATORIO DE CONTRASEÑA
 # ================================================================
+page_break(doc)
 h2(doc, "2", "Cambio obligatorio de contraseña (primer ingreso)")
 
 body(doc,
@@ -71,8 +76,8 @@ body(doc,
     "el sistema NO te dejará usar el resto de la aplicación hasta que definas una "
     "contraseña personal y segura.")
 
-add_image(doc, f"{IMGS}/04-changepw.jpeg",
-          "Pantalla de cambio obligatorio de contraseña")
+add_image(doc, f"{IMGS}/04-changepw-empty.jpeg",
+          "Pantalla de cambio obligatorio de contraseña · estado inicial")
 
 h3(doc, "Reglas de la contraseña")
 bullets(doc, [
@@ -87,10 +92,13 @@ bullets(doc, [
 h3(doc, "Cómo cambiarla")
 steps(doc, [
     "Escribe la contraseña actual (la temporal que te dieron).",
-    "Escribe tu nueva contraseña — un candado en verde te indica que cumple las reglas.",
-    "Repítela en “Confirmar contraseña”.",
-    "Pulsa “Actualizar contraseña”. El sistema te llevará automáticamente al menú principal.",
+    "Escribe tu nueva contraseña — a la derecha del campo hay un ojito 👁 que te deja ver lo que escribes. Debajo, los requisitos se marcan en verde a medida que los cumples.",
+    "Repítela en “Confirmar contraseña”. El botón “Cambiar contraseña” sólo se activa cuando todo está correcto.",
+    "Pulsa “Cambiar contraseña”. El sistema te llevará automáticamente al menú principal.",
 ])
+
+add_image(doc, f"{IMGS}/04-changepw-filled.jpeg",
+          "Ejemplo con la nueva contraseña ya escrita · todos los requisitos en verde")
 
 callout(doc,
     "🔒 Nadie de la empresa — ni RRHH, ni sistemas — puede ver tu nueva contraseña. "
@@ -105,6 +113,7 @@ callout(doc,
 # ================================================================
 # 3 · REGISTRO DE ROSTRO
 # ================================================================
+page_break(doc)
 h2(doc, "3", "Registro de tu foto para el kiosco")
 
 body(doc,
@@ -153,6 +162,7 @@ callout(doc,
 # ================================================================
 # 4 · YA ESTÁS LISTO/A
 # ================================================================
+page_break(doc)
 h2(doc, "4", "Ya estás listo/a")
 
 body(doc,

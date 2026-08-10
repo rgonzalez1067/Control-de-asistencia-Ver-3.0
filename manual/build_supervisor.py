@@ -6,6 +6,10 @@ from _style import (
     add_image, callout,
 )
 
+
+def page_break(doc):
+    doc.add_page_break()
+
 IMGS = "/app/manual/imgs"
 OUT = "/app/manual/manual-supervisor-megasoft.docx"
 
@@ -83,6 +87,7 @@ callout(doc,
 # ================================================================
 # 2 · NOVEDADES
 # ================================================================
+page_break(doc)
 h2(doc, "2", "Novedades (vacaciones, reposos, permisos, visitas)")
 
 body(doc,
@@ -127,6 +132,7 @@ callout(doc,
 # ================================================================
 # 3 · MATRIZ DE ASISTENCIA
 # ================================================================
+page_break(doc)
 h2(doc, "3", "Matriz de asistencia")
 
 body(doc,
@@ -179,6 +185,7 @@ callout(doc,
 # ================================================================
 # 4 · HORARIOS
 # ================================================================
+page_break(doc)
 h2(doc, "4", "Horarios (permiso especial)")
 
 body(doc,
@@ -216,6 +223,7 @@ callout(doc,
 # ================================================================
 # 5 · REPORTES
 # ================================================================
+page_break(doc)
 h2(doc, "5", "Reportes")
 
 body(doc,
@@ -256,6 +264,7 @@ callout(doc,
 # ================================================================
 # 6 · CIERRE
 # ================================================================
+page_break(doc)
 h2(doc, "6", "Buenas prácticas del supervisor")
 
 bullets(doc, [
