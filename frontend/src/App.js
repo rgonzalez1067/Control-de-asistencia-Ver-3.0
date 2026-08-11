@@ -19,6 +19,7 @@ import KioskUnlockPage from "@/pages/KioskUnlockPage";
 import KioskScanPage from "@/pages/KioskScanPage";
 import ReportsPage from "@/pages/ReportsPage";
 import ReporteMatricialPage from "@/pages/ReporteMatricialPage";
+import AsignarHorariosPage from "@/pages/AsignarHorariosPage";
 import NoveltiesPage from "@/pages/NoveltiesPage";
 import TeamPage from "@/pages/TeamPage";
 import AgendarVisitaPage from "@/pages/AgendarVisitaPage";
@@ -65,6 +66,11 @@ function App() {
             <Route path="horarios" element={
               <ProtectedRoute check={(u) => u.role === "admin" || u.can_manage_schedules}>
                 <SchedulesPage />
+              </ProtectedRoute>
+            } />
+            <Route path="asignar-horarios" element={
+              <ProtectedRoute check={(u) => u.role === "admin" || u.can_assign_schedules}>
+                <AsignarHorariosPage />
               </ProtectedRoute>
             } />
             <Route path="ajustes" element={<ProtectedRoute roles={ADMIN}><SettingsPage /></ProtectedRoute>} />

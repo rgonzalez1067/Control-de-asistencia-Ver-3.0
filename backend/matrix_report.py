@@ -121,9 +121,28 @@ async def build_matrix(
         uq["department_id"] = {"$in": department_ids}
     if site_id:
         uq["site_id"] = site_id
-    if schedule_id:
-        uq["schedule_id"] = schedule_id
 
+    # ---- Schedule Assignments (planificación diaria para personal rotativo) ----
+    # Se cargan siempre para poder mostrar novedades asignadas y — cuando hay filtro
+    # de schedule_id — incluir en la matriz a los empleados sin horario fijo que
+    # tienen turno asignado para ese horario dentro del rango.
+    assignments_map: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    if schedule_id:
+        # Empleados con turno asignado para el schedule_id filtrado en la ventana
+        matching_asg = await db.schedule_assignments.find({
+            "kind": "shift",
+            "schedule_id": schedule_id,
+            "date": {"$gte": from_date, "$lte": to_date},
+        }, {"user_id": 1}).to_list(50000)
+        extra_uids = list({a["user_id"] for a in matching_asg})
+        if extra_uids:
+            existing_or = uq.pop("user_id", None)
+            base_filter = {"schedule_id": schedule_id}
+            if existing_or:
+                base_filter["user_id"] = existing_or
+            uq["$or"] = [base_filter, {"user_id": {"$in": extra_uids}}]
+        else:
+            uq["schedule_id"] = schedule_id
     users = await db.users.find(uq, {
         "user_id": 1, "name": 1, "cedula": 1, "email": 1,
         "department_id": 1, "position": 1, "site_id": 1, "schedule_id": 1,
@@ -173,6 +192,14 @@ async def build_matrix(
     for n in nov_docs:
         novs_by_user.setdefault(n["user_id"], []).append(n)
 
+    # ---- Cargar asignaciones diarias (turnos rotativos + novedades) ----
+    asg_docs = await db.schedule_assignments.find({
+        "user_id": {"$in": uid_list},
+        "date": {"$gte": from_date, "$lte": to_date},
+    }).to_list(50000)
+    for a in asg_docs:
+        assignments_map.setdefault(a["user_id"], {})[a["date"]] = a
+
     today_iso = datetime.now(APP_TZ).strftime("%Y-%m-%d")
 
     rows: List[Dict[str, Any]] = []
@@ -193,6 +220,24 @@ async def build_matrix(
         for day in days:
             cell = {"blocks": [], "status": STATUS_NORMAL, "novelty_type": None,
                     "novelty_label": None, "reason": None}
+
+            # Asignación diaria (turno rotativo o novedad planificada) para este día.
+            # Se verifica ANTES del filtro de futuro para poder previsualizar el plan.
+            day_asg = assignments_map.get(uid, {}).get(day)
+
+            # Novedad asignada — se comporta como novedad aprobada de día completo,
+            # incluso para fechas futuras (permite planificar vacaciones/reposos).
+            if day_asg and day_asg.get("kind") == "novelty":
+                nt = day_asg.get("novelty_type")
+                cell["status"] = STATUS_FULL_NOVELTY
+                cell["novelty_type"] = nt
+                cell["novelty_label"] = NOVELTY_LABEL.get(nt, "Novedad")
+                cell["reason"] = "Asignada en Planificación"
+                key = f"{nt}_days"
+                if key in totals:
+                    totals[key] += 1
+                cells[day] = cell
+                continue
 
             if day > today_iso:
                 cell["status"] = STATUS_FUTURE

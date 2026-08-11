@@ -23,7 +23,7 @@ import {
   Fingerprint, FileBarChart2, Bell, LogOut, Settings2, ShieldCheck,
   IdCard, History as HistoryIcon, ChevronDown, UserCircle2,
   Menu, ScanFace, KeyRound, Eye, EyeOff, UserPlus, ClipboardList,
-  LayoutGrid,
+  LayoutGrid, CalendarCog,
 } from "lucide-react";
 
 const NAV_ADMIN = [
@@ -35,6 +35,7 @@ const NAV_ADMIN = [
   { to: "/horarios", icon: CalendarClock, label: "Horarios" },
   { to: "/reportes", icon: FileBarChart2, label: "Reportes" },
   { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz de asistencia" },
+  { to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios" },
   { to: "/novedades", icon: Bell, label: "Novedades" },
   { to: "/ajustes", icon: Settings2, label: "Ajustes" },
 ];
@@ -72,6 +73,7 @@ export default function AppLayout() {
   const canCreateVisits = user?.role === "admin" || user?.can_create_visits;
   const canViewVisitLogs = user?.role === "admin" || user?.can_view_visit_logs;
   const canManageSchedules = user?.role === "admin" || user?.can_manage_schedules;
+  const canAssignSchedules = user?.role === "admin" || user?.can_assign_schedules;
 
   const baseItems =
     user?.role === "admin" ? NAV_ADMIN :
@@ -85,6 +87,9 @@ export default function AppLayout() {
   const extraItems = [];
   if (canManageSchedules && user?.role !== "admin") {
     extraItems.push({ to: "/horarios", icon: CalendarClock, label: "Horarios" });
+  }
+  if (canAssignSchedules && user?.role !== "admin") {
+    extraItems.push({ to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios" });
   }
 
   const items = [...baseItems, ...extraItems, ...visitItems];

@@ -247,6 +247,7 @@ class UserUpdate(BaseModel):
     can_create_visits: Optional[bool] = None
     can_view_visit_logs: Optional[bool] = None
     can_manage_schedules: Optional[bool] = None
+    can_assign_schedules: Optional[bool] = None
 
 
 class VisitorIn(BaseModel):
@@ -1376,6 +1377,155 @@ async def users_assign_schedule(user_id: str, payload: Dict[str, Any],
     await db.users.update_one({"user_id": user_id}, {"$set": {"schedule_id": schedule_id or None}})
     u = await db.users.find_one({"user_id": user_id}, {"password_hash": 0, "pin_code_hash": 0})
     return strip_mongo_id(u)
+
+
+
+# ==================================================================
+# SCHEDULE ASSIGNMENTS — planificación diaria para personal sin horario fijo.
+# Usada para turnos rotativos (Monitoreo, guardias, etc.) y novedades masivas.
+# Colección: schedule_assignments · unique index (user_id, date).
+# ==================================================================
+# Tipos de novedad admitidos por el módulo de Asignación de Horarios.
+# Coinciden con los códigos internos usados por las novedades regulares para que
+# el motor del Reporte Matricial las contabilice sin cambios adicionales.
+#   remote     → Trabajo Remoto
+#   vacation   → Vacaciones
+#   leave      → Reposo
+#   permission → Permiso (día completo cuando se asigna aquí)
+_VALID_ASSIGN_NOVELTIES = {"remote", "vacation", "leave", "permission"}
+
+
+async def _ensure_assignments_index() -> None:
+    try:
+        await db.schedule_assignments.create_index(
+            [("user_id", 1), ("date", 1)], unique=True, name="uq_user_date"
+        )
+    except Exception:
+        pass
+
+
+async def _require_admin_or_assigner(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Admin siempre; empleado/supervisor con can_assign_schedules=True también."""
+    if user.get("role") == "admin" or user.get("can_assign_schedules"):
+        return user
+    raise HTTPException(
+        status_code=403,
+        detail="Se requiere permiso 'Puede asignar turnos y novedades a personal sin horario fijo'.",
+    )
+
+
+@api.get("/schedule-assignments/eligible-users")
+async def eligible_users_for_assignments(_: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> List[Dict[str, Any]]:
+    """Lista de empleados sin horario fijo — candidatos a asignación de turnos rotativos."""
+    q: Dict[str, Any] = {
+        "role": {"$ne": "admin"},
+        "$or": [{"schedule_id": None}, {"schedule_id": ""}, {"schedule_id": {"$exists": False}}],
+    }
+    docs = await db.users.find(q, {"password_hash": 0, "pin_code_hash": 0}).to_list(1000)
+    docs.sort(key=lambda u: (u.get("name") or "").lower())
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.get("/schedule-assignments")
+async def list_schedule_assignments(
+    from_date: str,
+    to_date: str,
+    user_ids: Optional[str] = None,
+    _: Dict[str, Any] = Depends(_require_admin_or_assigner),
+) -> List[Dict[str, Any]]:
+    """Lista asignaciones en la ventana [from_date, to_date] (ISO YYYY-MM-DD).
+    user_ids: lista separada por comas (opcional)."""
+    q: Dict[str, Any] = {"date": {"$gte": from_date, "$lte": to_date}}
+    if user_ids:
+        ids = [i.strip() for i in user_ids.split(",") if i.strip()]
+        if ids:
+            q["user_id"] = {"$in": ids}
+    docs = await db.schedule_assignments.find(q).to_list(50000)
+    return [strip_mongo_id(d) for d in docs]
+
+
+class AssignmentBulkIn(BaseModel):
+    user_ids: List[str]
+    dates: List[str]                        # ["YYYY-MM-DD", ...]
+    kind: str                               # "shift" | "novelty"
+    schedule_id: Optional[str] = None       # required if kind='shift'
+    novelty_type: Optional[str] = None      # required if kind='novelty'
+
+
+@api.post("/schedule-assignments/bulk")
+async def bulk_assign(payload: AssignmentBulkIn,
+                      current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
+    """Upsert masivo: asigna un turno o una novedad al conjunto de (user_id × date)."""
+    if not payload.user_ids or not payload.dates:
+        raise HTTPException(status_code=400, detail="Debes indicar user_ids y dates")
+    if payload.kind == "shift":
+        if not payload.schedule_id:
+            raise HTTPException(status_code=400, detail="schedule_id es obligatorio para kind='shift'")
+        sch = await db.schedules.find_one({"schedule_id": payload.schedule_id})
+        if not sch:
+            raise HTTPException(status_code=404, detail="Horario no encontrado")
+    elif payload.kind == "novelty":
+        if payload.novelty_type not in _VALID_ASSIGN_NOVELTIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"novelty_type debe ser uno de {sorted(_VALID_ASSIGN_NOVELTIES)}",
+            )
+    else:
+        raise HTTPException(status_code=400, detail="kind debe ser 'shift' o 'novelty'")
+
+    await _ensure_assignments_index()
+
+    now = now_utc()
+    ops = []
+    from pymongo import UpdateOne
+    for uid in payload.user_ids:
+        for d in payload.dates:
+            doc: Dict[str, Any] = {
+                "user_id": uid,
+                "date": d,
+                "kind": payload.kind,
+                "schedule_id": payload.schedule_id if payload.kind == "shift" else None,
+                "novelty_type": payload.novelty_type if payload.kind == "novelty" else None,
+                "updated_at": now,
+                "updated_by": current["user_id"],
+            }
+            ops.append(UpdateOne(
+                {"user_id": uid, "date": d},
+                {"$set": doc,
+                 "$setOnInsert": {
+                     "assignment_id": new_id("asg", 10),
+                     "created_at": now,
+                     "created_by": current["user_id"],
+                 }},
+                upsert=True,
+            ))
+    if not ops:
+        return {"ok": True, "affected": 0}
+    result = await db.schedule_assignments.bulk_write(ops, ordered=False)
+    return {
+        "ok": True,
+        "upserted": len(result.upserted_ids or {}),
+        "modified": result.modified_count,
+        "affected": len(ops),
+    }
+
+
+class AssignmentClearIn(BaseModel):
+    user_ids: List[str]
+    dates: List[str]
+
+
+@api.post("/schedule-assignments/clear")
+async def bulk_clear(payload: AssignmentClearIn,
+                     _: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
+    """Elimina asignaciones para el conjunto de (user_id × date)."""
+    if not payload.user_ids or not payload.dates:
+        raise HTTPException(status_code=400, detail="Debes indicar user_ids y dates")
+    result = await db.schedule_assignments.delete_many({
+        "user_id": {"$in": payload.user_ids},
+        "date": {"$in": payload.dates},
+    })
+    return {"ok": True, "deleted": result.deleted_count}
 
 
 # ==================================================================

@@ -704,6 +704,16 @@ function UserFormDialog({ state, onCancel, onSave, departments, sites, schedules
                 />
                 <span>Puede <b>crear horarios</b> y asignarlos a los empleados de su equipo</span>
               </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!form.can_assign_schedules}
+                  onChange={(e) => setForm((f) => ({ ...f, can_assign_schedules: e.target.checked }))}
+                  className="h-4 w-4 accent-primary"
+                  data-testid="user-form-can-assign-schedules"
+                />
+                <span>Puede <b>asignar turnos y novedades</b> al personal sin horario fijo (turnos rotativos)</span>
+              </label>
             </div>
           )}
         </div>
