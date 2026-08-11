@@ -235,7 +235,11 @@ async def build_matrix(
                     in_site = ins[i].get("site")
                     if user_site and in_site and in_site != user_site:
                         rec["in_site_mismatch"] = True
-                    if bm.get("start") is not None:
+                    # La tardanza por "horario de inicio + tolerancia" SOLO aplica a
+                    # la primera entrada del día (E1). Para E2+, la marcación en rojo
+                    # depende exclusivamente de la regla de exceso de descanso
+                    # (break_over cuando el gap S1→E2 supera 60 min).
+                    if i == 0 and bm.get("start") is not None:
                         in_min = dt_in.hour * 60 + dt_in.minute
                         delta = in_min - int(bm["start"])
                         if delta > tolerance:
