@@ -182,10 +182,13 @@ export default function ReporteMatricialPage() {
                 <SelectTrigger data-testid="matrix-schedule" className="truncate"><SelectValue placeholder="Selecciona…" /></SelectTrigger>
                 <SelectContent>
                   {schedules.map((s) => (
-                    <SelectItem key={s.schedule_id} value={s.schedule_id}>
+                    <SelectItem key={s.schedule_id} value={s.schedule_id} data-testid={`matrix-schedule-opt-${s.schedule_id}`}>
                       {s.name} {s.blocks?.length >= 2 ? " · 2 bloques" : " · 1 bloque"}
                     </SelectItem>
                   ))}
+                  <SelectItem value="__special" data-testid="matrix-schedule-opt-special">
+                    ⭐ Horario Especial · turnos rotativos
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>

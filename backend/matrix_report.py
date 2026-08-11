@@ -75,6 +75,9 @@ def _to_minutes(hhmm: str) -> Optional[int]:
     return h * 60 + m
 
 
+SPECIAL_SCHEDULE_ID = "__special"
+
+
 async def build_matrix(
     db,
     from_date: str,
@@ -90,9 +93,17 @@ async def build_matrix(
         return {"from_date": from_date, "to_date": to_date, "days": days,
                 "schedule": None, "blocks_per_day": 1, "rows": []}
 
+    # Modo especial: usuarios SIN horario fijo — sus bloques/tolerancia vienen
+    # del turno asignado en Planificación (schedule_assignments) por día.
+    is_special = schedule_id == SPECIAL_SCHEDULE_ID
+    if is_special:
+        schedule_id = None  # No filtramos por schedule_id fijo
+
     # ---- Determinar horario y # de bloques ----
     schedule: Optional[Dict[str, Any]] = None
     blocks_per_day = 1  # default → 1 bloque, 2 casillas por día (E, S)
+    if is_special:
+        blocks_per_day = 2  # reserva espacio para turnos rotativos de hasta 2 bloques
     if schedule_id:
         schedule = await db.schedules.find_one({"schedule_id": schedule_id})
         if schedule:
@@ -127,7 +138,10 @@ async def build_matrix(
     # de schedule_id — incluir en la matriz a los empleados sin horario fijo que
     # tienen turno asignado para ese horario dentro del rango.
     assignments_map: Dict[str, Dict[str, Dict[str, Any]]] = {}
-    if schedule_id:
+    if is_special:
+        # Modo "Horario Especial": TODOS los empleados sin horario fijo.
+        uq["$or"] = [{"schedule_id": None}, {"schedule_id": ""}, {"schedule_id": {"$exists": False}}]
+    elif schedule_id:
         # Empleados con turno asignado para el schedule_id filtrado en la ventana
         matching_asg = await db.schedule_assignments.find({
             "kind": "shift",
@@ -200,6 +214,25 @@ async def build_matrix(
     for a in asg_docs:
         assignments_map.setdefault(a["user_id"], {})[a["date"]] = a
 
+    # ---- Cache de todos los horarios (necesario en modo especial para
+    # resolver el turno asignado por día en cada usuario) ----
+    schedules_by_id: Dict[str, Dict[str, Any]] = {}
+    if is_special:
+        async for s in db.schedules.find({}):
+            bm = []
+            for b in s.get("blocks") or []:
+                bm.append({"start": _to_minutes(b.get("start", "")),
+                           "end": _to_minutes(b.get("end", ""))})
+            if not bm:
+                bm = [{"start": None, "end": None}]
+            schedules_by_id[s["schedule_id"]] = {
+                "name": s.get("name"),
+                "block_mins": bm,
+                "tolerance": int(s.get("tolerance_minutes") or 10),
+                "just_tolerance": int(s.get("justification_tolerance_minutes") or 0),
+                "blocks_len": len(s.get("blocks") or []) or 1,
+            }
+
     today_iso = datetime.now(APP_TZ).strftime("%Y-%m-%d")
 
     rows: List[Dict[str, Any]] = []
@@ -224,6 +257,19 @@ async def build_matrix(
             # Asignación diaria (turno rotativo o novedad planificada) para este día.
             # Se verifica ANTES del filtro de futuro para poder previsualizar el plan.
             day_asg = assignments_map.get(uid, {}).get(day)
+
+            # Efectivo por día: en modo "Horario Especial" cada día usa el turno
+            # asignado en Planificación. Fuera de ese modo, siempre usa el horario global.
+            eff_block_mins = block_mins
+            eff_tolerance = tolerance
+            eff_has_schedule = bool(schedule) if not is_special else False
+            if is_special:
+                if day_asg and day_asg.get("kind") == "shift":
+                    sinfo = schedules_by_id.get(day_asg.get("schedule_id"))
+                    if sinfo:
+                        eff_block_mins = sinfo["block_mins"]
+                        eff_tolerance = sinfo["tolerance"]
+                        eff_has_schedule = True
 
             # Novedad asignada — se comporta como novedad aprobada de día completo,
             # incluso para fechas futuras (permite planificar vacaciones/reposos).
@@ -268,7 +314,7 @@ async def build_matrix(
             # Emparejar por bloques
             user_site = u.get("site_id")
             block_records = []
-            for i, bm in enumerate(block_mins):
+            for i, bm in enumerate(eff_block_mins):
                 rec = {"in": None, "out": None, "in_late": False,
                        "late_minutes": 0, "reason": None, "just": False,
                        "break_over": False, "break_excess_minutes": 0,
@@ -287,9 +333,9 @@ async def build_matrix(
                     if i == 0 and bm.get("start") is not None:
                         in_min = dt_in.hour * 60 + dt_in.minute
                         delta = in_min - int(bm["start"])
-                        if delta > tolerance:
+                        if delta > eff_tolerance:
                             rec["in_late"] = True
-                            rec["late_minutes"] = max(0, delta - tolerance)
+                            rec["late_minutes"] = max(0, delta - eff_tolerance)
                 # out
                 if i < len(outs):
                     rec["out"] = outs[i]["ts"].strftime("%H:%M")
@@ -299,7 +345,7 @@ async def build_matrix(
                 block_records.append(rec)
 
             # === Regla 3: exceso de descanso entre S1 y E2 (solo 2 bloques) ===
-            if len(block_mins) >= 2 and len(block_records) >= 2:
+            if len(eff_block_mins) >= 2 and len(block_records) >= 2:
                 b1, b2 = block_records[0], block_records[1]
                 # Necesita S1 (b1.out) y E2 (b2.in) reales
                 if b1.get("out") and b2.get("in"):
@@ -318,7 +364,7 @@ async def build_matrix(
             # === Regla 4: cierre automático S2 a las 23:59 si es día pasado ===
             # Aplica solo si el turno es de 2 bloques Y el día ya pasó Y el último
             # marcaje fue una entrada (E2 sin S2, o solo E1 sin salidas).
-            if len(block_mins) >= 2 and day < today_iso:
+            if len(eff_block_mins) >= 2 and day < today_iso:
                 last_block = block_records[-1]
                 any_out = any(b.get("out") for b in block_records)
                 # Caso: hay E2 sin S2 (o E1 y no hay ninguna salida)
@@ -331,10 +377,10 @@ async def build_matrix(
                     last_block["auto_closed"] = True
 
             # Si hay más marcajes que bloques, los últimos se concatenan al último bloque
-            if len(ins) > len(block_mins):
-                extra_in = ins[len(block_mins)]["ts"]
+            if len(ins) > len(eff_block_mins):
+                extra_in = ins[len(eff_block_mins)]["ts"]
                 block_records[-1]["in"] = block_records[-1]["in"] or extra_in.strftime("%H:%M")
-            if len(outs) > len(block_mins):
+            if len(outs) > len(eff_block_mins):
                 block_records[-1]["out"] = outs[-1]["ts"].strftime("%H:%M")
 
             # Justificación / totales sobre el primer bloque tardío
@@ -358,7 +404,11 @@ async def build_matrix(
 
             # ¿Ausente? Sin marcajes en absoluto y día laboral
             if not ins and not outs:
-                if _is_working_day(day):
+                # En modo "Horario Especial" sin turno asignado para el día,
+                # el empleado NO tiene obligación de marcar → no cuenta como falta.
+                if is_special and not eff_has_schedule:
+                    cell["status"] = STATUS_NON_WORKING
+                elif _is_working_day(day):
                     cell["status"] = STATUS_ABSENT
                     totals["absent_days"] += 1
                 else:
