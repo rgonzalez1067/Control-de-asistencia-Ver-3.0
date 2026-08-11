@@ -1515,6 +1515,85 @@ class AssignmentClearIn(BaseModel):
     dates: List[str]
 
 
+class AssignmentPlanIn(BaseModel):
+    name: str
+    from_date: str
+    to_date: str
+    user_ids: List[str] = []
+
+
+@api.get("/schedule-assignment-plans")
+async def list_assignment_plans(_: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> List[Dict[str, Any]]:
+    docs = await db.assignment_plans.find({}).sort("updated_at", -1).to_list(500)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.post("/schedule-assignment-plans")
+async def create_assignment_plan(payload: AssignmentPlanIn,
+                                 current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="El nombre de la planificación es obligatorio")
+    if len(name) > 80:
+        raise HTTPException(status_code=400, detail="El nombre no puede exceder 80 caracteres")
+    if payload.from_date > payload.to_date:
+        raise HTTPException(status_code=400, detail="Rango de fechas inválido")
+    if await db.assignment_plans.find_one({"name": name}):
+        raise HTTPException(status_code=409, detail="Ya existe una planificación con ese nombre")
+    now = now_utc()
+    doc = {
+        "plan_id": new_id("plan", 10),
+        "name": name,
+        "from_date": payload.from_date,
+        "to_date": payload.to_date,
+        "user_ids": payload.user_ids,
+        "created_by": current["user_id"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.assignment_plans.insert_one(doc)
+    return strip_mongo_id(doc)
+
+
+@api.put("/schedule-assignment-plans/{plan_id}")
+async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
+                                 current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="El nombre es obligatorio")
+    if len(name) > 80:
+        raise HTTPException(status_code=400, detail="El nombre no puede exceder 80 caracteres")
+    if payload.from_date > payload.to_date:
+        raise HTTPException(status_code=400, detail="Rango de fechas inválido")
+    dup = await db.assignment_plans.find_one({"name": name, "plan_id": {"$ne": plan_id}})
+    if dup:
+        raise HTTPException(status_code=409, detail="Ya existe otra planificación con ese nombre")
+    res = await db.assignment_plans.update_one(
+        {"plan_id": plan_id},
+        {"$set": {
+            "name": name,
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "user_ids": payload.user_ids,
+            "updated_at": now_utc(),
+            "updated_by": current["user_id"],
+        }},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Planificación no encontrada")
+    doc = await db.assignment_plans.find_one({"plan_id": plan_id})
+    return strip_mongo_id(doc)
+
+
+@api.delete("/schedule-assignment-plans/{plan_id}")
+async def delete_assignment_plan(plan_id: str,
+                                 _: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, bool]:
+    res = await db.assignment_plans.delete_one({"plan_id": plan_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Planificación no encontrada")
+    return {"ok": True}
+
+
 @api.post("/schedule-assignments/clear")
 async def bulk_clear(payload: AssignmentClearIn,
                      _: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:

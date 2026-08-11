@@ -18,8 +18,12 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import {
   CalendarRange, Filter, Users, ChevronDown, RefreshCw,
   Clock, Palmtree, HeartPulse, Home, TicketCheck, Trash2, Sparkles,
+  Bookmark, Save, FolderOpen, X, Pencil,
 } from "lucide-react";
 
 const NOVELTY_OPTIONS = [
@@ -74,21 +78,35 @@ export default function AsignarHorariosPage() {
   const [selectedCells, setSelectedCells] = useState(new Set());  // Set of `${uid}|${date}`
   const [saving, setSaving] = useState(false);
 
+  // Planificaciones guardadas
+  const [plans, setPlans] = useState([]);
+  const [currentPlan, setCurrentPlan] = useState(null);  // plan_id de la planificación abierta
+  const [saveDialog, setSaveDialog] = useState(null);    // { mode: 'new'|'rename', name, plan_id? }
+
   useEffect(() => {
     if (!canAccess) return;
     (async () => {
       try {
-        const [eu, sc] = await Promise.all([
+        const [eu, sc, pl] = await Promise.all([
           api.get("/schedule-assignments/eligible-users"),
           api.get("/schedules"),
+          api.get("/schedule-assignment-plans"),
         ]);
         setEligibleUsers(eu.data || []);
         setSchedules(sc.data || []);
+        setPlans(pl.data || []);
       } catch (e) {
         toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
       }
     })();
   }, [canAccess]);
+
+  async function refreshPlans() {
+    try {
+      const { data } = await api.get("/schedule-assignment-plans");
+      setPlans(data || []);
+    } catch (_) { /* silencioso */ }
+  }
 
   const days = useMemo(
     () => (fromDate && toDate && fromDate <= toDate) ? daysBetween(fromDate, toDate) : [],
@@ -136,6 +154,68 @@ export default function AsignarHorariosPage() {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     } finally { setLoading(false); }
   }
+
+  /** Carga una planificación guardada: restaura fechas y empleados y arma la matriz. */
+  async function loadPlan(plan) {
+    setFromDate(plan.from_date);
+    setToDate(plan.to_date);
+    setSelectedUsers(plan.user_ids || []);
+    setCurrentPlan(plan.plan_id);
+    setLoading(true);
+    try {
+      const uids = (plan.user_ids && plan.user_ids.length > 0)
+        ? plan.user_ids
+        : eligibleUsers.map((u) => u.user_id);
+      const { data } = await api.get("/schedule-assignments", {
+        params: {
+          from_date: plan.from_date,
+          to_date: plan.to_date,
+          user_ids: uids.join(","),
+        },
+      });
+      const map = {};
+      (data || []).forEach((a) => { map[`${a.user_id}|${a.date}`] = a; });
+      setAssignments(map);
+      setSelectedCells(new Set());
+      setBuilt(true);
+      toast.success(`Planificación "${plan.name}" cargada`);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setLoading(false); }
+  }
+
+  /** Guarda la vista actual (rango + empleados) como planificación. */
+  async function savePlan(name, planId = null) {
+    const trimmed = (name || "").trim();
+    if (!trimmed) { toast.error("Escribe un nombre"); return false; }
+    const body = { name: trimmed, from_date: fromDate, to_date: toDate, user_ids: selectedUsers };
+    try {
+      const { data } = planId
+        ? await api.put(`/schedule-assignment-plans/${planId}`, body)
+        : await api.post("/schedule-assignment-plans", body);
+      setCurrentPlan(data.plan_id);
+      await refreshPlans();
+      toast.success(planId ? "Planificación actualizada" : `Planificación "${data.name}" guardada`);
+      return true;
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+      return false;
+    }
+  }
+
+  async function deletePlan(plan) {
+    if (!window.confirm(`¿Eliminar la planificación "${plan.name}"?\n(Las asignaciones diarias NO se borran.)`)) return;
+    try {
+      await api.delete(`/schedule-assignment-plans/${plan.plan_id}`);
+      if (currentPlan === plan.plan_id) setCurrentPlan(null);
+      await refreshPlans();
+      toast.success("Planificación eliminada");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    }
+  }
+
+  const currentPlanObj = plans.find((p) => p.plan_id === currentPlan) || null;
 
   function toggleCell(uid, date, e) {
     const key = `${uid}|${date}`;
@@ -281,6 +361,21 @@ export default function AsignarHorariosPage() {
       {built && (
         <>
           <div className="flex flex-wrap items-center gap-2 sticky top-0 z-20 bg-background/95 backdrop-blur py-2 border-b">
+            {currentPlanObj && (
+              <Badge className="rounded-full bg-primary/10 text-primary dark:text-foreground border-primary/30" variant="outline"
+                     data-testid="asg-current-plan-badge">
+                <Bookmark className="h-3 w-3 mr-1" /> {currentPlanObj.name}
+                <button
+                  type="button"
+                  onClick={() => setCurrentPlan(null)}
+                  className="ml-1.5 text-xs hover:text-red-600"
+                  title="Cerrar planificación"
+                  data-testid="asg-close-plan"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            )}
             <Badge variant="outline" className="rounded-full" data-testid="asg-selection-count">
               {selectedCells.size} celda(s) seleccionada(s)
             </Badge>
@@ -290,6 +385,91 @@ export default function AsignarHorariosPage() {
             <Button size="sm" variant="ghost" onClick={clearSelection} className="rounded-full h-8" data-testid="asg-clear-selection">
               Limpiar
             </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="rounded-full h-8" data-testid="asg-plans-menu">
+                  <FolderOpen className="h-3.5 w-3.5 mr-1.5" /> Planificaciones
+                  {plans.length > 0 && <span className="ml-1.5 text-[10px] text-muted-foreground">({plans.length})</span>}
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-80">
+                <DropdownMenuLabel>Planificaciones guardadas</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {plans.length === 0 && (
+                  <p className="px-2 py-3 text-xs text-muted-foreground text-center">
+                    Aún no has guardado ninguna planificación.
+                  </p>
+                )}
+                {plans.map((p) => (
+                  <div key={p.plan_id} className="flex items-center px-1" data-testid={`asg-plan-row-${p.plan_id}`}>
+                    <button
+                      type="button"
+                      onClick={() => loadPlan(p)}
+                      className="flex-1 text-left px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer"
+                      data-testid={`asg-plan-load-${p.plan_id}`}
+                    >
+                      <p className="text-sm font-medium truncate">{p.name}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {p.from_date} → {p.to_date} · {(p.user_ids && p.user_ids.length) || "todos"} emp.
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSaveDialog({ mode: "rename", name: p.name, plan_id: p.plan_id })}
+                      className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
+                      title="Renombrar"
+                      data-testid={`asg-plan-rename-${p.plan_id}`}
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deletePlan(p)}
+                      className="p-1.5 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600"
+                      title="Eliminar"
+                      data-testid={`asg-plan-delete-${p.plan_id}`}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (currentPlan) {
+                  const p = plans.find((x) => x.plan_id === currentPlan);
+                  savePlan(p?.name || "Planificación", currentPlan);
+                } else {
+                  setSaveDialog({ mode: "new", name: "" });
+                }
+              }}
+              className="rounded-full h-8 border-primary/30 text-primary dark:text-foreground hover:bg-primary/10"
+              data-testid="asg-save-plan"
+            >
+              <Save className="h-3.5 w-3.5 mr-1.5" />
+              {currentPlan ? "Guardar cambios" : "Guardar planificación"}
+            </Button>
+            {currentPlan && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  const p = plans.find((x) => x.plan_id === currentPlan);
+                  setSaveDialog({ mode: "new", name: (p?.name || "") + " (copia)" });
+                }}
+                className="rounded-full h-8"
+                data-testid="asg-save-plan-as"
+              >
+                Guardar como…
+              </Button>
+            )}
+
             <div className="flex-1" />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -426,7 +606,62 @@ export default function AsignarHorariosPage() {
           </p>
         </>
       )}
+
+      <SavePlanDialog
+        state={saveDialog}
+        onCancel={() => setSaveDialog(null)}
+        onConfirm={async (name, planId) => {
+          const ok = await savePlan(name, planId);
+          if (ok) setSaveDialog(null);
+        }}
+      />
     </div>
+  );
+}
+
+function SavePlanDialog({ state, onCancel, onConfirm }) {
+  const [name, setName] = useState("");
+  useEffect(() => { setName(state?.name || ""); }, [state]);
+  const isRename = state?.mode === "rename";
+  return (
+    <Dialog open={!!state} onOpenChange={(v) => !v && onCancel()}>
+      <DialogContent className="max-w-sm" data-testid="asg-save-dialog">
+        <DialogHeader className="items-center text-center">
+          <div className="h-12 w-12 rounded-2xl bg-primary/10 grid place-items-center mb-2">
+            <Bookmark className="h-6 w-6 text-primary dark:text-foreground" />
+          </div>
+          <DialogTitle>{isRename ? "Renombrar planificación" : "Guardar planificación"}</DialogTitle>
+          <DialogDescription className="text-center">
+            {isRename
+              ? "Cambia el nombre y los filtros asociados a esta planificación."
+              : "Dale un nombre que puedas reconocer luego (ej. “Guardias Julio 2026”)."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Nombre</Label>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value.slice(0, 80))}
+            placeholder="Planificación Julio · Monitoreo"
+            className="h-11"
+            autoFocus
+            data-testid="asg-save-name"
+          />
+          <p className="text-[10px] text-muted-foreground">{name.length}/80</p>
+        </div>
+        <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">
+          <Button variant="outline" onClick={onCancel} className="rounded-full flex-1 h-11"
+                  data-testid="asg-save-cancel">
+            Cancelar
+          </Button>
+          <Button onClick={() => onConfirm(name, state?.plan_id || null)}
+                  className="rounded-full flex-1 h-11 bg-primary hover:bg-primary/90"
+                  data-testid="asg-save-confirm">
+            <Save className="h-4 w-4 mr-1.5" /> {isRename ? "Guardar" : "Crear"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
