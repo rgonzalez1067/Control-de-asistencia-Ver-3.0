@@ -51,6 +51,14 @@ function shortDay(iso) {
   } catch (_) { return iso; }
 }
 
+/** true si la fecha ISO YYYY-MM-DD cae en sábado o domingo. */
+function isWeekend(iso) {
+  try {
+    const dow = new Date(iso + "T12:00").getDay();
+    return dow === 0 || dow === 6;
+  } catch (_) { return false; }
+}
+
 export default function AsignarHorariosPage() {
   const { user } = useAuth();
   const canAccess = user?.role === "admin" || !!user?.can_assign_schedules;
@@ -342,11 +350,18 @@ export default function AsignarHorariosPage() {
                     <th className="sticky top-0 left-0 z-30 bg-muted/95 backdrop-blur px-2 py-2 text-left min-w-[240px] border-r border-b">
                       Empleado
                     </th>
-                    {days.map((d) => (
-                      <th key={d} className="sticky top-0 z-20 bg-muted/95 backdrop-blur px-2 py-2 text-center border-b border-r min-w-[120px]">
-                        <div className="font-semibold">{shortDay(d)}</div>
-                      </th>
-                    ))}
+                    {days.map((d) => {
+                      const we = isWeekend(d);
+                      return (
+                        <th key={d}
+                            className={
+                              "sticky top-0 z-20 backdrop-blur px-2 py-2 text-center border-b border-r min-w-[120px] " +
+                              (we ? "bg-slate-200/90 text-slate-700" : "bg-muted/95")
+                            }>
+                          <div className="font-semibold">{shortDay(d)}</div>
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody>
@@ -365,6 +380,7 @@ export default function AsignarHorariosPage() {
                         const key = `${u.user_id}|${d}`;
                         const asg = assignments[key];
                         const isSel = selectedCells.has(key);
+                        const we = isWeekend(d);
                         let cellCls = "border-r px-1 py-1 cursor-pointer transition-colors text-center align-middle ";
                         let content = null;
                         if (asg) {
@@ -391,7 +407,7 @@ export default function AsignarHorariosPage() {
                         }
                         cellCls += isSel
                           ? "bg-accent/25 outline outline-2 outline-accent -outline-offset-2 "
-                          : "hover:bg-muted/40 ";
+                          : (we ? "bg-slate-100/70 hover:bg-slate-200/70 " : "hover:bg-muted/40 ");
                         return (
                           <td key={key} className={cellCls} onClick={(e) => toggleCell(u.user_id, d, e)}
                               data-testid={`asg-cell-${u.user_id}-${d}`}>
