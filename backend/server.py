@@ -1520,6 +1520,30 @@ class AssignmentPlanIn(BaseModel):
     from_date: str
     to_date: str
     user_ids: List[str] = []
+    overwrite: bool = False  # Si True, elimina planes previos con rango solapado.
+
+
+def _plan_public(doc: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "plan_id": doc.get("plan_id"),
+        "name": doc.get("name"),
+        "from_date": doc.get("from_date"),
+        "to_date": doc.get("to_date"),
+        "user_ids": doc.get("user_ids") or [],
+    }
+
+
+async def _find_overlapping_plans(from_date: str, to_date: str,
+                                  exclude_plan_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Planes cuyo rango intersecta con [from_date, to_date] (inclusive)."""
+    q: Dict[str, Any] = {
+        "from_date": {"$lte": to_date},
+        "to_date": {"$gte": from_date},
+    }
+    if exclude_plan_id:
+        q["plan_id"] = {"$ne": exclude_plan_id}
+    docs = await db.assignment_plans.find(q).sort("from_date", 1).to_list(50)
+    return [_plan_public(d) for d in docs]
 
 
 @api.get("/schedule-assignment-plans")
@@ -1540,6 +1564,22 @@ async def create_assignment_plan(payload: AssignmentPlanIn,
         raise HTTPException(status_code=400, detail="Rango de fechas inválido")
     if await db.assignment_plans.find_one({"name": name}):
         raise HTTPException(status_code=409, detail="Ya existe una planificación con ese nombre")
+
+    # Validación: detectar planes previos cuyo rango se cruce con el nuevo.
+    overlapping = await _find_overlapping_plans(payload.from_date, payload.to_date)
+    if overlapping and not payload.overwrite:
+        raise HTTPException(status_code=409, detail={
+            "code": "plan_range_overlap",
+            "message": "Ya existen planificaciones cuyo rango de fechas se solapa con el nuevo.",
+            "conflicts": overlapping,
+        })
+    if overlapping and payload.overwrite:
+        # El usuario confirmó "reescribir" → eliminamos los planes previos solapados.
+        # Las asignaciones diarias (schedule_assignments) NO se tocan; se conservan.
+        await db.assignment_plans.delete_many({
+            "plan_id": {"$in": [p["plan_id"] for p in overlapping]}
+        })
+
     now = now_utc()
     doc = {
         "plan_id": new_id("plan", 10),
@@ -1568,6 +1608,20 @@ async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
     dup = await db.assignment_plans.find_one({"name": name, "plan_id": {"$ne": plan_id}})
     if dup:
         raise HTTPException(status_code=409, detail="Ya existe otra planificación con ese nombre")
+
+    # Validación de solape con OTROS planes (excluyendo el actual).
+    overlapping = await _find_overlapping_plans(payload.from_date, payload.to_date, exclude_plan_id=plan_id)
+    if overlapping and not payload.overwrite:
+        raise HTTPException(status_code=409, detail={
+            "code": "plan_range_overlap",
+            "message": "El nuevo rango se solapa con otras planificaciones existentes.",
+            "conflicts": overlapping,
+        })
+    if overlapping and payload.overwrite:
+        await db.assignment_plans.delete_many({
+            "plan_id": {"$in": [p["plan_id"] for p in overlapping]}
+        })
+
     res = await db.assignment_plans.update_one(
         {"plan_id": plan_id},
         {"$set": {

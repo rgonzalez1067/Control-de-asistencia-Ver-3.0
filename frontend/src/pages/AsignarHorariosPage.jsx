@@ -82,6 +82,7 @@ export default function AsignarHorariosPage() {
   const [plans, setPlans] = useState([]);
   const [currentPlan, setCurrentPlan] = useState(null);  // plan_id de la planificación abierta
   const [saveDialog, setSaveDialog] = useState(null);    // { mode: 'new'|'rename', name, plan_id? }
+  const [overlapDialog, setOverlapDialog] = useState(null); // { name, plan_id?, conflicts[] }
 
   useEffect(() => {
     if (!canAccess) return;
@@ -185,10 +186,13 @@ export default function AsignarHorariosPage() {
   }
 
   /** Guarda la vista actual (rango + empleados) como planificación. */
-  async function savePlan(name, planId = null) {
+  async function savePlan(name, planId = null, overwrite = false) {
     const trimmed = (name || "").trim();
     if (!trimmed) { toast.error("Escribe un nombre"); return false; }
-    const body = { name: trimmed, from_date: fromDate, to_date: toDate, user_ids: selectedUsers };
+    const body = {
+      name: trimmed, from_date: fromDate, to_date: toDate,
+      user_ids: selectedUsers, overwrite,
+    };
     try {
       const { data } = planId
         ? await api.put(`/schedule-assignment-plans/${planId}`, body)
@@ -198,7 +202,18 @@ export default function AsignarHorariosPage() {
       toast.success(planId ? "Planificación actualizada" : `Planificación "${data.name}" guardada`);
       return true;
     } catch (e) {
-      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+      const detail = e.response?.data?.detail;
+      // El backend responde con estructura { code, message, conflicts[] } cuando hay solape.
+      if (e.response?.status === 409 && typeof detail === "object" && detail?.code === "plan_range_overlap") {
+        setOverlapDialog({
+          name: trimmed,
+          plan_id: planId,
+          conflicts: detail.conflicts || [],
+          message: detail.message,
+        });
+        return false;
+      }
+      toast.error(formatApiErrorDetail(detail) || e.message);
       return false;
     }
   }
@@ -598,6 +613,18 @@ export default function AsignarHorariosPage() {
           if (ok) setSaveDialog(null);
         }}
       />
+
+      <OverlapPlanDialog
+        state={overlapDialog}
+        onCancel={() => setOverlapDialog(null)}
+        onOverwrite={async () => {
+          const ok = await savePlan(overlapDialog.name, overlapDialog.plan_id, true);
+          if (ok) {
+            setOverlapDialog(null);
+            setSaveDialog(null);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -749,6 +776,76 @@ function SavePlanDialog({ state, onCancel, onConfirm }) {
     </Dialog>
   );
 }
+
+function OverlapPlanDialog({ state, onCancel, onOverwrite }) {
+  const [busy, setBusy] = useState(false);
+  const conflicts = state?.conflicts || [];
+
+  async function handleOverwrite() {
+    setBusy(true);
+    try { await onOverwrite(); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <Dialog open={!!state} onOpenChange={(v) => !v && !busy && onCancel()}>
+      <DialogContent className="max-w-md" data-testid="asg-overlap-dialog">
+        <DialogHeader className="items-center text-center">
+          <div className="h-12 w-12 rounded-2xl bg-amber-100 grid place-items-center mb-2">
+            <Sparkles className="h-6 w-6 text-amber-700" />
+          </div>
+          <DialogTitle>Rango de fechas ya planificado</DialogTitle>
+          <DialogDescription className="text-center">
+            {state?.message
+              || "Ya existen planificaciones cuyo rango se solapa con este."}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="rounded-xl border border-amber-200 bg-amber-50/60 divide-y divide-amber-100 max-h-56 overflow-y-auto"
+             data-testid="asg-overlap-conflicts">
+          {conflicts.map((c) => (
+            <div key={c.plan_id} className="px-3 py-2">
+              <p className="text-sm font-semibold text-amber-900">{c.name}</p>
+              <p className="text-[11px] text-amber-800/80">
+                {c.from_date} → {c.to_date} · {(c.user_ids && c.user_ids.length) || "todos"} empleado(s)
+              </p>
+            </div>
+          ))}
+        </div>
+
+        <p className="text-[11px] text-muted-foreground">
+          Puedes <b>rechazar</b> para volver a editar el rango o los empleados,
+          o <b>reescribir</b>: la(s) planificación(es) anterior(es) se eliminarán
+          y esta pasará a ocupar el rango. Las asignaciones diarias ya cargadas
+          en <i>schedule_assignments</i> permanecen intactas.
+        </p>
+
+        <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">
+          <Button
+            variant="outline"
+            onClick={onCancel}
+            disabled={busy}
+            className="rounded-full flex-1 h-11"
+            data-testid="asg-overlap-cancel"
+          >
+            <X className="h-4 w-4 mr-1.5" /> Rechazar
+          </Button>
+          <Button
+            onClick={handleOverwrite}
+            disabled={busy}
+            className="rounded-full flex-1 h-11 bg-amber-600 hover:bg-amber-700 text-white font-semibold"
+            data-testid="asg-overlap-overwrite"
+          >
+            {busy
+              ? (<><RefreshCw className="h-4 w-4 mr-1.5 animate-spin" /> Reescribiendo…</>)
+              : (<><Save className="h-4 w-4 mr-1.5" /> Reescribir</>)}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 
 function EmployeePicker({ all, value, onChange }) {
   const [open, setOpen] = useState(false);
