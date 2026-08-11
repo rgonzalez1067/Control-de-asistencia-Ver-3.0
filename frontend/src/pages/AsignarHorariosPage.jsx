@@ -312,48 +312,74 @@ export default function AsignarHorariosPage() {
 
   return (
     <div className="px-4 py-6 space-y-4 max-w-[1600px] mx-auto">
-      <div>
-        <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
-          <Sparkles className="h-3 w-3" /> Planificación
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-xs uppercase tracking-widest text-muted-foreground">
+            <Sparkles className="h-3 w-3" /> Planificación
+          </div>
+          <h1 className="text-3xl font-bold">Asignación de horarios</h1>
+          <p className="text-sm text-muted-foreground max-w-2xl">
+            Planifica turnos rotativos y novedades para el personal sin horario fijo. Todo lo que asignes aquí
+            alimenta el <b>Reporte Matricial</b> y define la tolerancia con la que se evalúan sus marcajes.
+          </p>
         </div>
-        <h1 className="text-3xl font-bold">Asignación de horarios</h1>
-        <p className="text-sm text-muted-foreground">
-          Planifica turnos rotativos y novedades para el personal sin horario fijo. Todo lo que asignes aquí
-          alimenta el <b>Reporte Matricial</b> y define la tolerancia con la que se evalúan sus marcajes.
-        </p>
+        {/* Cargar planificación existente — disponible desde el primer momento */}
+        <PlansMenu
+          plans={plans}
+          onLoad={loadPlan}
+          onRename={(p) => setSaveDialog({ mode: "rename", name: p.name, plan_id: p.plan_id })}
+          onDelete={deletePlan}
+          testid="asg-plans-menu-header"
+        />
       </div>
 
       {/* Filtros */}
       <Card>
-        <CardContent className="pt-5 pb-4 space-y-3">
-          <div className="grid gap-3 md:grid-cols-4">
-            <div>
-              <Label className="text-xs flex items-center gap-1"><CalendarRange className="h-3 w-3" /> Desde</Label>
-              <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} data-testid="asg-from" />
+        <CardContent className="pt-5 pb-4">
+          <div className="grid gap-3 md:grid-cols-12 items-end">
+            <div className="md:col-span-3">
+              <Label className="text-xs flex items-center gap-1 mb-1.5">
+                <CalendarRange className="h-3 w-3" /> Desde
+              </Label>
+              <Input type="date" className="h-11"
+                value={fromDate} onChange={(e) => setFromDate(e.target.value)}
+                data-testid="asg-from" />
             </div>
-            <div>
-              <Label className="text-xs">Hasta</Label>
-              <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} data-testid="asg-to" />
+            <div className="md:col-span-3">
+              <Label className="text-xs flex items-center gap-1 mb-1.5">
+                <CalendarRange className="h-3 w-3" /> Hasta
+              </Label>
+              <Input type="date" className="h-11"
+                value={toDate} onChange={(e) => setToDate(e.target.value)}
+                data-testid="asg-to" />
             </div>
-            <div className="md:col-span-2">
-              <Label className="text-xs flex items-center gap-1"><Users className="h-3 w-3" /> Empleados sin horario fijo</Label>
+            <div className="md:col-span-4">
+              <Label className="text-xs flex items-center gap-1 mb-1.5">
+                <Users className="h-3 w-3" /> Empleados sin horario fijo
+              </Label>
               <EmployeePicker
                 all={eligibleUsers}
                 value={selectedUsers}
                 onChange={setSelectedUsers}
               />
             </div>
+            <div className="md:col-span-2">
+              <Button
+                onClick={buildMatrix}
+                disabled={loading}
+                className="w-full h-11 rounded-full bg-primary hover:bg-primary/90 font-semibold"
+                data-testid="asg-build"
+              >
+                {loading
+                  ? (<><RefreshCw className="h-4 w-4 mr-1.5 animate-spin" /> Cargando…</>)
+                  : (<><Filter className="h-4 w-4 mr-1.5" /> Construir matriz</>)}
+              </Button>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-            <p className="text-[11px] text-muted-foreground">
-              {eligibleUsers.length} empleado(s) elegibles · {days.length} día(s) · {selectedUsers.length > 0 ? `${selectedUsers.length} seleccionados` : "todos los elegibles"}
-            </p>
-            <Button onClick={buildMatrix} disabled={loading} className="rounded-full" data-testid="asg-build">
-              {loading
-                ? (<><RefreshCw className="h-4 w-4 mr-1.5 animate-spin" /> Cargando…</>)
-                : (<><Filter className="h-4 w-4 mr-1.5" /> Construir matriz</>)}
-            </Button>
-          </div>
+          <p className="text-[11px] text-muted-foreground mt-3">
+            {eligibleUsers.length} empleado(s) elegibles · {days.length} día(s) ·{" "}
+            {selectedUsers.length > 0 ? `${selectedUsers.length} seleccionados` : "todos los elegibles"}
+          </p>
         </CardContent>
       </Card>
 
@@ -386,57 +412,14 @@ export default function AsignarHorariosPage() {
               Limpiar
             </Button>
 
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="rounded-full h-8" data-testid="asg-plans-menu">
-                  <FolderOpen className="h-3.5 w-3.5 mr-1.5" /> Planificaciones
-                  {plans.length > 0 && <span className="ml-1.5 text-[10px] text-muted-foreground">({plans.length})</span>}
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-80">
-                <DropdownMenuLabel>Planificaciones guardadas</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {plans.length === 0 && (
-                  <p className="px-2 py-3 text-xs text-muted-foreground text-center">
-                    Aún no has guardado ninguna planificación.
-                  </p>
-                )}
-                {plans.map((p) => (
-                  <div key={p.plan_id} className="flex items-center px-1" data-testid={`asg-plan-row-${p.plan_id}`}>
-                    <button
-                      type="button"
-                      onClick={() => loadPlan(p)}
-                      className="flex-1 text-left px-2 py-1.5 rounded-md hover:bg-muted cursor-pointer"
-                      data-testid={`asg-plan-load-${p.plan_id}`}
-                    >
-                      <p className="text-sm font-medium truncate">{p.name}</p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {p.from_date} → {p.to_date} · {(p.user_ids && p.user_ids.length) || "todos"} emp.
-                      </p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSaveDialog({ mode: "rename", name: p.name, plan_id: p.plan_id })}
-                      className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
-                      title="Renombrar"
-                      data-testid={`asg-plan-rename-${p.plan_id}`}
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => deletePlan(p)}
-                      className="p-1.5 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600"
-                      title="Eliminar"
-                      data-testid={`asg-plan-delete-${p.plan_id}`}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <PlansMenu
+              plans={plans}
+              onLoad={loadPlan}
+              onRename={(p) => setSaveDialog({ mode: "rename", name: p.name, plan_id: p.plan_id })}
+              onDelete={deletePlan}
+              compact
+              testid="asg-plans-menu"
+            />
 
             <Button
               size="sm"
@@ -617,6 +600,108 @@ export default function AsignarHorariosPage() {
       />
     </div>
   );
+}
+
+function PlansMenu({ plans, onLoad, onRename, onDelete, compact = false, testid }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          size={compact ? "sm" : "default"}
+          variant={compact ? "outline" : "default"}
+          className={
+            compact
+              ? "rounded-full h-8"
+              : "rounded-full h-11 bg-primary hover:bg-primary/90 shadow-md"
+          }
+          data-testid={testid || "asg-plans-menu-header"}
+        >
+          <FolderOpen className={compact ? "h-3.5 w-3.5 mr-1.5" : "h-4 w-4 mr-1.5"} />
+          {compact ? "Planificaciones" : "Cargar planificación existente"}
+          {plans.length > 0 && (
+            <span className={compact ? "ml-1.5 text-[10px] text-muted-foreground" : "ml-2 text-[11px] bg-white/15 rounded-full px-1.5"}>
+              {plans.length}
+            </span>
+          )}
+          <ChevronDown className="h-3 w-3 ml-1" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={compact ? "start" : "end"} className="w-96">
+        <DropdownMenuLabel className="flex items-center justify-between">
+          <span>Planificaciones guardadas</span>
+          <span className="text-[10px] text-muted-foreground font-normal">
+            {plans.length} disponibles
+          </span>
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {plans.length === 0 && (
+          <div className="px-3 py-6 text-center">
+            <Bookmark className="h-5 w-5 text-muted-foreground/50 mx-auto mb-1" />
+            <p className="text-xs text-muted-foreground">
+              Aún no tienes planificaciones guardadas. Construye una matriz y usa
+              <b> Guardar planificación</b> para conservarla.
+            </p>
+          </div>
+        )}
+        <div className="max-h-[380px] overflow-y-auto">
+          {[...plans]
+            .sort((a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""))
+            .map((p) => (
+              <div key={p.plan_id} className="flex items-center px-1 group hover:bg-muted/40 rounded-md"
+                   data-testid={`asg-plan-row-${p.plan_id}`}>
+                <button
+                  type="button"
+                  onClick={() => onLoad(p)}
+                  className="flex-1 text-left px-2 py-2 rounded-md cursor-pointer min-w-0"
+                  data-testid={`asg-plan-load-${p.plan_id}`}
+                >
+                  <p className="text-sm font-medium truncate">{p.name}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">
+                    {p.from_date} → {p.to_date} · {(p.user_ids && p.user_ids.length) || "todos los"} empleado(s)
+                    {p.updated_at && (
+                      <> · <span title={p.updated_at}>actualizada {timeAgo(p.updated_at)}</span></>
+                    )}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRename(p)}
+                  className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Renombrar"
+                  data-testid={`asg-plan-rename-${p.plan_id}`}
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(p)}
+                  className="p-1.5 rounded-md hover:bg-red-50 text-muted-foreground hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Eliminar"
+                  data-testid={`asg-plan-delete-${p.plan_id}`}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function timeAgo(iso) {
+  try {
+    const d = new Date(iso).getTime();
+    const s = Math.max(0, Math.floor((Date.now() - d) / 1000));
+    if (s < 60) return "hace un momento";
+    const m = Math.floor(s / 60);
+    if (m < 60) return `hace ${m} min`;
+    const h = Math.floor(m / 60);
+    if (h < 24) return `hace ${h} h`;
+    const dd = Math.floor(h / 24);
+    if (dd < 30) return `hace ${dd} d`;
+    return new Date(iso).toLocaleDateString("es-VE", { day: "2-digit", month: "short" });
+  } catch (_) { return ""; }
 }
 
 function SavePlanDialog({ state, onCancel, onConfirm }) {
