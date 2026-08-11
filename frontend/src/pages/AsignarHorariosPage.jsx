@@ -138,21 +138,14 @@ export default function AsignarHorariosPage() {
     }
     setLoading(true);
     try {
-      const uids = selectedUsers.length > 0 ? selectedUsers : eligibleUsers.map((u) => u.user_id);
-      const { data } = await api.get("/schedule-assignments", {
-        params: {
-          from_date: fromDate,
-          to_date: toDate,
-          user_ids: uids.join(","),
-        },
-      });
-      const map = {};
-      (data || []).forEach((a) => { map[`${a.user_id}|${a.date}`] = a; });
-      setAssignments(map);
+      // Regla explícita: al construir una matriz nueva NO se hereda contenido de
+      // asignaciones ya guardadas. La matriz arranca siempre en blanco para que
+      // el usuario decida qué asignar, sin residuos de planificaciones previas.
+      // Para retomar una planificación específica, se usa "Cargar planificación existente".
+      setAssignments({});
       setSelectedCells(new Set());
+      setCurrentPlan(null);
       setBuilt(true);
-    } catch (e) {
-      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     } finally { setLoading(false); }
   }
 
