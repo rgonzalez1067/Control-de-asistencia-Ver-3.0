@@ -1,25 +1,40 @@
 import { useEffect, useState } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { UserPlus, Users, Building2, Trash2, Save, X, User as UserIcon, IdCard, Phone } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
+import { UserPlus, Users, Building2, Trash2, Save, X, User as UserIcon, IdCard, Phone, KeyRound, Copy, Check } from "lucide-react";
+
+const PURPOSE_OPTIONS = [
+  { value: "reunion", label: "Reunión" },
+  { value: "capacitacion", label: "Capacitación" },
+  { value: "visita_data_center", label: "Visita al Data Center" },
+  { value: "visita_centro_cableado", label: "Visita al Centro de Cableado" },
+  { value: "otra", label: "Otra (especificar)" },
+];
+
+const OBS_MAX = 300;
 
 export default function AgendarVisitaPage() {
   const [type, setType] = useState("personal");
   const [hostUserId, setHostUserId] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [motive, setMotive] = useState("");
-  const [notes, setNotes] = useState("");
+  const [purpose, setPurpose] = useState("");
+  const [purposeOther, setPurposeOther] = useState("");
+  const [observations, setObservations] = useState("");
   const [visitors, setVisitors] = useState([{ name: "", cedula: "", phone: "", is_minor: false }]);
   const [employees, setEmployees] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [confirmation, setConfirmation] = useState(null);  // { pin, visit_id, host_name, visitors_count }
 
   useEffect(() => {
     api.get("/users")
@@ -34,17 +49,15 @@ export default function AgendarVisitaPage() {
   function removeVisitor(i) { setVisitors((v) => v.length > 1 ? v.filter((_, idx) => idx !== i) : v); }
 
   function reset() {
-    setHostUserId(""); setScheduledAt(""); setCompanyName(""); setMotive(""); setNotes("");
+    setHostUserId(""); setScheduledAt(""); setCompanyName("");
+    setPurpose(""); setPurposeOther(""); setObservations("");
     setVisitors([{ name: "", cedula: "", phone: "", is_minor: false }]);
   }
 
   async function submit() {
     if (!hostUserId) { toast.error("Selecciona el empleado anfitrión"); return; }
-    // Personal: cédula requerida SALVO menores. Laboral: siempre requerida.
     if (type === "personal") {
-      if (visitors.some((v) => !v.name.trim())) {
-        toast.error("Cada visitante requiere nombre"); return;
-      }
+      if (visitors.some((v) => !v.name.trim())) { toast.error("Cada visitante requiere nombre"); return; }
       if (visitors.some((v) => !v.is_minor && !v.cedula.trim())) {
         toast.error("Cédula requerida (o marcar visitante como menor de edad)"); return;
       }
@@ -52,12 +65,17 @@ export default function AgendarVisitaPage() {
       if (visitors.some((v) => !v.name.trim() || !v.cedula.trim())) {
         toast.error("Cada visitante requiere nombre y cédula"); return;
       }
-    }
-    if (type === "laboral") {
       if (!companyName.trim()) { toast.error("Nombre de empresa requerido"); return; }
       if (visitors.some((v) => !v.phone?.trim())) {
         toast.error("Cada visitante laboral requiere teléfono"); return;
       }
+      if (!purpose) { toast.error("Selecciona un motivo del catálogo"); return; }
+      if (purpose === "otra" && !purposeOther.trim()) {
+        toast.error("Especifica el motivo cuando eliges “Otra”"); return;
+      }
+    }
+    if (observations.length > OBS_MAX) {
+      toast.error(`Observaciones no puede exceder ${OBS_MAX} caracteres`); return;
     }
     setSaving(true);
     try {
@@ -66,8 +84,9 @@ export default function AgendarVisitaPage() {
         host_user_id: hostUserId,
         scheduled_at: scheduledAt ? new Date(scheduledAt).toISOString() : null,
         company_name: type === "laboral" ? companyName.trim() : null,
-        motive: motive.trim() || null,
-        notes: notes.trim() || null,
+        purpose: type === "laboral" ? purpose : null,
+        purpose_other: type === "laboral" && purpose === "otra" ? purposeOther.trim() : null,
+        observations: observations.trim() || null,
         visitors: visitors.map((v) => ({
           name: v.name.trim(),
           cedula: v.cedula?.trim() || null,
@@ -75,19 +94,32 @@ export default function AgendarVisitaPage() {
           is_minor: type === "personal" ? !!v.is_minor : false,
         })),
       };
-      await api.post("/visits", payload);
-      toast.success("Visita agendada correctamente");
+      const { data } = await api.post("/visits", payload);
+      const host = employees.find((u) => u.user_id === hostUserId);
+      setConfirmation({
+        pin: data.check_in_pin,
+        visit_id: data.visit_id,
+        host_name: host?.name || "—",
+        visitors_count: visitors.length,
+        company_name: type === "laboral" ? companyName.trim() : null,
+      });
       reset();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     } finally { setSaving(false); }
   }
 
+  const obsLeft = OBS_MAX - observations.length;
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
       <div>
         <h1 className="text-3xl font-bold">Agendar visita</h1>
-        <p className="text-sm text-muted-foreground">Registra una visita personal o laboral. En el kiosco se disparará la captura de selfies cuando el anfitrión marque entrada.</p>
+        <p className="text-sm text-muted-foreground">
+          Registra una visita personal o laboral. Al guardar recibirás un
+          <b> PIN de 3 dígitos </b> que el visitante deberá ingresar en el kiosco
+          para iniciar la captura de selfies.
+        </p>
       </div>
 
       <Card>
@@ -116,18 +148,54 @@ export default function AgendarVisitaPage() {
                     data-testid="visit-company" className="h-11" />
                 </div>
                 <div>
-                  <Label className="text-xs">Motivo / descripción</Label>
-                  <Input value={motive} onChange={(e) => setMotive(e.target.value)} placeholder="Reunión, capacitación, etc."
-                    data-testid="visit-motive" className="h-11" />
+                  <Label className="text-xs">Motivo *</Label>
+                  <Select value={purpose} onValueChange={setPurpose}>
+                    <SelectTrigger className="h-11" data-testid="visit-purpose">
+                      <SelectValue placeholder="Selecciona un motivo…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {PURPOSE_OPTIONS.map((o) => (
+                        <SelectItem key={o.value} value={o.value} data-testid={`visit-purpose-opt-${o.value}`}>
+                          {o.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
+              {purpose === "otra" && (
+                <div data-testid="visit-purpose-other-wrap">
+                  <Label className="text-xs">Especificar motivo *</Label>
+                  <Input
+                    value={purposeOther}
+                    onChange={(e) => setPurposeOther(e.target.value)}
+                    placeholder="Describe brevemente el motivo de la visita"
+                    className="h-11"
+                    maxLength={140}
+                    data-testid="visit-purpose-other"
+                  />
+                </div>
+              )}
               <VisitorsList visitors={visitors} updateVisitor={updateVisitor} removeVisitor={removeVisitor} addVisitor={addVisitor} withPhone={true} withMinor={false} />
             </TabsContent>
           </Tabs>
 
           <div>
-            <Label className="text-xs">Notas internas (opcional)</Label>
-            <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Observaciones, número de piso, etc." data-testid="visit-notes" />
+            <div className="flex items-center justify-between mb-1">
+              <Label className="text-xs">Observaciones (opcional)</Label>
+              <span className={"text-[10px] " + (obsLeft < 0 ? "text-destructive font-semibold" : "text-muted-foreground")} data-testid="visit-observations-counter">
+                {observations.length}/{OBS_MAX}
+              </span>
+            </div>
+            <Textarea
+              rows={4}
+              value={observations}
+              onChange={(e) => setObservations(e.target.value.slice(0, OBS_MAX))}
+              placeholder="Detalles adicionales, número de piso, instrucciones de acceso, requisitos especiales, etc."
+              data-testid="visit-observations"
+              maxLength={OBS_MAX}
+              className="resize-y"
+            />
           </div>
 
           <div className="flex justify-end gap-2 pt-2 border-t">
@@ -140,6 +208,11 @@ export default function AgendarVisitaPage() {
           </div>
         </CardContent>
       </Card>
+
+      <VisitConfirmationDialog
+        confirmation={confirmation}
+        onClose={() => setConfirmation(null)}
+      />
     </div>
   );
 }
@@ -231,5 +304,66 @@ function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, with
         </div>
       ))}
     </div>
+  );
+}
+
+function VisitConfirmationDialog({ confirmation, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const pin = confirmation?.pin || "";
+
+  async function copyPin() {
+    try {
+      await navigator.clipboard.writeText(pin);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch (_) { /* ignore */ }
+  }
+
+  return (
+    <Dialog open={!!confirmation} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md" data-testid="visit-confirmation-dialog">
+        <DialogHeader className="items-center text-center">
+          <div className="h-14 w-14 rounded-2xl bg-primary/10 grid place-items-center mb-2">
+            <KeyRound className="h-7 w-7 text-primary dark:text-foreground" />
+          </div>
+          <DialogTitle>Visita agendada</DialogTitle>
+          <DialogDescription>
+            Comparte este <b>PIN de 3 dígitos</b> con tu visitante. Lo necesitará
+            para autorizar la captura de selfies en el kiosco de recepción.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="rounded-2xl bg-primary text-primary-foreground text-center py-6 my-2 shadow-inner">
+          <p className="text-[10px] uppercase tracking-[0.3em] text-white/60">PIN de confirmación</p>
+          <p className="text-6xl font-black tracking-[0.4em] mt-1 font-mono" data-testid="visit-pin-display">
+            {pin || "···"}
+          </p>
+        </div>
+
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p><b>Anfitrión:</b> {confirmation?.host_name}</p>
+          {confirmation?.company_name && <p><b>Empresa:</b> {confirmation.company_name}</p>}
+          <p><b>Visitantes:</b> {confirmation?.visitors_count}</p>
+        </div>
+
+        <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">
+          <Button
+            variant="outline"
+            onClick={copyPin}
+            className="h-11 rounded-full flex-1"
+            data-testid="visit-pin-copy"
+          >
+            {copied ? (<><Check className="h-4 w-4 mr-1.5" /> Copiado</>) : (<><Copy className="h-4 w-4 mr-1.5" /> Copiar PIN</>)}
+          </Button>
+          <Button
+            onClick={onClose}
+            className="h-11 rounded-full flex-1 bg-primary hover:bg-primary/90"
+            data-testid="visit-pin-done"
+          >
+            Listo
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

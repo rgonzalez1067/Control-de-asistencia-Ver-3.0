@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import {
   ScanFace, LogIn, LogOut as LogOutIcon, Loader2, LockKeyhole,
   KeyRound, X, CheckCircle2, UserCircle2, Search, ArrowRight, RefreshCcw, DoorOpen, Camera, MapPin,
+  Building2, Clock3,
 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -71,6 +72,9 @@ export default function KioskScanPage() {
   const [pendingVisits, setPendingVisits] = useState([]);
   const [activeVisit, setActiveVisit] = useState(null);
   const [visitVisitorIdx, setVisitVisitorIdx] = useState(0);
+  // Nuevo flujo: acceso directo a las visitas del día desde el Kiosco (independiente
+  // del marcaje del anfitrión). Se navega listado → PIN → selfies → cierre.
+  const [visitsBrowserOpen, setVisitsBrowserOpen] = useState(false);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const intervalRef = useRef(null);
@@ -503,6 +507,23 @@ export default function KioskScanPage() {
         )}
       </main>
 
+      {/* Botón fijo "Visitas" — esquina inferior izquierda del kiosco.
+          Permite acceder al listado de citas del día sin depender del marcaje del anfitrión. */}
+      <button
+        type="button"
+        onClick={() => setVisitsBrowserOpen(true)}
+        className="absolute left-4 bottom-24 md:bottom-6 z-30 rounded-2xl bg-white/10 hover:bg-white/20 active:bg-white/25 backdrop-blur-md border border-white/15 text-white px-4 py-3 flex items-center gap-2 shadow-xl transition-all"
+        data-testid="kiosk-visits-fab"
+      >
+        <div className="h-9 w-9 rounded-xl bg-accent grid place-items-center">
+          <UserCircle2 className="h-5 w-5 text-primary" />
+        </div>
+        <div className="text-left">
+          <p className="text-[10px] uppercase tracking-[0.25em] text-white/60 leading-none">Recepción</p>
+          <p className="text-sm font-semibold leading-tight mt-0.5">Visitas del día</p>
+        </div>
+      </button>
+
       {/* Bottom actions */}
       <div className="relative px-4 pb-6 pt-2 border-t border-white/5 flex items-center gap-2">
         <Button variant="ghost" onClick={() => setShowLock(true)}
@@ -649,6 +670,18 @@ export default function KioskScanPage() {
           }
         }}
         onCancel={() => { setActiveVisit(null); setVisitVisitorIdx(0); }}
+      />
+
+      {/* Nuevo flujo: navegador de visitas del día en el Kiosco (recepción) */}
+      <VisitsBrowserDialog
+        open={visitsBrowserOpen}
+        onClose={() => setVisitsBrowserOpen(false)}
+        onVisitVerified={(fullVisit) => {
+          // PIN correcto → cargar la visita completa y disparar el flujo de selfies
+          setVisitsBrowserOpen(false);
+          setActiveVisit(fullVisit);
+          setVisitVisitorIdx(0);
+        }}
       />
 
       <PinPickerDialog
@@ -1056,3 +1089,282 @@ function VisitSelfieDialog({ visit, visitorIdx, onCaptured, onCancel }) {
     </Dialog>
   );
 }
+
+
+/** VisitsBrowserDialog — listado de visitas del día + entrada de PIN de 3 dígitos.
+ *  Al validar el PIN correctamente devuelve la visita completa vía onVisitVerified
+ *  para que el flujo de selfies (VisitSelfieDialog) tome el control.
+ */
+function VisitsBrowserDialog({ open, onClose, onVisitVerified }) {
+  const [step, setStep] = useState("list");  // "list" | "pin"
+  const [visits, setVisits] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [target, setTarget] = useState(null);
+  const [pin, setPin] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [pinError, setPinError] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const { data } = await api.get("/kiosk/visits/today");
+      setVisits(Array.isArray(data) ? data : []);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+      setVisits([]);
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    setStep("list"); setTarget(null); setPin(""); setPinError(null);
+    load();
+  }, [open]);
+
+  function pickVisit(v) {
+    setTarget(v);
+    setPin("");
+    setPinError(null);
+    setStep("pin");
+  }
+
+  async function submitPin() {
+    if (!target) return;
+    const clean = (pin || "").trim();
+    if (!/^\d{3}$/.test(clean)) {
+      setPinError("El PIN debe tener 3 dígitos");
+      return;
+    }
+    setVerifying(true);
+    setPinError(null);
+    try {
+      const { data } = await api.post(`/kiosk/visits/${target.visit_id}/verify-pin`, { pin: clean });
+      onVisitVerified(data);
+    } catch (e) {
+      const code = e.response?.status;
+      const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
+      if (code === 403) setPinError("PIN incorrecto · intenta de nuevo");
+      else setPinError(msg);
+      setPin("");
+    } finally { setVerifying(false); }
+  }
+
+  function fmtHora(iso) {
+    if (!iso) return "";
+    try {
+      return new Date(iso).toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit" });
+    } catch (_) { return ""; }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent
+        className="max-w-lg text-primary-foreground bg-primary border-white/10"
+        data-testid="kiosk-visits-browser"
+      >
+        {step === "list" && (
+          <>
+            <DialogHeader className="text-center items-center">
+              <div className="h-14 w-14 rounded-2xl bg-accent grid place-items-center mb-2">
+                <UserCircle2 className="h-7 w-7 text-primary" />
+              </div>
+              <DialogTitle className="text-primary-foreground">Visitas del día</DialogTitle>
+              <DialogDescription className="text-white/70">
+                Selecciona una visita para autorizarla con el PIN de 3 dígitos.
+              </DialogDescription>
+            </DialogHeader>
+
+            {loading ? (
+              <div className="py-10 grid place-items-center text-white/60 text-sm">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                <p className="mt-2">Cargando visitas…</p>
+              </div>
+            ) : visits.length === 0 ? (
+              <div className="py-10 text-center text-white/70" data-testid="kiosk-visits-empty">
+                <UserCircle2 className="h-8 w-8 text-white/40 mx-auto mb-2" />
+                <p className="text-sm">No hay visitas agendadas para hoy.</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1" data-testid="kiosk-visits-list">
+                {visits.map((v) => (
+                  <button
+                    key={v.visit_id}
+                    type="button"
+                    onClick={() => pickVisit(v)}
+                    className="w-full text-left rounded-xl border border-white/15 bg-white/5 hover:bg-white/10 hover:border-accent/50 transition-all p-3 flex items-center gap-3"
+                    data-testid={`kiosk-visit-item-${v.visit_id}`}
+                  >
+                    <div className="h-10 w-10 rounded-xl bg-accent/20 grid place-items-center shrink-0">
+                      <Building2 className="h-5 w-5 text-accent" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-white truncate">
+                        {v.company_name || v.primary_visitor_name || "Visitante"}
+                      </p>
+                      <p className="text-[11px] text-white/60 leading-tight">
+                        Anfitrión: <b className="text-white/90">{v.host_name}</b>
+                      </p>
+                      <p className="text-[11px] text-white/60 leading-tight mt-0.5 flex items-center gap-1">
+                        <Clock3 className="h-3 w-3" /> {fmtHora(v.scheduled_at)} · {v.visitors_count} visitante{v.visitors_count === 1 ? "" : "s"}
+                        {v.purpose_label && <span className="ml-1">· {v.purpose_label}</span>}
+                      </p>
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-white/40 shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <DialogFooter className="pt-2">
+              <Button
+                variant="outline"
+                onClick={onClose}
+                className="h-11 rounded-full w-full bg-white/5 border-white/20 text-white hover:bg-white/10"
+                data-testid="kiosk-visits-close"
+              >
+                Cerrar
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+
+        {step === "pin" && target && (
+          <>
+            <DialogHeader className="text-center items-center">
+              <div className="h-14 w-14 rounded-2xl bg-accent grid place-items-center mb-2">
+                <KeyRound className="h-7 w-7 text-primary" />
+              </div>
+              <DialogTitle className="text-primary-foreground">PIN de la visita</DialogTitle>
+              <DialogDescription className="text-white/70">
+                Ingresa los <b>3 dígitos</b> que te dieron al agendar la visita.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="rounded-xl bg-white/5 border border-white/10 p-3 space-y-0.5">
+              <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">Visita seleccionada</p>
+              <p className="text-sm font-semibold text-white truncate">
+                {target.company_name || target.primary_visitor_name}
+              </p>
+              <p className="text-[11px] text-white/70">
+                Anfitrión: <b className="text-white/90">{target.host_name}</b> · {fmtHora(target.scheduled_at)}
+              </p>
+            </div>
+
+            <div className="grid place-items-center py-2">
+              <PinPad3
+                value={pin}
+                onChange={(v) => { setPin(v); setPinError(null); }}
+                disabled={verifying}
+              />
+            </div>
+
+            {pinError && (
+              <p className="text-center text-sm text-red-300" data-testid="kiosk-visit-pin-error">
+                {pinError}
+              </p>
+            )}
+
+            <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setStep("list")}
+                className="h-11 rounded-full flex-1 bg-white/5 border-white/20 text-white hover:bg-white/10"
+                data-testid="kiosk-visit-pin-back"
+              >
+                Atrás
+              </Button>
+              <Button
+                type="button"
+                onClick={submitPin}
+                disabled={verifying || pin.length !== 3}
+                className="h-11 rounded-full flex-[1.4] bg-accent hover:bg-accent/90 text-primary font-bold"
+                data-testid="kiosk-visit-pin-submit"
+              >
+                {verifying ? "Validando…" : (<>Validar <ArrowRight className="h-4 w-4 ml-1.5" /></>)}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Teclado numérico de 3 dígitos para el PIN de visitas. */
+function PinPad3({ value, onChange, disabled }) {
+  function press(d) {
+    if (disabled) return;
+    if ((value || "").length >= 3) return;
+    onChange((value || "") + d);
+  }
+  function back() {
+    if (disabled) return;
+    onChange((value || "").slice(0, -1));
+  }
+  function clear() {
+    if (disabled) return;
+    onChange("");
+  }
+  const digits = (value || "").padEnd(3, "·").split("");
+  return (
+    <div className="w-full max-w-[280px] space-y-3">
+      <div className="flex justify-center gap-3">
+        {digits.map((d, i) => (
+          <div
+            key={i}
+            className={
+              "h-14 w-14 rounded-xl border grid place-items-center text-3xl font-mono font-bold " +
+              (d === "·" ? "text-white/25 border-white/10" : "text-white border-accent/60 bg-white/5")
+            }
+            data-testid={`kiosk-visit-pin-slot-${i}`}
+          >
+            {d === "·" ? "•" : "•"}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {["1","2","3","4","5","6","7","8","9"].map((d) => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => press(d)}
+            disabled={disabled}
+            className="h-14 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-2xl font-semibold transition-colors disabled:opacity-40"
+            data-testid={`kiosk-visit-pin-key-${d}`}
+          >
+            {d}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={clear}
+          disabled={disabled}
+          className="h-14 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-white/70 uppercase tracking-widest disabled:opacity-40"
+          data-testid="kiosk-visit-pin-clear"
+        >
+          Borrar
+        </button>
+        <button
+          type="button"
+          onClick={() => press("0")}
+          disabled={disabled}
+          className="h-14 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white text-2xl font-semibold disabled:opacity-40"
+          data-testid="kiosk-visit-pin-key-0"
+        >
+          0
+        </button>
+        <button
+          type="button"
+          onClick={back}
+          disabled={disabled}
+          className="h-14 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white grid place-items-center disabled:opacity-40"
+          data-testid="kiosk-visit-pin-backspace"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+

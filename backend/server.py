@@ -261,9 +261,28 @@ class VisitIn(BaseModel):
     host_user_id: str
     scheduled_at: Optional[datetime] = None
     company_name: Optional[str] = None  # laboral only
-    motive: Optional[str] = None        # laboral only
+    # Motivo — dropdown de catálogo (laboral). Valores válidos:
+    #   reunion · capacitacion · visita_data_center · visita_centro_cableado · otra
+    purpose: Optional[str] = None
+    purpose_other: Optional[str] = None
+    observations: Optional[str] = None  # max 300 caracteres
     visitors: List[VisitorIn]
+    # Deprecados — se mantienen para retro-compatibilidad de datos históricos.
+    motive: Optional[str] = None
     notes: Optional[str] = None
+
+
+class VisitPinIn(BaseModel):
+    pin: str
+
+
+VISIT_PURPOSE_CATALOG = {
+    "reunion": "Reunión",
+    "capacitacion": "Capacitación",
+    "visita_data_center": "Visita al Data Center",
+    "visita_centro_cableado": "Visita al Centro de Cableado",
+    "otra": "Otra",
+}
 
 
 class VisitSelfieIn(BaseModel):
@@ -1897,6 +1916,13 @@ async def create_visit(payload: VisitIn,
     if payload.type == "laboral":
         if not payload.company_name:
             raise HTTPException(status_code=400, detail="Nombre de empresa requerido para visita laboral")
+        # Validación del motivo (catálogo fijo con opción “Otra”)
+        if not payload.purpose or payload.purpose not in VISIT_PURPOSE_CATALOG:
+            raise HTTPException(status_code=400,
+                                detail="Selecciona un motivo válido del catálogo")
+        if payload.purpose == "otra" and not (payload.purpose_other or "").strip():
+            raise HTTPException(status_code=400,
+                                detail="Debes especificar el motivo cuando eliges “Otra”")
         for v in payload.visitors:
             if not v.phone:
                 raise HTTPException(status_code=400, detail="Cada visitante laboral requiere teléfono")
@@ -1909,7 +1935,13 @@ async def create_visit(payload: VisitIn,
                 raise HTTPException(status_code=400,
                                     detail="Cédula requerida (o marcar como menor de edad)")
 
+    obs = (payload.observations or "").strip()
+    if len(obs) > 300:
+        raise HTTPException(status_code=400, detail="Observaciones no puede exceder 300 caracteres")
+
     visit_id = new_id("visit", 10)
+    # PIN aleatorio de 3 dígitos (000–999) para autorizar la captura en el kiosco.
+    check_in_pin = f"{secrets.randbelow(1000):03d}"
     doc = {
         "visit_id": visit_id,
         "type": payload.type,
@@ -1917,16 +1949,24 @@ async def create_visit(payload: VisitIn,
         "host_name": host.get("name"),
         "scheduled_at": payload.scheduled_at or now_utc(),
         "company_name": payload.company_name if payload.type == "laboral" else None,
+        # Motivo — nuevo catálogo
+        "purpose": payload.purpose if payload.type == "laboral" else None,
+        "purpose_label": (VISIT_PURPOSE_CATALOG.get(payload.purpose) if payload.type == "laboral" else None),
+        "purpose_other": (payload.purpose_other.strip() if payload.type == "laboral" and payload.purpose == "otra" and payload.purpose_other else None),
+        # Observaciones (nuevo campo, 300 caracteres)
+        "observations": obs or None,
+        # Retrocompat — se conservan los campos originales si el cliente antiguo los envía.
         "motive": payload.motive,
         "notes": payload.notes,
         "visitors": [v.model_dump() for v in payload.visitors],
         "selfies": [],
         "status": "pending",
+        "check_in_pin": check_in_pin,
         "created_at": now_utc(),
         "created_by": user["user_id"],
     }
     await db.visits.insert_one(doc)
-    return {"visit_id": visit_id, "ok": True}
+    return {"visit_id": visit_id, "ok": True, "check_in_pin": check_in_pin}
 
 
 @api.get("/visits")
@@ -1993,8 +2033,58 @@ async def kiosk_pending_visits(host_user_id: str) -> List[Dict[str, Any]]:
     ).sort("scheduled_at", 1):
         v.pop("_id", None)
         v.pop("selfies", None)
+        v.pop("check_in_pin", None)  # nunca expongas el PIN sin verificación
         docs.append(v)
     return docs
+
+
+@api.get("/kiosk/visits/today")
+async def kiosk_visits_today() -> List[Dict[str, Any]]:
+    """Listado público de todas las visitas activas del día para el Kiosco.
+    Se autentican después con el PIN de 3 dígitos generado al crear la visita."""
+    today_local = now_utc().astimezone(APP_TZ)
+    start = today_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+    end = (today_local.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).astimezone(timezone.utc)
+    docs: List[Dict[str, Any]] = []
+    async for v in db.visits.find(
+        {"status": {"$in": ["pending", "in_progress"]},
+         "scheduled_at": {"$gte": start, "$lt": end}}
+    ).sort("scheduled_at", 1):
+        visitors = v.get("visitors") or []
+        # Devuelve sólo lo necesario para pintar el listado; NUNCA el PIN.
+        docs.append({
+            "visit_id": v.get("visit_id"),
+            "type": v.get("type"),
+            "host_name": v.get("host_name"),
+            "company_name": v.get("company_name"),
+            "purpose_label": v.get("purpose_label"),
+            "purpose_other": v.get("purpose_other"),
+            "scheduled_at": v.get("scheduled_at").isoformat() if v.get("scheduled_at") else None,
+            "visitors_count": len(visitors),
+            "primary_visitor_name": (visitors[0].get("name") if visitors else None),
+            "status": v.get("status"),
+        })
+    return docs
+
+
+@api.post("/kiosk/visits/{visit_id}/verify-pin")
+async def kiosk_verify_visit_pin(visit_id: str, payload: VisitPinIn) -> Dict[str, Any]:
+    """Valida el PIN de 3 dígitos y devuelve los datos completos de la visita
+    (incluyendo la lista de visitantes) para iniciar la captura de selfies."""
+    pin = (payload.pin or "").strip()
+    if not pin or not pin.isdigit() or len(pin) != 3:
+        raise HTTPException(status_code=400, detail="El PIN debe ser numérico de 3 dígitos")
+    doc = await db.visits.find_one({"visit_id": visit_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Visita no encontrada")
+    if doc.get("status") not in ("pending", "in_progress"):
+        raise HTTPException(status_code=400, detail="Esta visita ya fue completada o cancelada")
+    if str(doc.get("check_in_pin") or "") != pin:
+        raise HTTPException(status_code=403, detail="PIN incorrecto")
+    doc.pop("_id", None)
+    doc.pop("check_in_pin", None)  # ya verificado
+    doc.pop("selfies", None)
+    return doc
 
 
 @api.post("/visits/{visit_id}/capture-selfie")
