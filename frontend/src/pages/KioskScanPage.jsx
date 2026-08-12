@@ -588,23 +588,24 @@ export default function KioskScanPage() {
               Confianza · {((1 - (current?.distance ?? 0)) * 100 | 0)}%
             </p>
           </div>
-          <DialogFooter className="flex-row gap-2 sm:justify-center">
-            <Button variant="outline" className="flex-1 h-14 rounded-full text-base"
+          <DialogFooter className="flex-row gap-3 sm:justify-center">
+            <Button variant="outline"
+              className="flex-1 h-16 rounded-full text-lg font-semibold border-2 border-slate-300 text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:text-slate-100 dark:hover:bg-slate-800"
               onClick={() => { setPhase("ready"); setCurrent(null); }}
               data-testid="kiosk-match-cancel">
-              <X className="h-4 w-4 mr-1.5" /> No soy yo
+              <X className="h-5 w-5 mr-2" /> No soy yo
             </Button>
             <Button
               onClick={() => confirmMark(current, current?.nextType)}
               className={
-                "flex-1 h-14 rounded-full text-base font-semibold " +
+                "flex-1 h-16 rounded-full text-lg font-bold text-white shadow-lg " +
                 (current?.nextType === "in"
-                  ? "bg-emerald-600 hover:bg-emerald-700"
-                  : "bg-primary hover:bg-primary/90")
+                  ? "bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-400"
+                  : "bg-blue-600 hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-400")
               }
               data-testid="kiosk-match-confirm"
             >
-              Sí, soy yo <ArrowRight className="h-4 w-4 ml-1.5" />
+              Sí, soy yo <ArrowRight className="h-5 w-5 ml-2" />
             </Button>
           </DialogFooter>
         </DialogContent>
