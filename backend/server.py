@@ -273,7 +273,8 @@ class VisitIn(BaseModel):
     notes: Optional[str] = None
 
 
-class VisitPinIn(BaseModel):
+class VisitorPinIn(BaseModel):
+    visitor_index: int
     pin: str
 
 
@@ -2223,8 +2224,10 @@ async def create_visit(payload: VisitIn,
         raise HTTPException(status_code=400, detail="Observaciones no puede exceder 300 caracteres")
 
     visit_id = new_id("visit", 10)
-    # PIN aleatorio de 3 dígitos (000–999) para autorizar la captura en el kiosco.
-    check_in_pin = f"{secrets.randbelow(1000):03d}"
+    # NOTA: Ya no se genera un PIN aleatorio. La autenticación en el kiosco
+    # se realiza por visitante usando los últimos 3 dígitos de la cédula del
+    # visitante (endpoint /kiosk/visits/{id}/verify-visitor). Menos fricción
+    # y sin confusión con un "PIN" adicional que había que compartir.
     doc = {
         "visit_id": visit_id,
         "type": payload.type,
@@ -2244,12 +2247,11 @@ async def create_visit(payload: VisitIn,
         "visitors": [v.model_dump() for v in payload.visitors],
         "selfies": [],
         "status": "pending",
-        "check_in_pin": check_in_pin,
         "created_at": now_utc(),
         "created_by": user["user_id"],
     }
     await db.visits.insert_one(doc)
-    return {"visit_id": visit_id, "ok": True, "check_in_pin": check_in_pin}
+    return {"visit_id": visit_id, "ok": True}
 
 
 @api.get("/visits")
@@ -2316,7 +2318,7 @@ async def kiosk_pending_visits(host_user_id: str) -> List[Dict[str, Any]]:
     ).sort("scheduled_at", 1):
         v.pop("_id", None)
         v.pop("selfies", None)
-        v.pop("check_in_pin", None)  # nunca expongas el PIN sin verificación
+        v.pop("check_in_pin", None)  # campo legacy — no se usa
         docs.append(v)
     return docs
 
@@ -2324,7 +2326,7 @@ async def kiosk_pending_visits(host_user_id: str) -> List[Dict[str, Any]]:
 @api.get("/kiosk/visits/today")
 async def kiosk_visits_today() -> List[Dict[str, Any]]:
     """Listado público de todas las visitas activas del día para el Kiosco.
-    Se autentican después con el PIN de 3 dígitos generado al crear la visita."""
+    Se autentican después con los 3 últimos dígitos de la cédula del visitante."""
     today_local = now_utc().astimezone(APP_TZ)
     start = today_local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
     end = (today_local.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)).astimezone(timezone.utc)
@@ -2342,18 +2344,23 @@ async def kiosk_visits_today() -> List[Dict[str, Any]]:
             "company_name": v.get("company_name"),
             "purpose_label": v.get("purpose_label"),
             "purpose_other": v.get("purpose_other"),
+            "observations": v.get("observations"),
             "scheduled_at": v.get("scheduled_at").isoformat() if v.get("scheduled_at") else None,
             "visitors_count": len(visitors),
+            # Nombres de visitantes (para la vista "Visita Seleccionada"); la cédula
+            # completa queda oculta — sólo se expone al validar los 3 dígitos.
+            "visitors": [{"name": vs.get("name")} for vs in visitors],
             "primary_visitor_name": (visitors[0].get("name") if visitors else None),
             "status": v.get("status"),
         })
     return docs
 
 
-@api.post("/kiosk/visits/{visit_id}/verify-pin")
-async def kiosk_verify_visit_pin(visit_id: str, payload: VisitPinIn) -> Dict[str, Any]:
-    """Valida el PIN de 3 dígitos y devuelve los datos completos de la visita
-    (incluyendo la lista de visitantes) para iniciar la captura de selfies."""
+@api.post("/kiosk/visits/{visit_id}/verify-visitor")
+async def kiosk_verify_visitor_pin(visit_id: str, payload: VisitorPinIn) -> Dict[str, Any]:
+    """Valida los últimos 3 dígitos de la cédula del visitante indicado.
+    Se usa en el nuevo flujo de recepción: cada visitante se autentica por
+    separado con los 3 últimos dígitos de su documento antes de la selfie."""
     pin = (payload.pin or "").strip()
     if not pin or not pin.isdigit() or len(pin) != 3:
         raise HTTPException(status_code=400, detail="El PIN debe ser numérico de 3 dígitos")
@@ -2362,12 +2369,20 @@ async def kiosk_verify_visit_pin(visit_id: str, payload: VisitPinIn) -> Dict[str
         raise HTTPException(status_code=404, detail="Visita no encontrada")
     if doc.get("status") not in ("pending", "in_progress"):
         raise HTTPException(status_code=400, detail="Esta visita ya fue completada o cancelada")
-    if str(doc.get("check_in_pin") or "") != pin:
-        raise HTTPException(status_code=403, detail="PIN incorrecto")
-    doc.pop("_id", None)
-    doc.pop("check_in_pin", None)  # ya verificado
-    doc.pop("selfies", None)
-    return doc
+    visitors = doc.get("visitors") or []
+    idx = payload.visitor_index
+    if idx < 0 or idx >= len(visitors):
+        raise HTTPException(status_code=400, detail="Índice de visitante inválido")
+    visitor = visitors[idx]
+    cedula = (visitor.get("cedula") or "")
+    # Extrae únicamente dígitos para tolerar formatos "V-12345678", "12.345.678", etc.
+    digits = "".join(ch for ch in cedula if ch.isdigit())
+    if len(digits) < 3:
+        raise HTTPException(status_code=400,
+                            detail="La cédula del visitante no permite validación por 3 dígitos")
+    if digits[-3:] != pin:
+        raise HTTPException(status_code=403, detail="Los 3 dígitos no coinciden con la cédula del visitante")
+    return {"ok": True, "visitor": {"name": visitor.get("name"), "cedula": cedula}}
 
 
 @api.post("/visits/{visit_id}/capture-selfie")

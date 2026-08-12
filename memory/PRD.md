@@ -142,4 +142,24 @@ Ver `/app/memory/test_credentials.md`.
   - Ruta `/horarios`: guard `check={(u) => u.role === "admin" || u.can_manage_schedules}` (nuevo prop `check` en `ProtectedRoute`).
   - `TeamPage`: para admin y supervisores con permiso, cada empleado del equipo muestra un `Select` compacto para asignar horario en línea.
 
+## Cambios recientes (Feb 12, 2026)
+
+### Fix: PIN de visitas ya no es aleatorio ✅
+**Motivo**: la generación de un PIN aleatorio de 3 dígitos al agendar una visita
+creaba confusión porque en el kiosco la validación real usa los **últimos 3 dígitos
+de la cédula** de cada visitante. Se emitía un PIN paralelo que no coincidía con
+lo que el visitante finalmente ingresaba.
+
+**Cambios**:
+- Backend (`/app/backend/server.py`):
+  - Eliminada la generación de `check_in_pin = secrets.randbelow(1000)` al crear una visita.
+  - Eliminado el campo `check_in_pin` del documento de la visita.
+  - `POST /api/visits` ya no devuelve `check_in_pin` (sólo `{visit_id, ok}`).
+  - Eliminado el endpoint legacy `POST /api/kiosk/visits/{visit_id}/verify-pin` y el schema `VisitPinIn`.
+  - La única validación PIN en el kiosco sigue siendo `POST /api/kiosk/visits/{visit_id}/verify-visitor` que compara los últimos 3 dígitos de la cédula del visitante seleccionado.
+- Frontend (`/app/frontend/src/pages/AgendarVisitaPage.jsx`):
+  - El copy de la pantalla ahora indica claramente: *"En el kiosco, cada visitante deberá ingresar los últimos 3 dígitos de su cédula"*.
+  - El diálogo de confirmación ya no muestra un PIN aleatorio grande, sino una lista de visitantes con los últimos 3 dígitos de sus cédulas (o `—` si no aplica, p. ej. menor de edad).
+  - Se removió el botón "Copiar PIN".
+
 

@@ -676,10 +676,11 @@ export default function KioskScanPage() {
       <VisitsBrowserDialog
         open={visitsBrowserOpen}
         onClose={() => setVisitsBrowserOpen(false)}
-        onVisitVerified={(fullVisit) => {
-          // PIN correcto → cargar la visita completa y disparar el flujo de selfies
+        onVisitSelected={(visit) => {
+          // Ya no verificamos un PIN global — cada visitante se autentica por
+          // separado con los últimos 3 dígitos de su cédula dentro del flujo de selfies.
           setVisitsBrowserOpen(false);
-          setActiveVisit(fullVisit);
+          setActiveVisit(visit);
           setVisitVisitorIdx(0);
         }}
       />
@@ -1006,10 +1007,20 @@ function VisitSelfieDialog({ visit, visitorIdx, onCaptured, onCancel }) {
   const streamRef = useRef(null);
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [subStep, setSubStep] = useState("pin"); // "pin" → "camera"
+  const [pin, setPin] = useState("");
+  const [pinError, setPinError] = useState(null);
+  const [verifying, setVerifying] = useState(false);
   const visitor = visit?.visitors?.[visitorIdx];
 
+  // Cada vez que cambia el visitante activo se vuelve al paso de PIN.
   useEffect(() => {
-    if (!visit) return;
+    setSubStep("pin"); setPin(""); setPinError(null);
+  }, [visit?.visit_id, visitorIdx]);
+
+  // Cámara — sólo se enciende una vez el PIN individual está validado.
+  useEffect(() => {
+    if (!visit || subStep !== "camera") return;
     let stopped = false;
     (async () => {
       try {
@@ -1032,7 +1043,28 @@ function VisitSelfieDialog({ visit, visitorIdx, onCaptured, onCancel }) {
       streamRef.current = null;
       setReady(false);
     };
-  }, [visit, visitorIdx]);
+  }, [visit, subStep]);
+
+  async function submitPin() {
+    if (!visit || !visitor) return;
+    const clean = (pin || "").trim();
+    if (!/^\d{3}$/.test(clean)) {
+      setPinError("Debes ingresar 3 dígitos");
+      return;
+    }
+    setVerifying(true); setPinError(null);
+    try {
+      await api.post(`/kiosk/visits/${visit.visit_id}/verify-visitor`, {
+        visitor_index: visitorIdx, pin: clean,
+      });
+      setSubStep("camera");
+    } catch (e) {
+      const code = e.response?.status;
+      if (code === 403) setPinError("Los 3 dígitos no coinciden con tu cédula. Intenta de nuevo.");
+      else setPinError(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+      setPin("");
+    } finally { setVerifying(false); }
+  }
 
   async function capture() {
     if (!videoRef.current) return;
@@ -1060,49 +1092,78 @@ function VisitSelfieDialog({ visit, visitorIdx, onCaptured, onCancel }) {
     <Dialog open onOpenChange={(v) => !v && onCancel()}>
       <DialogContent className="max-w-md bg-primary text-primary-foreground border-white/10" data-testid="kiosk-visit-selfie">
         <DialogHeader className="items-center text-center">
-          <DialogTitle className="text-2xl">Selfie de visitante {visitorIdx + 1} / {total}</DialogTitle>
+          <DialogTitle className="text-2xl">
+            Visitante {visitorIdx + 1} / {total}
+          </DialogTitle>
           <DialogDescription className="text-white/70">
             <span className="block text-lg font-semibold text-white">{visitor.name}</span>
-            <span className="text-sm">Cédula: {visitor.cedula}</span>
+            {subStep === "pin"
+              ? (<span className="text-sm">Introduce los últimos <b>3 dígitos</b> de tu Cédula de Identidad</span>)
+              : (<span className="text-sm">Mira a la cámara y toca <b>Capturar</b></span>)}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="relative aspect-square w-full max-w-[320px] mx-auto rounded-2xl overflow-hidden border-2 border-accent/50 bg-black/40">
-          <video ref={videoRef} autoPlay muted playsInline
-            className="absolute inset-0 h-full w-full object-cover [transform:scaleX(-1)]" />
-          <div className="pointer-events-none absolute inset-6 rounded-full border-2 border-accent/70" />
-        </div>
-
-        <DialogFooter className="flex-row gap-2 sm:justify-stretch">
-          <Button variant="outline" onClick={onCancel} disabled={busy}
-            className="rounded-full h-12 flex-1 bg-white/5 border-white/20 text-white hover:bg-white/10"
-            data-testid="kiosk-visit-selfie-cancel">
-            Cancelar
-          </Button>
-          <Button onClick={capture} disabled={!ready || busy}
-            className="rounded-full h-12 flex-1 bg-accent hover:bg-accent/90 text-primary font-bold"
-            data-testid="kiosk-visit-selfie-capture">
-            {busy ? "Guardando…" : (<><Camera className="h-4 w-4 mr-1.5" /> Capturar</>)}
-          </Button>
-        </DialogFooter>
+        {subStep === "pin" ? (
+          <>
+            <div className="grid place-items-center py-2">
+              <PinPad3
+                value={pin}
+                onChange={(v) => { setPin(v); setPinError(null); }}
+                disabled={verifying}
+              />
+            </div>
+            {pinError && (
+              <p className="text-center text-sm text-red-300" data-testid="kiosk-visitor-pin-error">
+                {pinError}
+              </p>
+            )}
+            <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">
+              <Button variant="outline" onClick={onCancel} disabled={verifying}
+                className="rounded-full h-12 flex-1 bg-white/5 border-white/20 text-white hover:bg-white/10"
+                data-testid="kiosk-visitor-pin-cancel">
+                Cancelar
+              </Button>
+              <Button onClick={submitPin} disabled={verifying || pin.length !== 3}
+                className="rounded-full h-12 flex-[1.4] bg-accent hover:bg-accent/90 text-primary font-bold"
+                data-testid="kiosk-visitor-pin-submit">
+                {verifying ? "Validando…" : (<>Validar <ArrowRight className="h-4 w-4 ml-1.5" /></>)}
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <div className="relative aspect-square w-full max-w-[320px] mx-auto rounded-2xl overflow-hidden border-2 border-accent/50 bg-black/40">
+              <video ref={videoRef} autoPlay muted playsInline
+                className="absolute inset-0 h-full w-full object-cover [transform:scaleX(-1)]" />
+              <div className="pointer-events-none absolute inset-6 rounded-full border-2 border-accent/70" />
+            </div>
+            <DialogFooter className="flex-row gap-2 sm:justify-stretch">
+              <Button variant="outline" onClick={onCancel} disabled={busy}
+                className="rounded-full h-12 flex-1 bg-white/5 border-white/20 text-white hover:bg-white/10"
+                data-testid="kiosk-visit-selfie-cancel">
+                Cancelar
+              </Button>
+              <Button onClick={capture} disabled={!ready || busy}
+                className="rounded-full h-12 flex-1 bg-accent hover:bg-accent/90 text-primary font-bold"
+                data-testid="kiosk-visit-selfie-capture">
+                {busy ? "Guardando…" : (<><Camera className="h-4 w-4 mr-1.5" /> Capturar</>)}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
 
-/** VisitsBrowserDialog — listado de visitas del día + entrada de PIN de 3 dígitos.
- *  Al validar el PIN correctamente devuelve la visita completa vía onVisitVerified
- *  para que el flujo de selfies (VisitSelfieDialog) tome el control.
- */
-function VisitsBrowserDialog({ open, onClose, onVisitVerified }) {
-  const [step, setStep] = useState("list");  // "list" | "pin"
+/** VisitsBrowserDialog — listado de visitas del día + vista "Visita Seleccionada".
+ *  El PIN individual por cédula se pide más adelante, en el flujo de selfies. */
+function VisitsBrowserDialog({ open, onClose, onVisitSelected }) {
+  const [step, setStep] = useState("list");  // "list" | "confirm"
   const [visits, setVisits] = useState([]);
   const [loading, setLoading] = useState(false);
   const [target, setTarget] = useState(null);
-  const [pin, setPin] = useState("");
-  const [verifying, setVerifying] = useState(false);
-  const [pinError, setPinError] = useState(null);
 
   async function load() {
     setLoading(true);
@@ -1117,37 +1178,11 @@ function VisitsBrowserDialog({ open, onClose, onVisitVerified }) {
 
   useEffect(() => {
     if (!open) return;
-    setStep("list"); setTarget(null); setPin(""); setPinError(null);
+    setStep("list"); setTarget(null);
     load();
   }, [open]);
 
-  function pickVisit(v) {
-    setTarget(v);
-    setPin("");
-    setPinError(null);
-    setStep("pin");
-  }
-
-  async function submitPin() {
-    if (!target) return;
-    const clean = (pin || "").trim();
-    if (!/^\d{3}$/.test(clean)) {
-      setPinError("El PIN debe tener 3 dígitos");
-      return;
-    }
-    setVerifying(true);
-    setPinError(null);
-    try {
-      const { data } = await api.post(`/kiosk/visits/${target.visit_id}/verify-pin`, { pin: clean });
-      onVisitVerified(data);
-    } catch (e) {
-      const code = e.response?.status;
-      const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
-      if (code === 403) setPinError("PIN incorrecto · intenta de nuevo");
-      else setPinError(msg);
-      setPin("");
-    } finally { setVerifying(false); }
-  }
+  function pickVisit(v) { setTarget(v); setStep("confirm"); }
 
   function fmtHora(iso) {
     if (!iso) return "";
@@ -1228,41 +1263,49 @@ function VisitsBrowserDialog({ open, onClose, onVisitVerified }) {
           </>
         )}
 
-        {step === "pin" && target && (
+        {step === "confirm" && target && (
           <>
             <DialogHeader className="text-center items-center">
               <div className="h-14 w-14 rounded-2xl bg-accent grid place-items-center mb-2">
-                <KeyRound className="h-7 w-7 text-primary" />
+                <UserCircle2 className="h-7 w-7 text-primary" />
               </div>
-              <DialogTitle className="text-primary-foreground">PIN de la visita</DialogTitle>
+              <DialogTitle className="text-primary-foreground">Visita seleccionada</DialogTitle>
               <DialogDescription className="text-white/70">
-                Ingresa los <b>3 dígitos</b> que te dieron al agendar la visita.
+                Verifica los datos y toca <b>Comenzar</b> para iniciar el registro.
               </DialogDescription>
             </DialogHeader>
 
-            <div className="rounded-xl bg-white/5 border border-white/10 p-3 space-y-0.5">
-              <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">Visita seleccionada</p>
-              <p className="text-sm font-semibold text-white truncate">
-                {target.company_name || target.primary_visitor_name}
-              </p>
-              <p className="text-[11px] text-white/70">
-                Anfitrión: <b className="text-white/90">{target.host_name}</b> · {fmtHora(target.scheduled_at)}
-              </p>
+            <div className="rounded-xl bg-white/5 border border-white/10 p-4 space-y-2.5">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">Anfitrión</p>
+                <p className="text-lg font-semibold text-white leading-tight">{target.host_name || "—"}</p>
+              </div>
+              {(target.company_name || target.purpose_label) && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">
+                    {target.company_name ? "Empresa representada" : "Motivo"}
+                  </p>
+                  <p className="text-sm font-medium text-white leading-tight">
+                    {target.company_name || target.purpose_label || target.purpose_other || "—"}
+                    {target.company_name && target.purpose_label && (
+                      <span className="text-white/60 text-xs"> · {target.purpose_label}</span>
+                    )}
+                  </p>
+                </div>
+              )}
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">
+                  Primer visitante ({target.visitors_count} en total)
+                </p>
+                <p className="text-lg font-semibold text-accent leading-tight" data-testid="kiosk-visit-first-visitor">
+                  {target.visitors?.[0]?.name || target.primary_visitor_name || "—"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-[11px] text-white/60 pt-1 border-t border-white/10">
+                <Clock3 className="h-3 w-3" />
+                <span>Programada para las {fmtHora(target.scheduled_at)}</span>
+              </div>
             </div>
-
-            <div className="grid place-items-center py-2">
-              <PinPad3
-                value={pin}
-                onChange={(v) => { setPin(v); setPinError(null); }}
-                disabled={verifying}
-              />
-            </div>
-
-            {pinError && (
-              <p className="text-center text-sm text-red-300" data-testid="kiosk-visit-pin-error">
-                {pinError}
-              </p>
-            )}
 
             <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">
               <Button
@@ -1270,18 +1313,17 @@ function VisitsBrowserDialog({ open, onClose, onVisitVerified }) {
                 variant="outline"
                 onClick={() => setStep("list")}
                 className="h-11 rounded-full flex-1 bg-white/5 border-white/20 text-white hover:bg-white/10"
-                data-testid="kiosk-visit-pin-back"
+                data-testid="kiosk-visit-confirm-back"
               >
                 Atrás
               </Button>
               <Button
                 type="button"
-                onClick={submitPin}
-                disabled={verifying || pin.length !== 3}
+                onClick={() => onVisitSelected(target)}
                 className="h-11 rounded-full flex-[1.4] bg-accent hover:bg-accent/90 text-primary font-bold"
-                data-testid="kiosk-visit-pin-submit"
+                data-testid="kiosk-visit-confirm-start"
               >
-                {verifying ? "Validando…" : (<>Validar <ArrowRight className="h-4 w-4 ml-1.5" /></>)}
+                Comenzar <ArrowRight className="h-4 w-4 ml-1.5" />
               </Button>
             </DialogFooter>
           </>

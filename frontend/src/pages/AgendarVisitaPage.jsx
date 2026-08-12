@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
-import { UserPlus, Users, Building2, Trash2, Save, X, User as UserIcon, IdCard, Phone, KeyRound, Copy, Check } from "lucide-react";
+import { UserPlus, Users, Building2, Trash2, Save, X, User as UserIcon, IdCard, Phone, KeyRound } from "lucide-react";
 
 const PURPOSE_OPTIONS = [
   { value: "reunion", label: "Reunión" },
@@ -34,7 +34,7 @@ export default function AgendarVisitaPage() {
   const [visitors, setVisitors] = useState([{ name: "", cedula: "", phone: "", is_minor: false }]);
   const [employees, setEmployees] = useState([]);
   const [saving, setSaving] = useState(false);
-  const [confirmation, setConfirmation] = useState(null);  // { pin, visit_id, host_name, visitors_count }
+  const [confirmation, setConfirmation] = useState(null);  // { visit_id, host_name, company_name, visitors:[{name, cedula, is_minor}] }
 
   useEffect(() => {
     api.get("/users")
@@ -97,11 +97,14 @@ export default function AgendarVisitaPage() {
       const { data } = await api.post("/visits", payload);
       const host = employees.find((u) => u.user_id === hostUserId);
       setConfirmation({
-        pin: data.check_in_pin,
         visit_id: data.visit_id,
         host_name: host?.name || "—",
-        visitors_count: visitors.length,
         company_name: type === "laboral" ? companyName.trim() : null,
+        visitors: visitors.map((v) => ({
+          name: v.name.trim(),
+          cedula: v.cedula?.trim() || "",
+          is_minor: type === "personal" ? !!v.is_minor : false,
+        })),
       });
       reset();
     } catch (e) {
@@ -116,9 +119,9 @@ export default function AgendarVisitaPage() {
       <div>
         <h1 className="text-3xl font-bold">Agendar visita</h1>
         <p className="text-sm text-muted-foreground">
-          Registra una visita personal o laboral. Al guardar recibirás un
-          <b> PIN de 3 dígitos </b> que el visitante deberá ingresar en el kiosco
-          para iniciar la captura de selfies.
+          Registra una visita personal o laboral. En el kiosco de recepción, cada
+          visitante deberá ingresar los <b>últimos 3 dígitos de su cédula</b> para
+          autorizar la captura de su selfie.
         </p>
       </div>
 
@@ -308,15 +311,12 @@ function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, with
 }
 
 function VisitConfirmationDialog({ confirmation, onClose }) {
-  const [copied, setCopied] = useState(false);
-  const pin = confirmation?.pin || "";
+  const visitors = confirmation?.visitors || [];
 
-  async function copyPin() {
-    try {
-      await navigator.clipboard.writeText(pin);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
-    } catch (_) { /* ignore */ }
+  function last3(cedula) {
+    const digits = String(cedula || "").replace(/\D/g, "");
+    if (digits.length < 3) return null;
+    return digits.slice(-3);
   }
 
   return (
@@ -328,36 +328,46 @@ function VisitConfirmationDialog({ confirmation, onClose }) {
           </div>
           <DialogTitle>Visita agendada</DialogTitle>
           <DialogDescription>
-            Comparte este <b>PIN de 3 dígitos</b> con tu visitante. Lo necesitará
-            para autorizar la captura de selfies en el kiosco de recepción.
+            En el kiosco, cada visitante deberá ingresar los{" "}
+            <b>últimos 3 dígitos de su cédula</b> para autorizar la captura de su selfie.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-2xl bg-primary text-primary-foreground text-center py-6 my-2 shadow-inner">
-          <p className="text-[10px] uppercase tracking-[0.3em] text-white/60">PIN de confirmación</p>
-          <p className="text-6xl font-black tracking-[0.4em] mt-1 font-mono" data-testid="visit-pin-display">
-            {pin || "···"}
-          </p>
+        <div className="rounded-2xl border bg-muted/40 divide-y overflow-hidden my-2">
+          {visitors.map((v, i) => {
+            const pin = last3(v.cedula);
+            return (
+              <div key={i} className="flex items-center justify-between gap-3 px-4 py-3"
+                   data-testid={`visit-confirmation-visitor-${i}`}>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{v.name || `Visitante ${i + 1}`}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {v.cedula
+                      ? <>Cédula <span className="font-mono">{v.cedula}</span></>
+                      : (v.is_minor ? "Menor de edad (sin cédula)" : "Sin cédula")}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground">PIN</p>
+                  <p className="text-2xl font-black font-mono tracking-[0.25em]"
+                     data-testid={`visit-confirmation-pin-${i}`}>
+                    {pin || "—"}
+                  </p>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         <div className="text-xs text-muted-foreground space-y-1">
           <p><b>Anfitrión:</b> {confirmation?.host_name}</p>
           {confirmation?.company_name && <p><b>Empresa:</b> {confirmation.company_name}</p>}
-          <p><b>Visitantes:</b> {confirmation?.visitors_count}</p>
         </div>
 
-        <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">
-          <Button
-            variant="outline"
-            onClick={copyPin}
-            className="h-11 rounded-full flex-1"
-            data-testid="visit-pin-copy"
-          >
-            {copied ? (<><Check className="h-4 w-4 mr-1.5" /> Copiado</>) : (<><Copy className="h-4 w-4 mr-1.5" /> Copiar PIN</>)}
-          </Button>
+        <DialogFooter className="pt-2">
           <Button
             onClick={onClose}
-            className="h-11 rounded-full flex-1 bg-primary hover:bg-primary/90"
+            className="h-11 rounded-full w-full bg-primary hover:bg-primary/90"
             data-testid="visit-pin-done"
           >
             Listo
