@@ -696,7 +696,10 @@ async def users_get(user_id: str,
 @api.put("/users/{user_id}")
 async def users_update(user_id: str, payload: UserUpdate,
                        _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
-    updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # `exclude_unset=True` respeta la diferencia entre "campo omitido" (no cambia)
+    # y "campo enviado con null" (desasignar). Esto permite que el admin ponga
+    # `schedule_id`/`department_id`/`site_id`/`supervisor_id` en "Sin asignar".
+    updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Sin cambios")
     res = await db.users.update_one({"user_id": user_id}, {"$set": updates})

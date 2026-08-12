@@ -133,13 +133,22 @@ export default function UsersPage() {
 
   async function saveUser(form) {
     try {
-      // sanea "" -> undefined en selects opcionales
       const payload = { ...form };
-      ["department_id", "site_id", "supervisor_id", "schedule_id", "position", "cedula", "pin"].forEach(
+      // Campos de texto opcionales: si están vacíos, no los enviamos.
+      ["position", "cedula", "pin"].forEach(
         (k) => { if (!payload[k]) delete payload[k]; }
       );
+      // Campos de referencia: si el usuario eligió "Sin asignar" (""),
+      // enviamos `null` explícito para que el backend lo desasigne.
+      ["department_id", "site_id", "supervisor_id", "schedule_id"].forEach((k) => {
+        if (!payload[k]) payload[k] = null;
+      });
       if (editing.mode === "create") {
         if (!payload.password) payload.password = Math.random().toString(36).slice(2, 10) + "A1";
+        // En creación, no enviamos nulls (para no romper validaciones).
+        ["department_id", "site_id", "supervisor_id", "schedule_id"].forEach((k) => {
+          if (payload[k] === null) delete payload[k];
+        });
         await api.post("/users", payload);
         toast.success("Empleado creado");
       } else {
