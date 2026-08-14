@@ -2,7 +2,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import MandatoryPasswordChange from "@/pages/MandatoryPasswordChange";
 
-export default function ProtectedRoute({ children, roles, check }) {
+export default function ProtectedRoute({ children, roles, check, redirectTo }) {
   const { user } = useAuth();
   const location = useLocation();
 
@@ -21,10 +21,10 @@ export default function ProtectedRoute({ children, roles, check }) {
     return <MandatoryPasswordChange />;
   }
   if (roles && !roles.includes(user.role)) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={redirectTo || "/"} replace />;
   }
   if (typeof check === "function" && !check(user)) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={redirectTo || "/"} replace />;
   }
   return children;
 }

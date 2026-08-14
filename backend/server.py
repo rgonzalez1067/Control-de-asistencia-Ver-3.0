@@ -142,12 +142,15 @@ _ROLE_ALIASES = {
     "supervisor": "supervisor", "supervisora": "supervisor",
     "employee": "employee", "empleado": "employee", "empleada": "employee",
     "user": "employee",
+    # "kiosk" es un rol operativo restringido: sólo activa el modo Kiosco de una
+    # sede fija; no tiene acceso al panel administrativo. Ver seed en on_startup.
+    "kiosk": "kiosk", "kiosco": "kiosk",
 }
 
 
 def normalize_role(value: Any) -> str:
-    """Normaliza cualquier variante de rol a las 3 claves canónicas
-    ('admin' | 'supervisor' | 'employee')."""
+    """Normaliza cualquier variante de rol a las claves canónicas
+    ('admin' | 'supervisor' | 'employee' | 'kiosk')."""
     if not value:
         return "employee"
     key = str(value).strip().lower()
@@ -172,6 +175,19 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
     user = await db.users.find_one({"user_id": payload["sub"]})
     if not user:
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
+
+    # Restricción global: los usuarios con rol `kiosk` sólo pueden acceder a
+    # endpoints relacionados con el modo Kiosco (o al `me`/`logout` para que
+    # el frontend valide su sesión). Cualquier otra ruta responde 403.
+    if user.get("role") == "kiosk":
+        path = request.url.path
+        allowed_prefixes = ("/api/kiosk/",)
+        allowed_paths = {"/api/auth/me", "/api/auth/logout"}
+        if not (path in allowed_paths or any(path.startswith(p) for p in allowed_prefixes)):
+            raise HTTPException(
+                status_code=403,
+                detail="Este usuario sólo puede operar el modo Kiosco",
+            )
     return user
 
 
@@ -506,7 +522,86 @@ async def on_startup() -> None:
                     {"$set": {"password_hash": hash_password(admin_password)}},
                 )
                 logger.info("Seed: contraseña admin refrescada.")
+
+    # ------------------------------------------------------------------
+    # Seed de usuarios Kiosco por sede (idempotente).
+    # Uno por sede física — el admin puede rotar la contraseña después
+    # y los reseeds NO la sobreescribirán.
+    # ------------------------------------------------------------------
+    await _seed_kiosk_users()
     logger.info("Startup completo.")
+
+
+async def _find_site_by_keywords(*keywords: str) -> Optional[Dict[str, Any]]:
+    """Busca una sede cuyo nombre contenga TODAS las palabras dadas
+    (case-insensitive). Devuelve el doc de la sede o None."""
+    async for s in db.sites.find({}, {"site_id": 1, "name": 1, "_id": 0}):
+        name = (s.get("name") or "").lower()
+        if all(k.lower() in name for k in keywords):
+            return s
+    return None
+
+
+async def _seed_kiosk_users() -> None:
+    """Crea los usuarios operativos del Kiosco:
+        - Kiosco TBP  → asociado a "Sede Torre Banco Plaza"
+        - Kiosco LCH  → asociado a "Sede Los Chaguaramos"
+    Contraseña por defecto: 'Mega2026*' (override via KIOSK_TBP_PASSWORD /
+    KIOSK_LCH_PASSWORD). El seed NO reescribe contraseñas ya cambiadas por
+    el admin — sólo asegura que los usuarios existan con el site_id correcto.
+    """
+    default_pw = "Mega2026*"
+
+    specs = [
+        {
+            "email": "kiosco.tbp@megasoft.com.ve",
+            "name": "Kiosco TBP",
+            "site_keywords": ("torre", "banco"),
+            "password": os.environ.get("KIOSK_TBP_PASSWORD", default_pw),
+        },
+        {
+            "email": "kiosco.lch@megasoft.com.ve",
+            "name": "Kiosco LCH",
+            "site_keywords": ("chaguaramos",),
+            "password": os.environ.get("KIOSK_LCH_PASSWORD", default_pw),
+        },
+    ]
+
+    for spec in specs:
+        site = await _find_site_by_keywords(*spec["site_keywords"])
+        if not site:
+            logger.warning(
+                "Seed kiosco: sede con palabras %s no encontrada; no se crea '%s'.",
+                spec["site_keywords"], spec["email"],
+            )
+            continue
+
+        existing = await db.users.find_one({"email": spec["email"]})
+        if existing is None:
+            await db.users.insert_one({
+                "user_id": new_id("user"),
+                "email": spec["email"],
+                "name": spec["name"],
+                "role": "kiosk",
+                "site_id": site["site_id"],
+                "password_hash": hash_password(spec["password"]),
+                "onboarded": True,   # sin flujo de selfie
+                "created_at": now_utc(),
+            })
+            logger.info("Seed kiosco: usuario '%s' creado (sede %s).",
+                        spec["email"], site.get("name"))
+        else:
+            # Asegura role='kiosk' y site_id vigente. NO tocar el hash de la
+            # contraseña si ya fue rotada por el admin.
+            updates: Dict[str, Any] = {}
+            if existing.get("role") != "kiosk":
+                updates["role"] = "kiosk"
+            if existing.get("site_id") != site["site_id"]:
+                updates["site_id"] = site["site_id"]
+            if updates:
+                await db.users.update_one({"_id": existing["_id"]}, {"$set": updates})
+                logger.info("Seed kiosco: '%s' actualizado (%s).",
+                            spec["email"], list(updates.keys()))
 
 
 @app.on_event("shutdown")
@@ -1764,14 +1859,32 @@ KIOSK_SESSION_TTL_MIN = 5
 
 
 @api.post("/kiosk/session/open", include_in_schema=False)
-async def kiosk_session_open(payload: Dict[str, Any]) -> Dict[str, Any]:
+async def kiosk_session_open(payload: Dict[str, Any], request: Request) -> Dict[str, Any]:
     site_id = (payload or {}).get("site_id")
     if not site_id:
         raise HTTPException(status_code=400, detail="Falta site_id")
     site = await db.sites.find_one({"site_id": site_id})
     if not site:
         raise HTTPException(status_code=404, detail="Sede no registrada")
-    # Verifica que no exista otra sesión activa en esa sede
+
+    # Si el request viene autenticado como un usuario `kiosk` cuya `site_id`
+    # coincide con la sede solicitada, se cierra automáticamente la sesión
+    # previa (típico caso: la tablet perdió energía y quedó una sesión huérfana).
+    force_from_kiosk_user = False
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = auth.split(" ", 1)[1].strip()
+        try:
+            payload_jwt = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            uid = payload_jwt.get("sub")
+            if uid:
+                requester = await db.users.find_one({"user_id": uid})
+                if (requester and requester.get("role") == "kiosk"
+                        and requester.get("site_id") == site_id):
+                    force_from_kiosk_user = True
+        except jwt.PyJWTError:
+            pass
+
     cutoff = now_utc() - timedelta(minutes=KIOSK_SESSION_TTL_MIN)
     existing = await db.kiosk_sessions.find_one({
         "site_id": site_id,
@@ -1779,11 +1892,20 @@ async def kiosk_session_open(payload: Dict[str, Any]) -> Dict[str, Any]:
         "last_heartbeat": {"$gte": cutoff},
     })
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ya existe un kiosco activo para la sede '{site.get('name') or site_id}'. "
-                   f"Ciérralo antes de abrir uno nuevo.",
-        )
+        if force_from_kiosk_user:
+            # Cierra la sesión anterior — la nueva viene de un usuario Kiosco
+            # legítimo para esta sede.
+            await db.kiosk_sessions.update_many(
+                {"site_id": site_id, "closed_at": None},
+                {"$set": {"closed_at": now_utc(), "closed_forced": True,
+                          "closed_reason": "kiosk_user_re_open"}},
+            )
+        else:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ya existe un kiosco activo para la sede '{site.get('name') or site_id}'. "
+                       f"Ciérralo antes de abrir uno nuevo.",
+            )
     session_id = new_id("kiosk_sess", 12)
     await db.kiosk_sessions.insert_one({
         "session_id": session_id,

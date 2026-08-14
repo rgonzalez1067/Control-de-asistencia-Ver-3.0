@@ -41,7 +41,13 @@ export default function LoginPage() {
     setBusy(false);
     if (res.ok) {
       toast.success(`Bienvenido, ${res.user.name.split(" ")[0]}`, { duration: 1800 });
-      nav(from, { replace: true });
+      // Los usuarios operativos del Kiosco entran directo al modo Kiosco
+      // (sin pasar por el panel administrativo ni por el selector de sede).
+      if (res.user.role === "kiosk") {
+        nav("/kiosk/auto", { replace: true });
+      } else {
+        nav(from, { replace: true });
+      }
     } else {
       toast.error(res.error);
     }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import { isKioskUnlocked, setKioskUnlocked, getKioskSite, clearKioskSite } from "@/pages/KioskUnlockPage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,7 @@ async function loadModels(faceapi) {
 
 export default function KioskScanPage() {
   const nav = useNavigate();
+  const { user: currentUser, logout } = useAuth();
   const kioskSite = useMemo(() => getKioskSite(), []);
   const [phase, setPhase] = useState("boot");
   const [status, setStatus] = useState("Cargando reconocimiento facial…");
@@ -329,6 +331,12 @@ export default function KioskScanPage() {
     setKioskUnlocked(false);
     streamRef.current?.getTracks().forEach((t) => t.stop());
     if (intervalRef.current) clearInterval(intervalRef.current);
+    // Si estamos como usuario `kiosk`, también cerramos la sesión de auth
+    // para que "Regresar al panel administrativo" no rebote a /kiosk/auto.
+    if (currentUser?.role === "kiosk") {
+      logout().finally(() => nav("/kiosk", { replace: true }));
+      return;
+    }
     nav("/kiosk", { replace: true });
   }
 
@@ -339,6 +347,14 @@ export default function KioskScanPage() {
     setKioskUnlocked(false);
     streamRef.current?.getTracks().forEach((t) => t.stop());
     if (intervalRef.current) clearInterval(intervalRef.current);
+    // Si la sesión actual pertenece a un usuario `kiosk` (Kiosco TBP / LCH),
+    // hay que cerrarla; de lo contrario HomeRedirect nos rebotaría a
+    // `/kiosk/auto`. Así el admin que desbloqueó vuelve a la pantalla de login
+    // para entrar con sus propias credenciales.
+    if (currentUser?.role === "kiosk") {
+      logout().finally(() => nav("/login", { replace: true }));
+      return;
+    }
     nav("/", { replace: true });
   }
 

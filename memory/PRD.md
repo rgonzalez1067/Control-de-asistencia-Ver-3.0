@@ -162,4 +162,46 @@ lo que el visitante finalmente ingresaba.
   - El diálogo de confirmación ya no muestra un PIN aleatorio grande, sino una lista de visitantes con los últimos 3 dígitos de sus cédulas (o `—` si no aplica, p. ej. menor de edad).
   - Se removió el botón "Copiar PIN".
 
+## Cambios recientes (Feb 14, 2026)
+
+### Nuevo rol `kiosk` — usuarios operativos para arranque directo del Kiosco ✅
+**Motivo**: personal de recepción/seguridad debe poder encender la app en modo
+Kiosco sin acceder al panel administrativo ni al selector de sede. Además, la
+provisión de estos usuarios debe replicarse automáticamente en cualquier deploy.
+
+**Backend** (`/app/backend/server.py`):
+- Nuevo rol canónico `kiosk` en `_ROLE_ALIASES` / `normalize_role`.
+- Guard global en `get_current_user`: un JWT de rol `kiosk` sólo puede llamar
+  endpoints bajo `/api/kiosk/*` (más `/api/auth/me` y `/api/auth/logout`).
+  Cualquier otro endpoint responde **403**.
+- Seed automático en `on_startup` (`_seed_kiosk_users`) — idempotente:
+  - `kiosco.tbp@megasoft.com.ve` → sede "Sede Torre Banco Plaza"
+  - `kiosco.lch@megasoft.com.ve` → sede "Sede Los Chaguaramos"
+  - Contraseña por defecto `Mega2026*`, override vía envs
+    `KIOSK_TBP_PASSWORD` / `KIOSK_LCH_PASSWORD`.
+  - Si el usuario ya existe, sólo se refresca `role`/`site_id` si están
+    desalineados. **Nunca reescribe la contraseña** una vez rotada por el admin.
+- `POST /api/kiosk/session/open` ahora inspecciona el header `Authorization`:
+  si el requester es un usuario `kiosk` cuyo `site_id` coincide con el solicitado,
+  se cierra automáticamente cualquier sesión huérfana en esa sede
+  (caso: tablet perdió energía sin cerrar sesión). Sin token o con token
+  inválido/de otra sede, mantiene el bloqueo 409.
+
+**Frontend**:
+- Nueva página `/app/frontend/src/pages/KioskAutoStart.jsx` (ruta `/kiosk/auto`):
+  toma `user.site_id`, llama `session/open` (que auto force-cierra la sesión
+  vieja gracias al bearer del kiosk-user), setea `sessionStorage`, y redirige
+  a `/kiosk/scan`. Muestra estado + error box con opción de "cerrar sesión".
+- `LoginPage`: si `res.user.role === "kiosk"`, navega a `/kiosk/auto` (skip
+  `HomeRedirect`).
+- `HomeRedirect`: si el usuario es `kiosk`, redirige a `/kiosk/auto`.
+- `ProtectedRoute`: añade prop opcional `redirectTo`. El App shell usa
+  `check={(u) => u.role !== "kiosk"} redirectTo="/kiosk/auto"` para blindar
+  cualquier ruta admin/supervisor/empleado ante un usuario `kiosk`.
+- `KioskScanPage.exitToAdmin` / `lockKiosk`: si el usuario actual es `kiosk`,
+  ahora se hace `logout()` antes de navegar. Sin esto, `HomeRedirect` rebotaría
+  al usuario de vuelta a `/kiosk/auto`.
+- El diálogo "Salir del kiosco" ya usaba `/kiosk/unlock` (que exige rol `admin`).
+  Un usuario `kiosk` no puede desbloquearse a sí mismo — 401 automático.
+
 

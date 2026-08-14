@@ -24,6 +24,7 @@ import NoveltiesPage from "@/pages/NoveltiesPage";
 import TeamPage from "@/pages/TeamPage";
 import AgendarVisitaPage from "@/pages/AgendarVisitaPage";
 import HistoricoVisitasPage from "@/pages/HistoricoVisitasPage";
+import KioskAutoStart from "@/pages/KioskAutoStart";
 
 const ADMIN = ["admin"];
 const ADMIN_OR_SUP = ["admin", "supervisor"];
@@ -38,6 +39,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/kiosk" element={<KioskUnlockPage />} />
           <Route path="/kiosk/scan" element={<KioskScanPage />} />
+          <Route path="/kiosk/auto" element={<KioskAutoStart />} />
 
           {/* Onboarding sin layout (pantalla completa dedicada) */}
           <Route
@@ -52,7 +54,10 @@ function App() {
           {/* App shell */}
           <Route
             element={
-              <ProtectedRoute>
+              <ProtectedRoute
+                check={(u) => u.role !== "kiosk"}
+                redirectTo="/kiosk/auto"
+              >
                 <AppLayout />
               </ProtectedRoute>
             }
