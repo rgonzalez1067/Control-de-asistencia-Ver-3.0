@@ -70,7 +70,7 @@ export default function KioskAutoStart() {
             : <ShieldCheck className="h-8 w-8 text-foreground" />}
         </div>
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-white/50">MegaSoft · Kiosco</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-white/50">Mega Soft · Kiosco</p>
           <h1 className="text-3xl font-bold mt-1">
             {err ? "No se pudo iniciar" : "Activando kiosco…"}
           </h1>

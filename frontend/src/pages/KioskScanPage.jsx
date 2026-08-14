@@ -37,17 +37,31 @@ function loadFaceApi() {
     s.src = FACEAPI_URL;
     s.async = true;
     s.onload = () => resolve(window.faceapi);
-    s.onerror = () => reject(new Error("No se pudo cargar face-api.js"));
+    s.onerror = () => {
+      window.__faceApiLoading = null;
+      reject(new Error("No se pudo cargar face-api.js"));
+    };
     document.head.appendChild(s);
   });
   return window.__faceApiLoading;
 }
 
 async function loadModels(faceapi) {
+  // Idempotente: si ya se cargaron (p. ej. desde KioskUnlockPage) no reintenta.
+  if (window.__faceModelsReady) return;
   await Promise.all([
     faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_URL),
     faceapi.nets.faceLandmark68Net.loadFromUri(MODELS_URL),
     faceapi.nets.faceRecognitionNet.loadFromUri(MODELS_URL),
+  ]);
+  window.__faceModelsReady = true;
+}
+
+/** Envuelve una promesa con un timeout. Si expira, se rechaza con `message`. */
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms)),
   ]);
 }
 
@@ -143,8 +157,16 @@ export default function KioskScanPage() {
     async function boot() {
       try {
         setStatus("Descargando modelos de rostro…");
-        const faceapi = await loadFaceApi();
-        await loadModels(faceapi);
+        const faceapi = await withTimeout(
+          loadFaceApi(),
+          25000,
+          "Tiempo agotado al descargar face-api.js. Verifica la conexión a Internet.",
+        );
+        await withTimeout(
+          loadModels(faceapi),
+          40000,
+          "Tiempo agotado al cargar los modelos de rostro. Verifica la conexión a Internet o intenta de nuevo.",
+        );
         if (cancelled) return;
 
         setStatus("Cargando personal…");
@@ -183,7 +205,7 @@ export default function KioskScanPage() {
       } catch (e) {
         console.error(e);
         setPhase("faceUnavailable");
-        setStatus("Reconocimiento facial no disponible — usa PIN");
+        setStatus(e?.message || "Reconocimiento facial no disponible — usa PIN");
       }
     }
 
@@ -420,7 +442,7 @@ export default function KioskScanPage() {
             <ScanFace className="h-5 w-5 text-primary" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-[0.3em] text-white/50 leading-none">MegaSoft · Kiosco</p>
+            <p className="text-[10px] uppercase tracking-[0.3em] text-white/50 leading-none">Mega Soft · Kiosco</p>
             {kioskSite.site_name ? (
               <p
                 className="mt-1 flex items-center gap-2 text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tight text-accent leading-tight truncate drop-shadow-[0_0_12px_rgba(250,204,21,0.25)]"
@@ -461,14 +483,24 @@ export default function KioskScanPage() {
               <KeyRound className="h-8 w-8 text-accent" />
             </div>
             <h2 className="text-2xl font-bold">Reconocimiento facial no disponible</h2>
-            <p className="text-white/60 text-sm mt-2 max-w-md mx-auto">
-              Los empleados pueden marcar con PIN mientras se resuelve.
+            <p className="text-white/60 text-sm mt-2 max-w-md mx-auto whitespace-pre-line">
+              {status || "Los empleados pueden marcar con PIN mientras se resuelve."}
             </p>
-            <Button onClick={() => setShowPinList(true)}
-              className="mt-6 h-14 rounded-full bg-accent hover:bg-accent/90 text-primary font-semibold px-8 text-base"
-              data-testid="kiosk-face-unavailable-pin-btn">
-              <KeyRound className="h-5 w-5 mr-2" /> Marcar con PIN
-            </Button>
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Button onClick={() => setShowPinList(true)}
+                className="h-14 rounded-full bg-accent hover:bg-accent/90 text-primary font-semibold px-8 text-base"
+                data-testid="kiosk-face-unavailable-pin-btn">
+                <KeyRound className="h-5 w-5 mr-2" /> Marcar con PIN
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => window.location.reload()}
+                className="h-14 rounded-full border-2 border-white/30 bg-white/5 text-white hover:bg-white/10 px-6 text-base"
+                data-testid="kiosk-face-retry-btn"
+              >
+                <RefreshCcw className="h-4 w-4 mr-2" /> Reintentar carga
+              </Button>
+            </div>
           </div>
         ) : (
           <>

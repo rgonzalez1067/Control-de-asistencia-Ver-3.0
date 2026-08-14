@@ -107,7 +107,7 @@ export default function KioskUnlockPage() {
             <div className="h-16 w-16 rounded-2xl bg-accent grid place-items-center shadow-lg shadow-accent/30 mb-4">
               {step === "site" ? <MapPin className="h-8 w-8 text-foreground" /> : <ScanFace className="h-8 w-8 text-foreground" />}
             </div>
-            <p className="text-xs uppercase tracking-[0.3em] text-white/50">MegaSoft · Modo</p>
+            <p className="text-xs uppercase tracking-[0.3em] text-white/50">Mega Soft · Modo</p>
             <h1 className="text-3xl font-bold mt-1">
               {step === "site" ? "Elige la sede" : "Kiosco compartido"}
             </h1>

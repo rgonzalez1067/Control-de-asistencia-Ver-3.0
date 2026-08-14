@@ -116,7 +116,7 @@ export default function AppLayout() {
             <div className="bg-white/95 rounded-lg px-2 py-1.5 shadow-sm">
               <img
                 src={logo}
-                alt="MegaSoft"
+                alt="Mega Soft"
                 className="h-9 w-auto max-w-[170px] object-contain"
                 data-testid="sidebar-brand-logo"
               />
@@ -127,7 +127,7 @@ export default function AppLayout() {
                 <ShieldCheck className="h-5 w-5 text-foreground" />
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-[0.25em] text-white/60">MegaSoft</p>
+                <p className="text-[10px] uppercase tracking-[0.25em] text-white/60">Mega Soft</p>
                 <p className="text-sm font-semibold">Asistencia</p>
               </div>
             </>
@@ -176,7 +176,7 @@ export default function AppLayout() {
                     <SheetTitle className="text-primary-foreground flex items-center gap-3">
                       {logo ? (
                         <div className="bg-white/95 rounded-lg px-2 py-1.5 shadow-sm">
-                          <img src={logo} alt="MegaSoft" className="h-8 w-auto max-w-[160px] object-contain" />
+                          <img src={logo} alt="Mega Soft" className="h-8 w-auto max-w-[160px] object-contain" />
                         </div>
                       ) : (
                         <>
@@ -184,7 +184,7 @@ export default function AppLayout() {
                             <ShieldCheck className="h-5 w-5 text-primary" />
                           </div>
                           <div>
-                            <p className="text-[10px] uppercase tracking-[0.25em] text-white/60">MegaSoft</p>
+                            <p className="text-[10px] uppercase tracking-[0.25em] text-white/60">Mega Soft</p>
                             <p className="text-sm font-semibold">Asistencia</p>
                           </div>
                         </>
@@ -219,13 +219,13 @@ export default function AppLayout() {
                 </SheetContent>
               </Sheet>
               {logo ? (
-                <img src={logo} alt="MegaSoft" className="h-8 w-auto max-w-[140px] object-contain" />
+                <img src={logo} alt="Mega Soft" className="h-8 w-auto max-w-[140px] object-contain" />
               ) : (
                 <>
                   <div className="h-9 w-9 rounded-xl bg-primary grid place-items-center">
                     <ShieldCheck className="h-4 w-4 text-accent" />
                   </div>
-                  <p className="text-sm font-semibold text-foreground">MegaSoft</p>
+                  <p className="text-sm font-semibold text-foreground">Mega Soft</p>
                 </>
               )}
             </div>

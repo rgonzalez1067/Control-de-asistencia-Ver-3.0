@@ -58,7 +58,7 @@ export default function ExecutiveWidget() {
       doc.rect(0, 0, w, 90, "F");
       doc.setTextColor(247, 201, 72);
       doc.setFontSize(9);
-      doc.text(String(company.name || "MegaSoft").toUpperCase(), 40, 32);
+      doc.text(String(company.name || "Mega Soft").toUpperCase(), 40, 32);
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(20);
       doc.text("Resumen ejecutivo de asistencia", 40, 58);
@@ -140,7 +140,7 @@ export default function ExecutiveWidget() {
         doc.setFontSize(8);
         doc.setTextColor(120, 130, 145);
         doc.text(
-          `${company.name || "MegaSoft"} · Reporte confidencial · Página ${i} de ${total}`,
+          `${company.name || "Mega Soft"} · Reporte confidencial · Página ${i} de ${total}`,
           w / 2, doc.internal.pageSize.getHeight() - 20, { align: "center" }
         );
       }

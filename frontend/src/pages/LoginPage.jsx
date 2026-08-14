@@ -76,7 +76,7 @@ export default function LoginPage() {
             {logo ? (
               <img
                 src={logo}
-                alt="MegaSoft"
+                alt="Mega Soft"
                 className="h-28 w-auto max-w-[360px] object-contain drop-shadow-[0_6px_18px_rgba(0,0,0,0.35)]"
                 data-testid="login-brand-logo"
               />
@@ -86,7 +86,7 @@ export default function LoginPage() {
                   <ShieldCheck className="h-5 w-5 text-foreground" />
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">MegaSoft</p>
+                  <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">Mega Soft</p>
                   <p className="text-base font-semibold">Asistencia · Web/PWA</p>
                 </div>
               </>
@@ -149,13 +149,13 @@ export default function LoginPage() {
           {/* mobile brand mini header */}
           <div className="absolute top-6 left-6 lg:hidden flex items-center gap-2">
             {logo ? (
-              <img src={logo} alt="MegaSoft" className="h-9 w-auto max-w-[150px] object-contain" data-testid="login-brand-logo-mobile" />
+              <img src={logo} alt="Mega Soft" className="h-9 w-auto max-w-[150px] object-contain" data-testid="login-brand-logo-mobile" />
             ) : (
               <>
                 <div className="h-9 w-9 rounded-xl bg-primary grid place-items-center">
                   <ShieldCheck className="h-4 w-4 text-accent" />
                 </div>
-                <p className="text-sm font-semibold text-foreground">MegaSoft Asistencia</p>
+                <p className="text-sm font-semibold text-foreground">Mega Soft Asistencia</p>
               </>
             )}
           </div>
@@ -249,7 +249,7 @@ export default function LoginPage() {
           </div>
 
           <p className="absolute bottom-4 right-6 text-[11px] text-muted-foreground/70">
-            © MegaSoft Computación, C.A. · v0.1
+            © Mega Soft Computación, C.A. · v0.1
           </p>
         </section>
       </div>

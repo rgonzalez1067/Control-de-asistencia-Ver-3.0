@@ -1,5 +1,5 @@
 """
-MegaSoft Asistencia — FastAPI Backend
+Mega Soft Asistencia — FastAPI Backend
 Fase 0: Puerto de la lógica del proyecto Mobile/Expo al stack Web/PWA.
 
 Basado en el MIGRATION_BLUEPRINT.md (47 endpoints agrupados por dominio):
@@ -49,7 +49,7 @@ APP_TZ = ZoneInfo(os.environ.get("APP_TIMEZONE", "America/Caracas"))
 client = AsyncIOMotorClient(MONGO_URL, tz_aware=True)
 db = client[DB_NAME]
 
-app = FastAPI(title="MegaSoft Asistencia API", version="0.1.0")
+app = FastAPI(title="Mega Soft Asistencia API", version="0.1.0")
 api = APIRouter(prefix="/api")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -175,19 +175,12 @@ async def get_current_user(request: Request) -> Dict[str, Any]:
     user = await db.users.find_one({"user_id": payload["sub"]})
     if not user:
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
-
-    # Restricción global: los usuarios con rol `kiosk` sólo pueden acceder a
-    # endpoints relacionados con el modo Kiosco (o al `me`/`logout` para que
-    # el frontend valide su sesión). Cualquier otra ruta responde 403.
-    if user.get("role") == "kiosk":
-        path = request.url.path
-        allowed_prefixes = ("/api/kiosk/",)
-        allowed_paths = {"/api/auth/me", "/api/auth/logout"}
-        if not (path in allowed_paths or any(path.startswith(p) for p in allowed_prefixes)):
-            raise HTTPException(
-                status_code=403,
-                detail="Este usuario sólo puede operar el modo Kiosco",
-            )
+    # NOTA sobre rol `kiosk`: la restricción es VISUAL (frontend redirige a
+    # /kiosk/auto y no muestra menús admin). En backend no se filtran endpoints
+    # a nivel global — así el Kiosco puede consumir roster, marcaje, visitas,
+    # settings, etc. Los endpoints sensibles (crear usuarios, ajustes globales,
+    # reportes) siguen protegidos con `require_roles("admin", ...)`, que
+    # rechaza `kiosk` automáticamente.
     return user
 
 
@@ -3027,7 +3020,7 @@ async def reports_matrix_pdf(from_date: str = Query(...),
     )
     settings = await db.settings.find_one({"_id": "company"}) or {}
     pdf_bytes = export_pdf(matrix,
-                           company_name=settings.get("company_name") or "MegaSoft",
+                           company_name=settings.get("company_name") or "Mega Soft",
                            logo_base64=settings.get("logo_base64"))
     filename = f"matriz_asistencia_{from_date}_a_{to_date}.pdf"
     return StreamingResponse(

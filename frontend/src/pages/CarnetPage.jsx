@@ -82,7 +82,7 @@ export default function CarnetPage() {
                 )}
                 <div>
                   <p className="text-[9px] uppercase tracking-[0.25em] text-white/60 leading-none">Carnet corporativo</p>
-                  <p className="text-xs font-semibold leading-tight mt-0.5">{company.name || "MegaSoft"}</p>
+                  <p className="text-xs font-semibold leading-tight mt-0.5">{company.name || "Mega Soft"}</p>
                 </div>
               </div>
               <span className="text-[9px] uppercase tracking-[0.25em] px-2 py-1 rounded-full bg-accent text-foreground font-bold">

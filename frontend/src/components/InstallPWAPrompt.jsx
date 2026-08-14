@@ -51,7 +51,7 @@ export default function InstallPWAPrompt() {
         <Smartphone className="h-5 w-5 text-accent" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-foreground">Instala MegaSoft</p>
+        <p className="text-sm font-semibold text-foreground">Instala Mega Soft</p>
         <p className="text-xs text-muted-foreground mt-0.5">
           Añádela a tu inicio para abrirla como app y marcar más rápido.
         </p>

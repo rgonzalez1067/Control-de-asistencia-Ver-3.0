@@ -36,7 +36,7 @@ export default function DashboardPlaceholder() {
               <LayoutDashboard className="h-4 w-4 text-accent" />
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">MegaSoft</p>
+              <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">Mega Soft</p>
               <p className="text-sm font-semibold text-foreground">Asistencia Web</p>
             </div>
           </div>

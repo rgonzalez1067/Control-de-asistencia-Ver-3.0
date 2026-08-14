@@ -1,4 +1,4 @@
-/* MegaSoft Asistencia — Service Worker mínimo (Fase 0)
+/* Mega Soft Asistencia — Service Worker mínimo (Fase 0)
    Cacheo básico para permitir instalación PWA. La estrategia
    se refinará en Fase 5.                                       */
 

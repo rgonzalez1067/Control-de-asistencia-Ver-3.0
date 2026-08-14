@@ -615,7 +615,7 @@ def export_xlsx(matrix: Dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
-def export_pdf(matrix: Dict[str, Any], company_name: str = "MegaSoft", logo_base64: Optional[str] = None) -> bytes:
+def export_pdf(matrix: Dict[str, Any], company_name: str = "Mega Soft", logo_base64: Optional[str] = None) -> bytes:
     from io import BytesIO
     from reportlab.lib.pagesizes import landscape, A3
     from reportlab.lib import colors
