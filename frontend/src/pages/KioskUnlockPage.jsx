@@ -20,8 +20,8 @@ const KIOSK_KEY = "megasoft.kiosk.unlocked";
 const KIOSK_SITE_KEY = "megasoft.kiosk.site_id";
 const KIOSK_SITE_NAME_KEY = "megasoft.kiosk.site_name";
 const KIOSK_SESSION_KEY = "megasoft.kiosk.session_id";
-const FACEAPI_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
-const MODELS_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
+const FACEAPI_URL = "/vendor/face-api/face-api.min.js";
+const MODELS_URL = "/vendor/face-api/weights";
 
 export function isKioskUnlocked() {
   try { return sessionStorage.getItem(KIOSK_KEY) === "1"; }

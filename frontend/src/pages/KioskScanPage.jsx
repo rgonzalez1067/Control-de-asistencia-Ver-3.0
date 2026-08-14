@@ -18,8 +18,8 @@ import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
 import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 
-const FACEAPI_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
-const MODELS_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights";
+const FACEAPI_URL = "/vendor/face-api/face-api.min.js";
+const MODELS_URL = "/vendor/face-api/weights";
 
 // ── Validación de rostro (endurecida para reducir falsos positivos) ──
 // Distancia euclidiana; menor = más parecido. En face-api el máximo es ~1.
