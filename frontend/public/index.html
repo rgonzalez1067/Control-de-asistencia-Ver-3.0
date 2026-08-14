@@ -18,10 +18,44 @@
         <noscript>Necesitas habilitar JavaScript para usar esta app.</noscript>
         <div id="root"></div>
         <script>
+            /* Registro del Service Worker con auto-actualización.
+               Cuando llega un SW nuevo (ej. después de un deploy), lo instalamos,
+               le decimos que active de inmediato con SKIP_WAITING, y al tomar
+               control recargamos la página. Así el usuario ve el bundle nuevo
+               en la primera visita post-deploy sin tener que limpiar caché. */
             if ("serviceWorker" in navigator) {
+                var __swRefreshing = false;
+                navigator.serviceWorker.addEventListener("controllerchange", function () {
+                    if (__swRefreshing) return;
+                    __swRefreshing = true;
+                    window.location.reload();
+                });
                 window.addEventListener("load", function () {
                     navigator.serviceWorker
                         .register("/sw.js")
+                        .then(function (reg) {
+                            // Chequeo periódico (cada 60s) por versiones nuevas
+                            setInterval(function () { reg.update().catch(function(){}); }, 60000);
+
+                            function _trackNewWorker(worker) {
+                                if (!worker) return;
+                                worker.addEventListener("statechange", function () {
+                                    if (
+                                        worker.state === "installed" &&
+                                        navigator.serviceWorker.controller
+                                    ) {
+                                        // Ya hay un SW controlando la página; el nuevo está
+                                        // esperando. Le pedimos que active de inmediato.
+                                        worker.postMessage({ type: "SKIP_WAITING" });
+                                    }
+                                });
+                            }
+
+                            if (reg.waiting) _trackNewWorker(reg.waiting);
+                            reg.addEventListener("updatefound", function () {
+                                _trackNewWorker(reg.installing);
+                            });
+                        })
                         .catch(function (err) { console.warn("SW registration failed:", err); });
                 });
             }

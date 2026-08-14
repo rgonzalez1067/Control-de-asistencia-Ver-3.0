@@ -13,6 +13,14 @@
 const CACHE = "megasoft-asistencia-v3";
 const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest"];
 
+/* Permite que el nuevo SW active de inmediato cuando la página post-deploy
+   detecta que hay una versión esperando (envía { type: "SKIP_WAITING" }). */
+self.addEventListener("message", (event) => {
+    if (event.data && event.data.type === "SKIP_WAITING") {
+        self.skipWaiting();
+    }
+});
+
 self.addEventListener("install", (event) => {
     event.waitUntil(
         caches.open(CACHE).then((c) => c.addAll(APP_SHELL)).catch(() => null)
