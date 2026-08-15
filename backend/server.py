@@ -117,6 +117,62 @@ def sanitize_user(u: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+# ---------------------------------------------------------------------
+# RBAC — helpers de permisos efectivos
+# ---------------------------------------------------------------------
+def _default_permissions_for_role(role: str) -> Dict[str, bool]:
+    """Cuando un usuario NO tiene perfil asignado, se usa este set por defecto
+    según su rol. Es también el mismo seed que se guarda en la BD para los
+    3 perfiles de sistema."""
+    role = (role or "employee").lower()
+    if role == "admin":
+        return {k: True for k in MENU_KEYS}
+    if role == "supervisor":
+        allowed = {
+            "mi_carnet", "historial", "matriz", "novedades", "equipo",
+            "dashboard", "visitas_agendar", "visitas_historico",
+        }
+        return {k: (k in allowed) for k in MENU_KEYS}
+    if role == "kiosk":
+        # Los kiosk-users bypassean el sidebar (van directo a /kiosk/auto).
+        # De todos modos, sólo tienen permitido kiosco_activar en teoría.
+        return {k: (k == "kiosco_activar") for k in MENU_KEYS}
+    # employee
+    allowed = {"mi_carnet", "historial", "visitas_agendar"}
+    return {k: (k in allowed) for k in MENU_KEYS}
+
+
+async def compute_effective_permissions(user: Dict[str, Any]) -> Dict[str, bool]:
+    """Devuelve `{menu_key: bool}` para todas las claves del catálogo.
+       - Si el user tiene `access_profile_id` válido, usa ese perfil.
+       - Si no, usa los defaults por rol.
+       - Los usuarios `admin` siempre tienen TODO en ON (safety net; nunca
+         se pueden bloquear a sí mismos).
+    """
+    role = (user.get("role") or "employee").lower()
+    if role == "admin":
+        return {k: True for k in MENU_KEYS}
+
+    perms = _default_permissions_for_role(role)
+    pid = user.get("access_profile_id")
+    if pid:
+        prof = await db.access_profiles.find_one({"profile_id": pid})
+        if prof:
+            overrides = prof.get("permissions", {}) or {}
+            for k in MENU_KEYS:
+                if k in overrides:
+                    perms[k] = bool(overrides[k])
+    return perms
+
+
+async def enrich_user_with_permissions(u: Dict[str, Any]) -> Dict[str, Any]:
+    """Wrapper de `sanitize_user` que además calcula `effective_permissions`."""
+    out = sanitize_user(u)
+    if out:
+        out["effective_permissions"] = await compute_effective_permissions(u)
+    return out
+
+
 def strip_mongo_id(doc: Dict[str, Any]) -> Dict[str, Any]:
     if not doc:
         return doc
@@ -220,9 +276,70 @@ class ChangePasswordIn(BaseModel):
     new_password: str = Field(min_length=8, max_length=200)
 
 
+class ChangePinIn(BaseModel):
+    """Autoservicio — el usuario debe presentar su contraseña actual para
+    poder cambiar su PIN de marcaje en el kiosco."""
+    current_password: str
+    new_pin: str = Field(min_length=4, max_length=8)
+
+
 class ResetPasswordIn(BaseModel):
     user_id: str
     new_password: str
+
+
+# ---------------------------------------------------------------------
+# RBAC — Perfiles de acceso (Access Profiles)
+# ---------------------------------------------------------------------
+# Catálogo canónico de opciones del menú/permisos. Es fuente única de verdad
+# para el backend (seed + endpoints) y el frontend (grilla + sidebar).
+# El diccionario retornado por GET /api/access-profiles/catalog conserva el
+# orden de inserción, agrupando por sección.
+MENU_CATALOG: List[Dict[str, Any]] = [
+    # Sección: Personal
+    {"key": "mi_carnet",          "label": "Mi carnet",          "section": "Personal"},
+    {"key": "historial",          "label": "Historial personal", "section": "Personal"},
+    # Sección: Operación
+    {"key": "kiosco_activar",     "label": "Activar Kiosco",     "section": "Operación"},
+    {"key": "matriz",             "label": "Reporte matricial",  "section": "Operación"},
+    {"key": "novedades",          "label": "Novedades",          "section": "Operación"},
+    {"key": "equipo",             "label": "Mi equipo",          "section": "Operación"},
+    {"key": "dashboard",          "label": "Dashboard",          "section": "Operación"},
+    # Sección: Visitas
+    {"key": "visitas_agendar",    "label": "Agendar visita",     "section": "Visitas"},
+    {"key": "visitas_historico",  "label": "Histórico de visitas", "section": "Visitas"},
+    # Sección: Administración
+    {"key": "empleados",          "label": "Empleados",          "section": "Administración"},
+    {"key": "departamentos",      "label": "Departamentos",      "section": "Administración"},
+    {"key": "sedes",              "label": "Sedes",              "section": "Administración"},
+    {"key": "horarios",           "label": "Horarios",           "section": "Administración"},
+    {"key": "asignar_horarios",   "label": "Asignación de horarios", "section": "Administración"},
+    {"key": "reportes",           "label": "Reportes",           "section": "Administración"},
+    {"key": "ajustes",            "label": "Ajustes",            "section": "Administración"},
+    # Sección: Seguridad
+    {"key": "seguridad_perfiles", "label": "Creación de perfiles de acceso", "section": "Seguridad"},
+    {"key": "seguridad_permisos", "label": "Permisos de usuario", "section": "Seguridad"},
+]
+MENU_KEYS: List[str] = [x["key"] for x in MENU_CATALOG]
+
+
+class AccessProfileIn(BaseModel):
+    """Input para crear/actualizar un perfil de acceso.
+    `permissions` es un dict `{menu_key: bool}` — cualquier clave desconocida se ignora."""
+    model_config = ConfigDict(extra="ignore")
+    name: str = Field(min_length=2, max_length=80)
+    description: Optional[str] = Field(default=None, max_length=300)
+    permissions: Dict[str, bool] = Field(default_factory=dict)
+
+
+class AssignProfileIn(BaseModel):
+    """Asigna un perfil a un usuario o a todos los usuarios de un departamento."""
+    profile_id: Optional[str] = None  # null = desasignar
+
+
+class AssignProfileToDeptIn(BaseModel):
+    department_id: str
+    profile_id: Optional[str] = None
 
 
 class UserIn(BaseModel):
@@ -257,6 +374,7 @@ class UserUpdate(BaseModel):
     can_view_visit_logs: Optional[bool] = None
     can_manage_schedules: Optional[bool] = None
     can_assign_schedules: Optional[bool] = None
+    access_profile_id: Optional[str] = None
 
 
 class VisitorIn(BaseModel):
@@ -522,6 +640,10 @@ async def on_startup() -> None:
     # y los reseeds NO la sobreescribirán.
     # ------------------------------------------------------------------
     await _seed_kiosk_users()
+    # ------------------------------------------------------------------
+    # Seed de perfiles de acceso del sistema (idempotente).
+    # ------------------------------------------------------------------
+    await _seed_access_profiles()
     logger.info("Startup completo.")
 
 
@@ -597,6 +719,32 @@ async def _seed_kiosk_users() -> None:
                             spec["email"], list(updates.keys()))
 
 
+async def _seed_access_profiles() -> None:
+    """Crea los 3 perfiles de sistema (Administrador, Supervisor, Empleado)
+    si no existen. Idempotente. Los perfiles de sistema no se pueden borrar,
+    pero sí editar (el admin puede afinar permisos)."""
+    specs = [
+        ("Administrador", "Acceso total al sistema.", "admin"),
+        ("Supervisor",    "Gestión del equipo directo, matriz y novedades.", "supervisor"),
+        ("Empleado",      "Autoservicio: carnet, historial y agendar visitas.", "employee"),
+    ]
+    for name, desc, role_key in specs:
+        existing = await db.access_profiles.find_one({"name": name})
+        if existing:
+            continue
+        doc = {
+            "profile_id": new_id("prof"),
+            "name": name,
+            "description": desc,
+            "permissions": _default_permissions_for_role(role_key),
+            "is_system": True,
+            "created_at": now_utc(),
+            "updated_at": now_utc(),
+        }
+        await db.access_profiles.insert_one(doc)
+        logger.info("Seed perfil de acceso: '%s' creado.", name)
+
+
 @app.on_event("shutdown")
 async def on_shutdown() -> None:
     client.close()
@@ -642,7 +790,7 @@ async def auth_register(payload: RegisterIn, response: Response) -> Dict[str, An
     }
     await db.users.insert_one(user)
     token = create_access_token(user["user_id"], user["role"])
-    return {"token": token, "user": sanitize_user(user)}
+    return {"token": token, "user": await enrich_user_with_permissions(user)}
 
 
 @api.post("/auth/login")
@@ -652,12 +800,12 @@ async def auth_login(payload: LoginIn, response: Response) -> Dict[str, Any]:
     if not user or not verify_password(payload.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     token = create_access_token(user["user_id"], user["role"])
-    return {"token": token, "user": sanitize_user(user)}
+    return {"token": token, "user": await enrich_user_with_permissions(user)}
 
 
 @api.get("/auth/me")
 async def auth_me(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    return sanitize_user(user)
+    return await enrich_user_with_permissions(user)
 
 
 @api.post("/auth/logout")
@@ -694,6 +842,143 @@ async def auth_change_password(payload: ChangePasswordIn,
                                         "password_updated_at": now_utc(),
                                         "must_change_password": False}})
     return {"ok": True}
+
+
+@api.post("/auth/change-pin")
+async def auth_change_pin(payload: ChangePinIn,
+                          user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
+    """Autoservicio: el usuario cambia su PIN de marcaje presentando su
+    contraseña actual. El PIN se guarda hasheado (nunca en texto plano)."""
+    if not verify_password(payload.current_password, user.get("password_hash", "")):
+        raise HTTPException(status_code=400, detail="Contraseña actual incorrecta")
+    if not payload.new_pin.isdigit():
+        raise HTTPException(status_code=400, detail="El PIN debe ser numérico")
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"pin_code_hash": hash_password(payload.new_pin),
+                  "pin_updated_at": now_utc()}},
+    )
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------
+# RBAC — Access Profiles CRUD
+# ---------------------------------------------------------------------
+def _access_profile_to_public(p: Dict[str, Any]) -> Dict[str, Any]:
+    p = strip_mongo_id(dict(p))
+    # Devuelve el diccionario completo incluyendo TODAS las claves del catálogo
+    # (default False para las no presentes) — así el frontend no tiene que
+    # decidir qué falta.
+    perms = p.get("permissions", {}) or {}
+    p["permissions"] = {k: bool(perms.get(k, False)) for k in MENU_KEYS}
+    return p
+
+
+@api.get("/access-profiles/catalog")
+async def access_profiles_catalog(_: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    """Catálogo canónico de opciones que se pueden gobernar por perfil."""
+    return {"items": MENU_CATALOG, "keys": MENU_KEYS}
+
+
+@api.get("/access-profiles")
+async def access_profiles_list(_: Dict[str, Any] = Depends(require_roles("admin"))) -> List[Dict[str, Any]]:
+    docs = await db.access_profiles.find({}).sort("name", 1).to_list(1000)
+    return [_access_profile_to_public(d) for d in docs]
+
+
+@api.post("/access-profiles")
+async def access_profiles_create(payload: AccessProfileIn,
+                                 _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    if await db.access_profiles.find_one({"name": payload.name.strip()}):
+        raise HTTPException(status_code=409, detail=f"Ya existe un perfil con el nombre '{payload.name}'")
+    doc = {
+        "profile_id": new_id("prof"),
+        "name": payload.name.strip(),
+        "description": (payload.description or "").strip() or None,
+        "permissions": {k: bool(payload.permissions.get(k, False)) for k in MENU_KEYS},
+        "is_system": False,
+        "created_at": now_utc(),
+        "updated_at": now_utc(),
+    }
+    await db.access_profiles.insert_one(doc)
+    return _access_profile_to_public(doc)
+
+
+@api.put("/access-profiles/{profile_id}")
+async def access_profiles_update(profile_id: str, payload: AccessProfileIn,
+                                 _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    existing = await db.access_profiles.find_one({"profile_id": profile_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    # Nombres únicos (case-insensitive, excluyendo el propio)
+    dupe = await db.access_profiles.find_one({
+        "name": {"$regex": f"^{payload.name.strip()}$", "$options": "i"},
+        "profile_id": {"$ne": profile_id},
+    })
+    if dupe:
+        raise HTTPException(status_code=409, detail=f"Ya existe otro perfil con el nombre '{payload.name}'")
+    updates = {
+        "name": payload.name.strip(),
+        "description": (payload.description or "").strip() or None,
+        "permissions": {k: bool(payload.permissions.get(k, False)) for k in MENU_KEYS},
+        "updated_at": now_utc(),
+    }
+    await db.access_profiles.update_one({"profile_id": profile_id}, {"$set": updates})
+    doc = await db.access_profiles.find_one({"profile_id": profile_id})
+    return _access_profile_to_public(doc)
+
+
+@api.delete("/access-profiles/{profile_id}")
+async def access_profiles_delete(profile_id: str,
+                                 _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+    prof = await db.access_profiles.find_one({"profile_id": profile_id})
+    if not prof:
+        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    if prof.get("is_system"):
+        raise HTTPException(status_code=400, detail="Los perfiles del sistema no se pueden eliminar")
+    # Al eliminar, se desasigna de cualquier usuario que lo tuviera.
+    in_use = await db.users.count_documents({"access_profile_id": profile_id})
+    if in_use:
+        await db.users.update_many(
+            {"access_profile_id": profile_id},
+            {"$set": {"access_profile_id": None}},
+        )
+    await db.access_profiles.delete_one({"profile_id": profile_id})
+    return {"ok": True}
+
+
+@api.put("/users/{user_id}/access-profile")
+async def user_set_access_profile(user_id: str, payload: AssignProfileIn,
+                                  _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    if payload.profile_id:
+        prof = await db.access_profiles.find_one({"profile_id": payload.profile_id})
+        if not prof:
+            raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    res = await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"access_profile_id": payload.profile_id}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return {"ok": True, "user_id": user_id, "profile_id": payload.profile_id}
+
+
+@api.post("/access-profiles/assign-department")
+async def access_profile_assign_department(payload: AssignProfileToDeptIn,
+                                           _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    """Aplica un perfil a TODOS los usuarios de un departamento en batch."""
+    if payload.profile_id:
+        prof = await db.access_profiles.find_one({"profile_id": payload.profile_id})
+        if not prof:
+            raise HTTPException(status_code=404, detail="Perfil no encontrado")
+    # Excluye admin/kiosk del re-perfilado — los admin nunca pierden acceso
+    # y los kiosk-users no usan sidebar.
+    q = {
+        "department_id": payload.department_id,
+        "role": {"$nin": ["admin", "kiosk"]},
+    }
+    res = await db.users.update_many(q, {"$set": {"access_profile_id": payload.profile_id}})
+    return {"ok": True, "matched": res.matched_count, "modified": res.modified_count}
 
 
 @api.post("/auth/reset-password")

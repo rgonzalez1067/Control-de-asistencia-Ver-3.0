@@ -23,7 +23,7 @@ import {
   Fingerprint, FileBarChart2, Bell, LogOut, Settings2, ShieldCheck,
   IdCard, History as HistoryIcon, ChevronDown, UserCircle2,
   Menu, ScanFace, KeyRound, Eye, EyeOff, UserPlus, ClipboardList,
-  LayoutGrid, CalendarCog,
+  LayoutGrid, CalendarCog, Hash,
 } from "lucide-react";
 
 const NAV_ADMIN = [
@@ -69,6 +69,7 @@ export default function AppLayout() {
   const nav = useNavigate();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [changePwOpen, setChangePwOpen] = useState(false);
+  const [changePinOpen, setChangePinOpen] = useState(false);
 
   const canCreateVisits = user?.role === "admin" || user?.can_create_visits;
   const canViewVisitLogs = user?.role === "admin" || user?.can_view_visit_logs;
@@ -264,6 +265,9 @@ export default function AppLayout() {
                   <DropdownMenuItem onClick={() => setChangePwOpen(true)} data-testid="menu-change-password">
                     <KeyRound className="h-4 w-4 mr-2" /> Cambiar contraseña
                   </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setChangePinOpen(true)} data-testid="menu-change-pin">
+                    <Hash className="h-4 w-4 mr-2" /> Cambiar PIN
+                  </DropdownMenuItem>
                   {isAdmin && (
                     <DropdownMenuItem onClick={openKiosk} data-testid="menu-kiosk">
                       <ScanFace className="h-4 w-4 mr-2" /> Activar modo kiosco
@@ -319,6 +323,11 @@ export default function AppLayout() {
       <ChangePasswordDialog
         open={changePwOpen}
         onOpenChange={setChangePwOpen}
+        userEmail={user?.email}
+      />
+      <ChangePinDialog
+        open={changePinOpen}
+        onOpenChange={setChangePinOpen}
         userEmail={user?.email}
       />
     </div>
@@ -529,4 +538,157 @@ export function BottomNavSpacer() {
 
 export function LayoutIcons() {
   return { Fingerprint };
+}
+
+
+/**
+ * Diálogo de autoservicio para cambiar el PIN de marcaje del kiosco.
+ * Se protege con la contraseña actual del usuario (backend: /auth/change-pin).
+ * PIN 4–8 dígitos numéricos.
+ */
+function ChangePinDialog({ open, onOpenChange, userEmail }) {
+  const [pw, setPw] = useState("");
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  function reset() {
+    setPw(""); setPin(""); setConfirmPin("");
+    setShowPw(false); setShowPin(false);
+  }
+
+  function handleClose(v) {
+    if (!v) reset();
+    onOpenChange(v);
+  }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!/^\d{4,8}$/.test(pin)) {
+      toast.error("El PIN debe ser numérico de 4 a 8 dígitos");
+      return;
+    }
+    if (pin !== confirmPin) {
+      toast.error("La confirmación no coincide con el PIN");
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post("/auth/change-pin", { current_password: pw, new_pin: pin });
+      toast.success("PIN actualizado correctamente");
+      reset();
+      onOpenChange(false);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent className="max-w-sm" data-testid="change-pin-dialog">
+        <DialogHeader className="items-center text-center">
+          <div className="h-14 w-14 rounded-2xl bg-primary/10 grid place-items-center mb-2">
+            <Hash className="h-7 w-7 text-primary dark:text-foreground" />
+          </div>
+          <DialogTitle>Cambiar PIN</DialogTitle>
+          <DialogDescription className="text-xs">
+            Se usa para marcar entrada/salida en el kiosco cuando la cámara no
+            reconoce tu rostro.
+            {userEmail && <><br /><span className="font-mono">{userEmail}</span></>}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={submit} className="space-y-3">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Contraseña actual</Label>
+            <div className="relative">
+              <Input
+                type={showPw ? "text" : "password"}
+                value={pw}
+                onChange={(e) => setPw(e.target.value)}
+                placeholder="••••••••"
+                required
+                autoFocus
+                className="h-11 pr-10"
+                data-testid="change-pin-current-pw"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw((v) => !v)}
+                className="absolute inset-y-0 right-2 grid place-items-center text-muted-foreground"
+                tabIndex={-1}
+                aria-label="mostrar/ocultar contraseña"
+              >
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Nuevo PIN (4–8 dígitos)</Label>
+            <div className="relative">
+              <Input
+                type={showPin ? "text" : "password"}
+                inputMode="numeric"
+                pattern="\d*"
+                maxLength={8}
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                placeholder="••••"
+                required
+                className="h-11 pr-10 font-mono tracking-widest"
+                data-testid="change-pin-new"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPin((v) => !v)}
+                className="absolute inset-y-0 right-2 grid place-items-center text-muted-foreground"
+                tabIndex={-1}
+                aria-label="mostrar/ocultar PIN"
+              >
+                {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Confirmar PIN</Label>
+            <Input
+              type={showPin ? "text" : "password"}
+              inputMode="numeric"
+              pattern="\d*"
+              maxLength={8}
+              value={confirmPin}
+              onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
+              placeholder="••••"
+              required
+              className="h-11 font-mono tracking-widest"
+              data-testid="change-pin-confirm"
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1 h-11 rounded-full"
+              onClick={() => handleClose(false)}
+              disabled={saving}
+              data-testid="change-pin-cancel"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="submit"
+              className="flex-1 h-11 rounded-full bg-primary hover:bg-primary/90"
+              disabled={saving || !pw || !pin || !confirmPin}
+              data-testid="change-pin-submit"
+            >
+              {saving ? "Guardando…" : "Guardar PIN"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
