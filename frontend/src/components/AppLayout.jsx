@@ -23,7 +23,7 @@ import {
   Fingerprint, FileBarChart2, Bell, LogOut, Settings2, ShieldCheck,
   IdCard, History as HistoryIcon, ChevronDown, UserCircle2,
   Menu, ScanFace, KeyRound, Eye, EyeOff, UserPlus, ClipboardList,
-  LayoutGrid, CalendarCog, Hash,
+  LayoutGrid, CalendarCog, Hash, UserCog,
 } from "lucide-react";
 
 const NAV_ADMIN = [
@@ -37,6 +37,8 @@ const NAV_ADMIN = [
   { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz de asistencia" },
   { to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios" },
   { to: "/novedades", icon: Bell, label: "Novedades" },
+  { to: "/seguridad/perfiles", icon: ShieldCheck, label: "Perfiles de acceso", section: "Seguridad" },
+  { to: "/seguridad/permisos", icon: UserCog, label: "Permisos de usuario", section: "Seguridad" },
   { to: "/ajustes", icon: Settings2, label: "Ajustes" },
 ];
 
@@ -60,6 +62,35 @@ function initials(name) {
     .slice(0, 2)
     .map((p) => p[0]?.toUpperCase())
     .join("");
+}
+
+/**
+ * Renderiza los items del sidebar respetando encabezados de sección.
+ * Un item puede llevar `section: "Seguridad"` — al detectar un cambio de
+ * sección, se inserta un separador con el label. Los items sin `section`
+ * quedan en la "sección default" (sin heading).
+ */
+function renderNavWithSections(items, onItemClick) {
+  const out = [];
+  let currentSection = null;
+  items.forEach((it, idx) => {
+    const sec = it.section || null;
+    if (sec !== currentSection) {
+      currentSection = sec;
+      if (sec) {
+        out.push(
+          <div
+            key={`sec-${sec}-${idx}`}
+            className="pt-3 pb-1 px-3 text-[10px] uppercase tracking-[0.24em] text-white/40"
+          >
+            {sec}
+          </div>,
+        );
+      }
+    }
+    out.push(<NavItem key={it.to} item={it} onClick={onItemClick} />);
+  });
+  return out;
 }
 
 export default function AppLayout() {
@@ -135,9 +166,7 @@ export default function AppLayout() {
           )}
         </div>
         <nav className="flex-1 px-3 py-4 space-y-0.5" data-testid="sidebar-nav">
-          {items.map((it) => (
-            <NavItem key={it.to} item={it} />
-          ))}
+          {renderNavWithSections(items)}
           {isAdmin && (
             <button
               type="button"
@@ -196,9 +225,7 @@ export default function AppLayout() {
                     </SheetDescription>
                   </SheetHeader>
                   <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto" data-testid="mobile-nav">
-                    {items.map((it) => (
-                      <NavItem key={it.to} item={it} onClick={() => setDrawerOpen(false)} />
-                    ))}
+                    {renderNavWithSections(items, () => setDrawerOpen(false))}
                     {isAdmin && (
                       <button
                         type="button"

@@ -25,6 +25,8 @@ import TeamPage from "@/pages/TeamPage";
 import AgendarVisitaPage from "@/pages/AgendarVisitaPage";
 import HistoricoVisitasPage from "@/pages/HistoricoVisitasPage";
 import KioskAutoStart from "@/pages/KioskAutoStart";
+import SecurityProfilesPage from "@/pages/SecurityProfilesPage";
+import UserPermissionsPage from "@/pages/UserPermissionsPage";
 
 const ADMIN = ["admin"];
 const ADMIN_OR_SUP = ["admin", "supervisor"];
@@ -79,6 +81,10 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="ajustes" element={<ProtectedRoute roles={ADMIN}><SettingsPage /></ProtectedRoute>} />
+
+            {/* Seguridad · RBAC — sólo admin */}
+            <Route path="seguridad/perfiles" element={<ProtectedRoute roles={ADMIN}><SecurityProfilesPage /></ProtectedRoute>} />
+            <Route path="seguridad/permisos" element={<ProtectedRoute roles={ADMIN}><UserPermissionsPage /></ProtectedRoute>} />
 
             {/* Admin + Supervisor */}
             <Route path="reportes" element={<ReportsPage />} />
