@@ -67,38 +67,48 @@ function App() {
             <Route index element={<HomeRedirect />} />
 
             {/* Admin */}
-            <Route path="usuarios" element={<ProtectedRoute roles={ADMIN}><UsersPage /></ProtectedRoute>} />
-            <Route path="sedes" element={<ProtectedRoute roles={ADMIN}><SedesPage /></ProtectedRoute>} />
-            <Route path="departamentos" element={<ProtectedRoute roles={ADMIN}><DepartmentsPage /></ProtectedRoute>} />
+            <Route path="usuarios" element={<ProtectedRoute roles={ADMIN} permKey="empleados"><UsersPage /></ProtectedRoute>} />
+            <Route path="sedes" element={<ProtectedRoute roles={ADMIN} permKey="sedes"><SedesPage /></ProtectedRoute>} />
+            <Route path="departamentos" element={<ProtectedRoute roles={ADMIN} permKey="departamentos"><DepartmentsPage /></ProtectedRoute>} />
             <Route path="horarios" element={
-              <ProtectedRoute check={(u) => u.role === "admin" || u.can_manage_schedules}>
+              <ProtectedRoute permKey="horarios" check={(u) => u.role === "admin" || (u.effective_permissions||{}).horarios || u.can_manage_schedules}>
                 <SchedulesPage />
               </ProtectedRoute>
             } />
             <Route path="asignar-horarios" element={
-              <ProtectedRoute check={(u) => u.role === "admin" || u.can_assign_schedules}>
+              <ProtectedRoute permKey="asignar_horarios" check={(u) => u.role === "admin" || (u.effective_permissions||{}).asignar_horarios || u.can_assign_schedules}>
                 <AsignarHorariosPage />
               </ProtectedRoute>
             } />
-            <Route path="ajustes" element={<ProtectedRoute roles={ADMIN}><SettingsPage /></ProtectedRoute>} />
+            <Route path="ajustes" element={<ProtectedRoute roles={ADMIN} permKey="ajustes"><SettingsPage /></ProtectedRoute>} />
 
             {/* Seguridad · RBAC — sólo admin */}
-            <Route path="seguridad/perfiles" element={<ProtectedRoute roles={ADMIN}><SecurityProfilesPage /></ProtectedRoute>} />
-            <Route path="seguridad/permisos" element={<ProtectedRoute roles={ADMIN}><UserPermissionsPage /></ProtectedRoute>} />
+            <Route path="seguridad/perfiles" element={<ProtectedRoute roles={ADMIN} permKey="seguridad_perfiles"><SecurityProfilesPage /></ProtectedRoute>} />
+            <Route path="seguridad/permisos" element={<ProtectedRoute roles={ADMIN} permKey="seguridad_permisos"><UserPermissionsPage /></ProtectedRoute>} />
 
             {/* Admin + Supervisor */}
-            <Route path="reportes" element={<ReportsPage />} />
-            <Route path="reporte-matricial" element={<ReporteMatricialPage />} />
-            <Route path="equipo" element={<ProtectedRoute roles={ADMIN_OR_SUP}><TeamPage /></ProtectedRoute>} />
+            <Route path="reportes" element={<ProtectedRoute permKey="reportes"><ReportsPage /></ProtectedRoute>} />
+            <Route path="reporte-matricial" element={<ProtectedRoute permKey="matriz"><ReporteMatricialPage /></ProtectedRoute>} />
+            <Route path="equipo" element={<ProtectedRoute roles={ADMIN_OR_SUP} permKey="equipo"><TeamPage /></ProtectedRoute>} />
 
             {/* Todos los roles */}
-            <Route path="novedades" element={<NoveltiesPage />} />
-            <Route path="carnet" element={<CarnetPage />} />
-            <Route path="historial" element={<HistorialPage />} />
+            <Route path="novedades" element={<ProtectedRoute permKey="novedades"><NoveltiesPage /></ProtectedRoute>} />
+            <Route path="carnet" element={<ProtectedRoute permKey="mi_carnet"><CarnetPage /></ProtectedRoute>} />
+            <Route path="historial" element={<ProtectedRoute permKey="historial"><HistorialPage /></ProtectedRoute>} />
 
             {/* Control de visitas — permisos individuales */}
-            <Route path="visitas/agendar" element={<AgendarVisitaPage />} />
-            <Route path="visitas/historico" element={<HistoricoVisitasPage />} />
+            <Route path="visitas/agendar" element={
+              <ProtectedRoute permKey="visitas_agendar"
+                check={(u) => u.role === "admin" || (u.effective_permissions||{}).visitas_agendar || u.can_create_visits}>
+                <AgendarVisitaPage />
+              </ProtectedRoute>
+            } />
+            <Route path="visitas/historico" element={
+              <ProtectedRoute permKey="visitas_historico"
+                check={(u) => u.role === "admin" || (u.effective_permissions||{}).visitas_historico || u.can_view_visit_logs}>
+                <HistoricoVisitasPage />
+              </ProtectedRoute>
+            } />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

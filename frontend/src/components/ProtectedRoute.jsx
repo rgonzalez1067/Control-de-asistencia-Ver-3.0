@@ -2,7 +2,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import MandatoryPasswordChange from "@/pages/MandatoryPasswordChange";
 
-export default function ProtectedRoute({ children, roles, check, redirectTo }) {
+export default function ProtectedRoute({ children, roles, check, permKey, redirectTo }) {
   const { user } = useAuth();
   const location = useLocation();
 
@@ -25,6 +25,12 @@ export default function ProtectedRoute({ children, roles, check, redirectTo }) {
   }
   if (typeof check === "function" && !check(user)) {
     return <Navigate to={redirectTo || "/"} replace />;
+  }
+  // RBAC: si la ruta declara una `permKey`, se exige que el permiso esté
+  // efectivamente activo. Admin siempre pasa (safety net).
+  if (permKey && user.role !== "admin") {
+    const allowed = (user.effective_permissions || {})[permKey] === true;
+    if (!allowed) return <Navigate to={redirectTo || "/"} replace />;
   }
   return children;
 }

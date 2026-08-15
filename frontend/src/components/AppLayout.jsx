@@ -27,33 +27,46 @@ import {
 } from "lucide-react";
 
 const NAV_ADMIN = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/usuarios", icon: Users, label: "Empleados" },
-  { to: "/equipo", icon: Users, label: "Mi equipo" },
-  { to: "/sedes", icon: MapPin, label: "Sedes" },
-  { to: "/departamentos", icon: Building2, label: "Departamentos" },
-  { to: "/horarios", icon: CalendarClock, label: "Horarios" },
-  { to: "/reportes", icon: FileBarChart2, label: "Reportes" },
-  { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz de asistencia" },
-  { to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios" },
-  { to: "/novedades", icon: Bell, label: "Novedades" },
-  { to: "/seguridad/perfiles", icon: ShieldCheck, label: "Perfiles de acceso", section: "Seguridad" },
-  { to: "/seguridad/permisos", icon: UserCog, label: "Permisos de usuario", section: "Seguridad" },
-  { to: "/ajustes", icon: Settings2, label: "Ajustes" },
+  { to: "/", icon: LayoutDashboard, label: "Dashboard", permKey: "dashboard" },
+  { to: "/usuarios", icon: Users, label: "Empleados", permKey: "empleados" },
+  { to: "/equipo", icon: Users, label: "Mi equipo", permKey: "equipo" },
+  { to: "/sedes", icon: MapPin, label: "Sedes", permKey: "sedes" },
+  { to: "/departamentos", icon: Building2, label: "Departamentos", permKey: "departamentos" },
+  { to: "/horarios", icon: CalendarClock, label: "Horarios", permKey: "horarios" },
+  { to: "/reportes", icon: FileBarChart2, label: "Reportes", permKey: "reportes" },
+  { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz de asistencia", permKey: "matriz" },
+  { to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios", permKey: "asignar_horarios" },
+  { to: "/novedades", icon: Bell, label: "Novedades", permKey: "novedades" },
+  { to: "/seguridad/perfiles", icon: ShieldCheck, label: "Perfiles de acceso", section: "Seguridad", permKey: "seguridad_perfiles" },
+  { to: "/seguridad/permisos", icon: UserCog, label: "Permisos de usuario", section: "Seguridad", permKey: "seguridad_permisos" },
+  { to: "/ajustes", icon: Settings2, label: "Ajustes", permKey: "ajustes" },
 ];
 
 const NAV_EMPLOYEE = [
-  { to: "/carnet", icon: IdCard, label: "Mi carnet" },
-  { to: "/historial", icon: HistoryIcon, label: "Historial" },
-  { to: "/reportes", icon: FileBarChart2, label: "Reportes" },
-  { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz" },
-  { to: "/novedades", icon: Bell, label: "Novedades" },
+  { to: "/carnet", icon: IdCard, label: "Mi carnet", permKey: "mi_carnet" },
+  { to: "/historial", icon: HistoryIcon, label: "Historial", permKey: "historial" },
+  { to: "/reportes", icon: FileBarChart2, label: "Reportes", permKey: "reportes" },
+  { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz", permKey: "matriz" },
+  { to: "/novedades", icon: Bell, label: "Novedades", permKey: "novedades" },
 ];
 
 const NAV_SUPERVISOR = [
   ...NAV_EMPLOYEE,
-  { to: "/equipo", icon: Users, label: "Mi equipo" },
+  { to: "/equipo", icon: Users, label: "Mi equipo", permKey: "equipo" },
 ];
+
+/**
+ * Filtra los items del menú según `effective_permissions` del usuario.
+ * - Si `user.role === "admin"`: pasa todo (safety net; nunca se pueden bloquear).
+ * - Si el item no tiene `permKey`: se muestra siempre.
+ * - Si `effective_permissions[permKey] === true`: se muestra.
+ */
+function filterNavByPermissions(items, user) {
+  if (!user) return [];
+  if (user.role === "admin") return items;
+  const perms = user.effective_permissions || {};
+  return items.filter((it) => !it.permKey || perms[it.permKey] === true);
+}
 
 function initials(name) {
   return (name || "?")
@@ -102,30 +115,38 @@ export default function AppLayout() {
   const [changePwOpen, setChangePwOpen] = useState(false);
   const [changePinOpen, setChangePinOpen] = useState(false);
 
-  const canCreateVisits = user?.role === "admin" || user?.can_create_visits;
-  const canViewVisitLogs = user?.role === "admin" || user?.can_view_visit_logs;
-  const canManageSchedules = user?.role === "admin" || user?.can_manage_schedules;
-  const canAssignSchedules = user?.role === "admin" || user?.can_assign_schedules;
+  const perms = user?.effective_permissions || {};
+  const hasPerm = (key) => user?.role === "admin" || perms[key] === true;
+
+  // Fallback: si los flags legacy están activos y aún no hay RBAC, se cuentan.
+  // Estos flags se removieron de la ficha de empleado pero pueden persistir en BD.
+  const canCreateVisits = hasPerm("visitas_agendar") || user?.can_create_visits;
+  const canViewVisitLogs = hasPerm("visitas_historico") || user?.can_view_visit_logs;
+  const canManageSchedules = hasPerm("horarios") || user?.can_manage_schedules;
+  const canAssignSchedules = hasPerm("asignar_horarios") || user?.can_assign_schedules;
 
   const baseItems =
     user?.role === "admin" ? NAV_ADMIN :
     user?.role === "supervisor" ? NAV_SUPERVISOR : NAV_EMPLOYEE;
 
   const visitItems = [];
-  if (canCreateVisits) visitItems.push({ to: "/visitas/agendar", icon: UserPlus, label: "Agendar visita" });
-  if (canViewVisitLogs) visitItems.push({ to: "/visitas/historico", icon: ClipboardList, label: "Histórico de visitas" });
+  if (canCreateVisits) visitItems.push({ to: "/visitas/agendar", icon: UserPlus, label: "Agendar visita", permKey: "visitas_agendar" });
+  if (canViewVisitLogs) visitItems.push({ to: "/visitas/historico", icon: ClipboardList, label: "Histórico de visitas", permKey: "visitas_historico" });
 
-  // "Horarios" para no-admin sólo si tiene permiso especial
+  // Para no-admin: agregamos horarios / asignar si el flag legacy los tenía. La
+  // filtración final por `effective_permissions` deja pasar si están en el perfil.
   const extraItems = [];
   if (canManageSchedules && user?.role !== "admin") {
-    extraItems.push({ to: "/horarios", icon: CalendarClock, label: "Horarios" });
+    extraItems.push({ to: "/horarios", icon: CalendarClock, label: "Horarios", permKey: "horarios" });
   }
   if (canAssignSchedules && user?.role !== "admin") {
-    extraItems.push({ to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios" });
+    extraItems.push({ to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios", permKey: "asignar_horarios" });
   }
 
-  const items = [...baseItems, ...extraItems, ...visitItems];
+  // Filtramos toda la lista final por `effective_permissions` (admin pasa siempre).
+  const items = filterNavByPermissions([...baseItems, ...extraItems, ...visitItems], user);
   const isAdmin = user?.role === "admin";
+  const canActivateKiosk = hasPerm("kiosco_activar");
 
   async function handleLogout() {
     await logout();
@@ -167,7 +188,7 @@ export default function AppLayout() {
         </div>
         <nav className="flex-1 px-3 py-4 space-y-0.5" data-testid="sidebar-nav">
           {renderNavWithSections(items)}
-          {isAdmin && (
+          {canActivateKiosk && (
             <button
               type="button"
               onClick={openKiosk}
@@ -226,7 +247,7 @@ export default function AppLayout() {
                   </SheetHeader>
                   <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto" data-testid="mobile-nav">
                     {renderNavWithSections(items, () => setDrawerOpen(false))}
-                    {isAdmin && (
+                    {canActivateKiosk && (
                       <button
                         type="button"
                         onClick={openKiosk}
@@ -295,7 +316,7 @@ export default function AppLayout() {
                   <DropdownMenuItem onClick={() => setChangePinOpen(true)} data-testid="menu-change-pin">
                     <Hash className="h-4 w-4 mr-2" /> Cambiar PIN
                   </DropdownMenuItem>
-                  {isAdmin && (
+                  {canActivateKiosk && (
                     <DropdownMenuItem onClick={openKiosk} data-testid="menu-kiosk">
                       <ScanFace className="h-4 w-4 mr-2" /> Activar modo kiosco
                     </DropdownMenuItem>
