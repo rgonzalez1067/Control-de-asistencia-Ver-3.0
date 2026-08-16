@@ -36,17 +36,27 @@ import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 import SetPinDialog from "@/components/SetPinDialog";
 
 const ROLE_LABEL = {
-  admin: { label: "Admin", cls: "bg-primary text-primary-foreground" },
-  supervisor: { label: "Supervisor", cls: "bg-fuchsia-600 text-white" },
-  employee: { label: "Empleado", cls: "bg-emerald-600 text-white" },
+  admin:       { label: "Administrador", cls: "bg-primary text-primary-foreground" },
+  director:    { label: "Director",      cls: "bg-indigo-600 text-white" },
+  gerente:     { label: "Gerente",       cls: "bg-fuchsia-600 text-white" },
+  coordinador: { label: "Coordinador",   cls: "bg-sky-600 text-white" },
+  employee:    { label: "Empleado",      cls: "bg-emerald-600 text-white" },
 };
 
 // Mapea variantes de rol (ES/EN, case-insensitive) a las claves canónicas.
 const ROLE_ALIASES = {
   admin: "admin", administrador: "admin", administradora: "admin",
-  supervisor: "supervisor", supervisora: "supervisor",
+  director: "director", directora: "director",
+  gerente: "gerente",
+  coordinador: "coordinador", coordinadora: "coordinador",
+  // Rol legacy: supervisor → coordinador (backend migra la BD).
+  supervisor: "coordinador", supervisora: "coordinador",
   employee: "employee", empleado: "employee", empleada: "employee", user: "employee",
 };
+// Roles que califican como "líder" — pueden ser supervisor de otros usuarios
+// y NO son elegibles como target del filtro "sólo empleados".
+const LEADER_ROLES = ["admin", "director", "gerente", "coordinador"];
+
 function normalizeRole(v) {
   if (!v) return "employee";
   return ROLE_ALIASES[String(v).trim().toLowerCase()] || "employee";
@@ -342,8 +352,10 @@ export default function UsersPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos los roles</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
-              <SelectItem value="supervisor">Supervisor</SelectItem>
+              <SelectItem value="admin">Administrador</SelectItem>
+              <SelectItem value="director">Director</SelectItem>
+              <SelectItem value="gerente">Gerente</SelectItem>
+              <SelectItem value="coordinador">Coordinador</SelectItem>
               <SelectItem value="employee">Empleado</SelectItem>
             </SelectContent>
           </Select>
@@ -413,7 +425,7 @@ export default function UsersPage() {
                     <TableCell className="text-sm">{u.cedula || <span className="text-muted-foreground/60">—</span>}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium ${roleMeta.cls}`}>
-                        {u.role === "admin" ? <ShieldCheck className="h-3 w-3" /> : u.role === "supervisor" ? <BadgeCheck className="h-3 w-3" /> : <CircleUserRound className="h-3 w-3" />}
+                        {u.role === "admin" ? <ShieldCheck className="h-3 w-3" /> : LEADER_ROLES.includes(u.role) ? <BadgeCheck className="h-3 w-3" /> : <CircleUserRound className="h-3 w-3" />}
                         {roleMeta.label}
                       </span>
                     </TableCell>
@@ -600,8 +612,10 @@ function UserFormDialog({ state, onCancel, onSave, departments, sites, schedules
             <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
               <SelectTrigger data-testid="user-form-role"><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="supervisor">Supervisor</SelectItem>
+                <SelectItem value="admin">Administrador</SelectItem>
+                <SelectItem value="director">Director</SelectItem>
+                <SelectItem value="gerente">Gerente</SelectItem>
+                <SelectItem value="coordinador">Coordinador</SelectItem>
                 <SelectItem value="employee">Empleado</SelectItem>
               </SelectContent>
             </Select>

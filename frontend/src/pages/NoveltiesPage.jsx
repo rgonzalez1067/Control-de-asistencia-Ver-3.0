@@ -43,7 +43,7 @@ const EMPTY_FORM = { type: "permission", start_date: "", end_date: "", start_tim
 
 export default function NoveltiesPage() {
   const { user } = useAuth();
-  const isManager = user?.role === "admin" || user?.role === "supervisor";
+  const isManager = user?.role === "admin" || ["coordinador", "gerente", "director"].includes(user?.role);
   const isAdmin = user?.role === "admin";
 
   const [items, setItems] = useState([]);

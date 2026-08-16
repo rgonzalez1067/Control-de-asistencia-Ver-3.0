@@ -121,48 +121,43 @@ def sanitize_user(u: Dict[str, Any]) -> Dict[str, Any]:
 # RBAC — helpers de permisos efectivos
 # ---------------------------------------------------------------------
 def _default_permissions_for_role(role: str) -> Dict[str, bool]:
-    """Cuando un usuario NO tiene perfil asignado, se usa este set por defecto
-    según su rol. Es también el mismo seed que se guarda en la BD para los
-    3 perfiles de sistema."""
+    """Defaults cuando el usuario NO tiene perfil asignado.
+    Reglas actualizadas (Feb 2026): el ROL ya no otorga menús por sí solo — todo
+    va por perfil. Estos defaults sólo son fallback si el usuario todavía no
+    tiene perfil:
+      - admin: TODO ON (safety net; permite recuperar acceso a al menos un admin
+        del sistema aunque no tenga perfil asignado).
+      - kiosk: sólo `kiosco_activar` (los kiosk-users bypassean el sidebar).
+      - resto (empleado/coordinador/gerente/director): sólo autoservicio básico
+        (mi_carnet + historial). Sin perfil, no ven módulos administrativos ni
+        de reporte — para eso necesitan un perfil asignado explícitamente.
+    """
     role = (role or "employee").lower()
     if role == "admin":
         return {k: True for k in MENU_KEYS}
-    if role == "supervisor":
-        allowed = {
-            "mi_carnet", "historial", "matriz", "novedades", "equipo",
-            "dashboard", "visitas_agendar", "visitas_historico",
-        }
-        return {k: (k in allowed) for k in MENU_KEYS}
     if role == "kiosk":
-        # Los kiosk-users bypassean el sidebar (van directo a /kiosk/auto).
-        # De todos modos, sólo tienen permitido kiosco_activar en teoría.
         return {k: (k == "kiosco_activar") for k in MENU_KEYS}
-    # employee
-    allowed = {"mi_carnet", "historial", "visitas_agendar"}
+    # Empleado, Coordinador, Gerente y Director comparten default sin perfil.
+    allowed = {"mi_carnet", "historial"}
     return {k: (k in allowed) for k in MENU_KEYS}
 
 
 async def compute_effective_permissions(user: Dict[str, Any]) -> Dict[str, bool]:
     """Devuelve `{menu_key: bool}` para todas las claves del catálogo.
-       - Si el user tiene `access_profile_id` válido, usa ese perfil.
-       - Si no, usa los defaults por rol.
-       - Los usuarios `admin` siempre tienen TODO en ON (safety net; nunca
-         se pueden bloquear a sí mismos).
+       - Si el user tiene `access_profile_id` válido, usa **exclusivamente** ese
+         perfil (sin importar su rol jerárquico — regla de negocio Feb 2026).
+       - Si no tiene perfil, cae a los defaults por rol.
+       - Nota: los admin sin perfil ven todo (safety net de bootstrap); si un
+         admin tiene un perfil asignado, respeta ese perfil aunque signifique
+         menos accesos (evita divergencia entre rol y perfil).
     """
-    role = (user.get("role") or "employee").lower()
-    if role == "admin":
-        return {k: True for k in MENU_KEYS}
-
-    perms = _default_permissions_for_role(role)
     pid = user.get("access_profile_id")
     if pid:
         prof = await db.access_profiles.find_one({"profile_id": pid})
         if prof:
             overrides = prof.get("permissions", {}) or {}
-            for k in MENU_KEYS:
-                if k in overrides:
-                    perms[k] = bool(overrides[k])
-    return perms
+            return {k: bool(overrides.get(k, False)) for k in MENU_KEYS}
+    return _default_permissions_for_role(user.get("role") or "employee")
 
 
 async def enrich_user_with_permissions(u: Dict[str, Any]) -> Dict[str, Any]:
@@ -195,7 +190,13 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # ------------------------------------------------------------------
 _ROLE_ALIASES = {
     "admin": "admin", "administrador": "admin", "administradora": "admin",
-    "supervisor": "supervisor", "supervisora": "supervisor",
+    # Nuevos roles jerárquicos oficiales:
+    "coordinador": "coordinador", "coordinadora": "coordinador",
+    "gerente": "gerente",
+    "director": "director", "directora": "director",
+    # Rol legacy — se migra a "coordinador" en on_startup. Como alias sirve para
+    # payloads viejos que aún manden "supervisor".
+    "supervisor": "coordinador", "supervisora": "coordinador",
     "employee": "employee", "empleado": "employee", "empleada": "employee",
     "user": "employee",
     # "kiosk" es un rol operativo restringido: sólo activa el modo Kiosco de una
@@ -203,10 +204,14 @@ _ROLE_ALIASES = {
     "kiosk": "kiosk", "kiosco": "kiosk",
 }
 
+# Conjuntos de utilidad para chequeos de jerarquía.
+LEADER_ROLES = {"coordinador", "gerente", "director"}         # No incluye admin
+LEADER_OR_ADMIN_ROLES = LEADER_ROLES | {"admin"}
+
 
 def normalize_role(value: Any) -> str:
     """Normaliza cualquier variante de rol a las claves canónicas
-    ('admin' | 'supervisor' | 'employee' | 'kiosk')."""
+    ('admin' | 'coordinador' | 'gerente' | 'director' | 'employee' | 'kiosk')."""
     if not value:
         return "employee"
     key = str(value).strip().lower()
@@ -641,6 +646,10 @@ async def on_startup() -> None:
     # ------------------------------------------------------------------
     await _seed_kiosk_users()
     # ------------------------------------------------------------------
+    # Migración de rol legacy: supervisor → coordinador (idempotente).
+    # ------------------------------------------------------------------
+    await _migrate_supervisor_role_to_coordinador()
+    # ------------------------------------------------------------------
     # Seed de perfiles de acceso del sistema (idempotente).
     # ------------------------------------------------------------------
     await _seed_access_profiles()
@@ -720,15 +729,56 @@ async def _seed_kiosk_users() -> None:
 
 
 async def _seed_access_profiles() -> None:
-    """Crea los 3 perfiles de sistema (Administrador, Supervisor, Empleado)
-    si no existen. Idempotente. Los perfiles de sistema no se pueden borrar,
-    pero sí editar (el admin puede afinar permisos)."""
+    """Crea los 4 perfiles de sistema (Administrador, Coordinador, Gerente,
+    Empleado) si no existen. Idempotente. Los perfiles de sistema no se pueden
+    borrar, pero sí editar. Los defaults corresponden a la jerarquía típica —
+    el admin puede afinar cada uno luego."""
+    def _pset(keys):
+        return {k: (k in keys) for k in MENU_KEYS}
+
     specs = [
-        ("Administrador", "Acceso total al sistema.", "admin"),
-        ("Supervisor",    "Gestión del equipo directo, matriz y novedades.", "supervisor"),
-        ("Empleado",      "Autoservicio: carnet, historial y agendar visitas.", "employee"),
+        (
+            "Administrador",
+            "Acceso total al sistema.",
+            {k: True for k in MENU_KEYS},
+        ),
+        (
+            "Director",
+            "Vista ejecutiva: dashboard, matriz, novedades, reportes.",
+            _pset({
+                "mi_carnet", "historial", "dashboard", "matriz",
+                "novedades", "equipo", "reportes", "visitas_agendar",
+                "visitas_historico",
+            }),
+        ),
+        (
+            "Gerente",
+            "Gestión de equipo, horarios y reportes.",
+            _pset({
+                "mi_carnet", "historial", "dashboard", "matriz",
+                "novedades", "equipo", "horarios", "asignar_horarios",
+                "reportes", "visitas_agendar", "visitas_historico",
+            }),
+        ),
+        (
+            "Coordinador",
+            "Gestión del equipo directo, matriz y novedades.",
+            _pset({
+                "mi_carnet", "historial", "matriz", "novedades", "equipo",
+                "dashboard", "visitas_agendar", "visitas_historico",
+            }),
+        ),
+        (
+            "Empleado",
+            "Autoservicio: carnet, historial y agendar visitas.",
+            _pset({"mi_carnet", "historial", "visitas_agendar"}),
+        ),
     ]
-    for name, desc, role_key in specs:
+
+    # Migración legacy: si existía "Supervisor" (nombre anterior), lo dejamos
+    # tal cual — el admin puede eliminarlo. NO lo renombramos automáticamente
+    # para no borrar customizaciones que ya haya hecho.
+    for name, desc, perms in specs:
         existing = await db.access_profiles.find_one({"name": name})
         if existing:
             continue
@@ -736,13 +786,27 @@ async def _seed_access_profiles() -> None:
             "profile_id": new_id("prof"),
             "name": name,
             "description": desc,
-            "permissions": _default_permissions_for_role(role_key),
+            "permissions": perms,
             "is_system": True,
             "created_at": now_utc(),
             "updated_at": now_utc(),
         }
         await db.access_profiles.insert_one(doc)
         logger.info("Seed perfil de acceso: '%s' creado.", name)
+
+
+async def _migrate_supervisor_role_to_coordinador() -> None:
+    """Migración idempotente Feb 2026: renombra rol legacy 'supervisor' a
+    'coordinador' en la colección users. Ejecutable en cada startup sin efecto."""
+    res = await db.users.update_many(
+        {"role": "supervisor"},
+        {"$set": {"role": "coordinador"}},
+    )
+    if res.modified_count:
+        logger.info(
+            "Migración: %s usuarios reperfilados de 'supervisor' → 'coordinador'.",
+            res.modified_count,
+        )
 
 
 @app.on_event("shutdown")
@@ -1023,7 +1087,7 @@ async def admin_reset_all_passwords(
 @api.get("/users")
 async def users_list(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     q: Dict[str, Any] = {}
-    if user.get("role") == "supervisor":
+    if user.get("role") in LEADER_ROLES:
         q["user_id"] = {"$in": await supervisor_scope_ids(user)}
     docs = await db.users.find(q, {"password_hash": 0, "pin_code_hash": 0,
                                     "selfie_base64": 0, "face_descriptor": 0}).to_list(1000)
@@ -1367,7 +1431,7 @@ async def _load_import_lookups() -> tuple:
     async for s in db.schedules.find({}, {"schedule_id": 1, "name": 1, "_id": 0}):
         if s.get("name"):
             sched_map[s["name"].strip().lower()] = s["schedule_id"]
-    async for u in db.users.find({"role": {"$in": ["supervisor", "admin"]}},
+    async for u in db.users.find({"role": {"$in": list(LEADER_OR_ADMIN_ROLES)}},
                                  {"user_id": 1, "name": 1, "email": 1, "_id": 0}):
         if u.get("name"):
             sup_by_name[u["name"].strip().lower()] = u["user_id"]
@@ -2426,9 +2490,9 @@ async def attendance_today(user: Dict[str, Any] = Depends(get_current_user)) -> 
 
 @api.get("/attendance/team")
 async def attendance_team(days: int = 7,
-                          user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> List[Dict[str, Any]]:
+                          user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> List[Dict[str, Any]]:
     query: Dict[str, Any] = {"timestamp": {"$gte": now_utc() - timedelta(days=days)}}
-    if user["role"] == "supervisor":
+    if user["role"] in LEADER_ROLES:
         team = await db.users.find({"supervisor_id": user["user_id"]}, {"user_id": 1}).to_list(1000)
         team_ids = [t["user_id"] for t in team]
         query["user_id"] = {"$in": team_ids}
@@ -2442,7 +2506,7 @@ async def attendance_justify(payload: JustifyIn,
     query = {"record_id": payload.record_id}
     if user["role"] == "employee":
         query["user_id"] = user["user_id"]
-    elif user["role"] == "supervisor":
+    elif user["role"] in LEADER_ROLES:
         query["user_id"] = {"$in": await supervisor_scope_ids(user)}
     res = await db.attendance.update_one(
         query,
@@ -2461,7 +2525,7 @@ async def novelties_list(user: Dict[str, Any] = Depends(get_current_user)) -> Li
     q: Dict[str, Any] = {}
     if user["role"] == "employee":
         q["user_id"] = user["user_id"]
-    elif user["role"] == "supervisor":
+    elif user["role"] in LEADER_ROLES:
         team = await db.users.find({"supervisor_id": user["user_id"]}, {"user_id": 1}).to_list(1000)
         team_ids = [t["user_id"] for t in team] + [user["user_id"]]
         q["user_id"] = {"$in": team_ids}
@@ -2473,9 +2537,9 @@ async def novelties_list(user: Dict[str, Any] = Depends(get_current_user)) -> Li
 async def novelties_create(payload: NoveltyIn,
                            user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     target = payload.user_id or user["user_id"]
-    if target != user["user_id"] and user["role"] not in {"admin", "supervisor"}:
+    if target != user["user_id"] and user["role"] not in LEADER_OR_ADMIN_ROLES:
         raise HTTPException(status_code=403, detail="No autorizado")
-    if user["role"] == "supervisor" and target != user["user_id"]:
+    if user["role"] in LEADER_ROLES and target != user["user_id"]:
         team_ids = await supervisor_scope_ids(user)
         if target not in team_ids:
             raise HTTPException(status_code=403, detail="El empleado no pertenece a tu equipo")
@@ -2512,7 +2576,7 @@ async def novelties_delete(novelty_id: str,
                            user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
     q: Dict[str, Any] = {"novelty_id": novelty_id}
     # Admin puede borrar cualquier novedad en cualquier estado.
-    if user["role"] == "supervisor":
+    if user["role"] in LEADER_ROLES:
         # Supervisor puede borrar novedades de su equipo (cualquier estado).
         q["user_id"] = {"$in": await supervisor_scope_ids(user)}
     elif user["role"] != "admin":
@@ -2554,9 +2618,9 @@ async def novelties_patch(novelty_id: str,
 
 @api.post("/novelties/bulk-decide")
 async def novelties_bulk_decide(payload: NoveltyDecideIn,
-                                user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, int]:
+                                user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> Dict[str, int]:
     q: Dict[str, Any] = {"novelty_id": {"$in": payload.novelty_ids}, "status": "pending"}
-    if user["role"] == "supervisor":
+    if user["role"] in LEADER_ROLES:
         q["user_id"] = {"$in": await supervisor_scope_ids(user)}
     res = await db.novelties.update_many(
         q,
@@ -3020,13 +3084,13 @@ async def admin_import(file: UploadFile = File(...),
 # ==================================================================
 @api.get("/stats/executive")
 async def stats_executive(days: int = 30,
-                          user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, Any]:
+                          user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> Dict[str, Any]:
     """Métricas ejecutivas: top tardanzas, ranking por depto, promedio minutos tarde."""
     since = now_utc() - timedelta(days=days)
     q = {"timestamp": {"$gte": since}, "type": "in"}
 
     scope_users_q: Dict[str, Any] = {}
-    if user["role"] == "supervisor":
+    if user["role"] in LEADER_ROLES:
         team_ids = await supervisor_scope_ids(user)
         q["user_id"] = {"$in": team_ids}
         scope_users_q = {"user_id": {"$in": team_ids}}
@@ -3113,11 +3177,11 @@ async def stats_executive(days: int = 30,
 
 
 @api.get("/stats/dashboard")
-async def stats_dashboard(user: Dict[str, Any] = Depends(require_roles("admin", "supervisor"))) -> Dict[str, Any]:
+async def stats_dashboard(user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> Dict[str, Any]:
     scope: Dict[str, Any] = {}
     user_scope: Dict[str, Any] = {}
     nov_scope: Dict[str, Any] = {}
-    if user["role"] == "supervisor":
+    if user["role"] in LEADER_ROLES:
         team_ids = await supervisor_scope_ids(user)
         scope["user_id"] = {"$in": team_ids}
         user_scope["user_id"] = {"$in": team_ids}
@@ -3173,7 +3237,7 @@ async def reports_list(from_date: Optional[str] = Query(None),
         q["timestamp"] = rng
     if user["role"] == "employee":
         q["user_id"] = user["user_id"]
-    elif user["role"] == "supervisor":
+    elif user["role"] in LEADER_ROLES:
         team_ids = await supervisor_scope_ids(user)
         if user_id and user_id not in team_ids:
             return []
@@ -3192,7 +3256,7 @@ async def reports_export(from_date: Optional[str] = Query(None),
         q["timestamp"] = rng
     if user["role"] == "employee":
         q["user_id"] = user["user_id"]
-    elif user["role"] == "supervisor":
+    elif user["role"] in LEADER_ROLES:
         q["user_id"] = {"$in": await supervisor_scope_ids(user)}
     users = {u["user_id"]: u async for u in db.users.find({}, {"user_id": 1, "name": 1, "email": 1, "cedula": 1})}
     buf = io.StringIO()
@@ -3229,7 +3293,7 @@ async def _matrix_scope_ids(user: Dict[str, Any]) -> Optional[List[str]]:
     role = user.get("role")
     if role == "employee":
         return [user["user_id"]]
-    if role == "supervisor":
+    if role in LEADER_ROLES:
         return await supervisor_scope_ids(user)
     return None  # admin → sin restricción
 

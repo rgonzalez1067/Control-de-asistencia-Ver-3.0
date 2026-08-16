@@ -46,7 +46,13 @@ export default function CarnetPage() {
     load();
   }, [user]);
 
-  const roleLabel = { admin: "Administrador", supervisor: "Supervisor", employee: "Empleado" }[user?.role] || user?.role;
+  const roleLabel = {
+    admin: "Administrador",
+    director: "Director",
+    gerente: "Gerente",
+    coordinador: "Coordinador",
+    employee: "Empleado",
+  }[user?.role] || user?.role;
 
   return (
     <div className="p-4 sm:p-8 max-w-5xl mx-auto" data-testid="carnet-page">

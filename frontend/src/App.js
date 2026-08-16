@@ -29,7 +29,7 @@ import SecurityProfilesPage from "@/pages/SecurityProfilesPage";
 import UserPermissionsPage from "@/pages/UserPermissionsPage";
 
 const ADMIN = ["admin"];
-const ADMIN_OR_SUP = ["admin", "supervisor"];
+const ADMIN_OR_SUP = ["admin", "coordinador", "gerente", "director"];
 
 function App() {
   return (

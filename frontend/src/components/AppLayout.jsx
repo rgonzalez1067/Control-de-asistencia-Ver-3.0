@@ -125,9 +125,10 @@ export default function AppLayout() {
   const canManageSchedules = hasPerm("horarios") || user?.can_manage_schedules;
   const canAssignSchedules = hasPerm("asignar_horarios") || user?.can_assign_schedules;
 
+  const LEADER_ROLES_SET = new Set(["coordinador", "gerente", "director"]);
   const baseItems =
     user?.role === "admin" ? NAV_ADMIN :
-    user?.role === "supervisor" ? NAV_SUPERVISOR : NAV_EMPLOYEE;
+    (user?.role && LEADER_ROLES_SET.has(user.role)) ? NAV_SUPERVISOR : NAV_EMPLOYEE;
 
   const visitItems = [];
   if (canCreateVisits) visitItems.push({ to: "/visitas/agendar", icon: UserPlus, label: "Agendar visita", permKey: "visitas_agendar" });
