@@ -264,3 +264,38 @@ injustificado, suma minutos perdidos).
 - `server.py` en 3496 líneas — necesita refactor a routers.
 - KPI "Justif. pendientes" en TeamPage se calcula del lado cliente sobre el período
   visible; el dashboard es global. Se puede alinear en el futuro.
+
+
+---
+
+## Fase 12 — Corrección del cálculo E1 vs E2 en Historial ✅ (2026-08-17)
+
+**Problema**: `_register_attendance` marcaba cada 'in' (incluida E2) como tardanza
+respecto a `blocks[0].start`, inflando artificialmente `late_minutes` en la
+segunda entrada del día. La Matriz de Asistencia ya usaba la regla correcta.
+
+**Regla oficial (homogeneizada con `matrix_report.py`)**:
+- **E1** (primera entrada del día): `delta = actual - blocks[0].start`. Si
+  `delta > tolerance` → tarde con severidad según ventana de justificación.
+- **E2+**: `gap = E2 - S1`. Si `gap ≤ 60 min` → **on_time** (hora en negro, sin
+  justificación). Si `gap > 60 min` → `late_minutes = gap - 60`, hora en **rojo**,
+  severidad y justificación según ventana.
+
+**Backend** (`/app/backend/server.py`):
+- `_register_attendance` ahora detecta si es E2+ vía `count_documents` de 'in'
+  previos del mismo día y aplica la regla correspondiente. Además serializa
+  `entry_index` (0 para E1, 1 para E2, ...) al documento.
+- **NUEVO** `_backfill_entry_index_and_lateness()` — helper en startup que
+  recorre TODA la colección `attendance` agrupada por (user_id, día), reindexa
+  cada 'in' y recalcula lateness. Preserva `requires_justification=False` si
+  el status ya fue `approved`/`rejected` (no deshace decisiones del supervisor).
+
+**Frontend** (`/app/frontend/src/pages/HistorialPage.jsx`):
+- Registros 'in' con `entry_index >= 1 && is_late` muestran la hora en `text-red-600 font-semibold`.
+- Badge Tipo: "Entrada" para E1, "Entrada 2/3/…" para E2+.
+- Estado: "Exceso de descanso · Xm" para E2+ tarde (en vez de "Retraso mayor/leve").
+
+**Testing** (2026-08-17):
+- 5/5 pytest en `/app/backend/tests/test_entry_e2_lateness.py`. Frontend Playwright
+  E2E validado: hora en rojo para E2 tarde, badge "Entrada 2", estado "Exceso de descanso".
+- Consistencia con Matrix Report confirmada (mismo umbral 60, mismos late_minutes).

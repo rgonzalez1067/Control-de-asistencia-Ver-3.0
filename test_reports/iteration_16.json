@@ -1,0 +1,25 @@
+{
+  "summary": "Iteración 16: Cálculo E1/E2 con regla de gap S1→E2 (>60 min). Backend: 5 tests pytest PASS + 1 skip (test_entry_e2_lateness.py). Se verificó _register_attendance separa E1 (regla clásica vs blocks[0].start+tol) vs E2+ (excess = gap - 60), se verificó _backfill_entry_index_and_lateness recalcula registros existentes, preserva justification_status='approved'/'rejected', y ambos endpoints /api/attendance/me y /api/attendance/team incluyen entry_index. Frontend: HistorialPage muestra E2 late en rojo+bold, badge 'Entrada 2', estado 'Exceso de descanso · Xm'; E1 on_time en negro con badge 'Entrada' + 'A tiempo'. Consistencia con Matrix Report validada por lógica idéntica (mismo umbral 60, tol_justif=20 → late_minor/late_major).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_entry_e2_lateness.py",
+    "/app/test_reports/pytest/iter16_e2.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py ahora 3693 líneas — se recomienda extraer routers (attendance, stats, reports, novelties, visits) en módulos separados (repetido desde iter12-15).",
+    "En _register_attendance, la detección de E2+ hace 2 queries a MongoDB (count_documents + find_one last_out) en cada POST; podría fusionarse en un solo aggregate para reducir latencia bajo carga del kiosco (baja prioridad).",
+    "El backfill se ejecuta on_startup y escanea TODA la colección attendance agrupando por (user_id, día). Ok para pocas miles de marcas; con >100k registros el startup podría alargarse. Considerar marker/checkpoint (flag 'backfilled_v2': true) por documento para evitar re-escaneos futuros — el código ya escribe sólo cuando old_vals != new_vals así que es idempotente, pero el scan completo persiste.",
+    "En _register_attendance, entry_index se calcula DESPUÉS de decidir is_late usando prior_ins pero antes del insert; ambas queries son consistentes (mismo día). Sin embargo, si dos POSTs concurrentes del mismo usuario llegan al mismo instante podrían obtener el mismo entry_index. Poco probable pero anotar.",
+    "GET /api/attendance/team no filtra por scope de coordinador respecto de las 'in' E2 justamente — reutiliza el mismo query genérico; los tests cubren el path admin. Si un coordinador necesita ver detalle E2 debería estar cubierto por el filtro supervisor_id existente (ok)."
+  ],
+  "updated_files": ["/app/backend/tests/test_entry_e2_lateness.py"],
+  "success_rate": {"backend": "100% (5/5, 1 skip por days=400 fuera de rango de team endpoint)", "frontend": "100% flujos verificados"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / admin123. Employee: jgil@megasoft.com.ve / NewJgil!234. jgil.schedule_id se cambió temporalmente a sch_d2db7693fc (Día Completo) para test y se restauró a su valor original sch_0293238865 tras la prueba.",
+  "seed_data_creation": "Insertados 7 registros TEST_ (att_TEST_e2_*) vía MongoDB directo para jgil en fechas 2025-03-05 y 2025-03-06 con valores INCORRECTOS de is_late/late_minutes/severity/entry_index. Se restart de backend disparó _backfill_entry_index_and_lateness que los corrigió. Fixture teardown elimina los registros (delete_many att_TEST_e2_*). Aparte, se insertaron 3 registros att_TEST_ui_* con fecha de ayer para validar UI en HistorialPage — YA LIMPIADOS al final.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "El test_entry_e2_lateness.py reinicia backend (sudo supervisorctl restart backend) en fixture module para disparar el backfill. Toma ~40s por corrida. Si ejecutas paralelamente con otros tests podrían chocar; el pytest.ini tiene -n 2 loadscope pero este archivo se pinnea a un worker. Recomendado ejecutar con -n 0. Los tests pymongo (sync) — motor async da problemas de loop cuando se anidan con requests. Nota: el registro pre-existente 'att_TEST_pending_acb26c81' de iter15 sigue en la BD (att_TEST_ prefix). Si se corre este test, el backfill lo tocará también (recalcula late_minutes/severity) — no lo rompe, sólo lo normaliza. La UI de HistorialPage funciona bien; para login por Playwright usar page.request.post + inyectar token en localStorage bajo la clave 'megasoft.token' (page.fill directo pierde el evento en el input email por alguna razón — posible autofill / interference — usa el atajo del token).",
+  "rca_of_the_issue": "N/A — feature implementada correctamente. Regla E2+ homogeneizada con matrix_report.py (gap - 60), backfill idempotente, UI diferenciación E2 vs E1 aplicada."
+}

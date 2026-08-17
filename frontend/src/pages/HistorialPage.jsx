@@ -111,14 +111,17 @@ export default function HistorialPage() {
               )}
               {!loading && records.map((r) => {
                 const d = new Date(r.timestamp);
+                const isE2Late = r.type === "in" && (r.entry_index || 0) >= 1 && r.is_late;
                 return (
                   <TableRow key={r.record_id}>
                     <TableCell className="text-sm">{dfDate.format(d)}</TableCell>
-                    <TableCell className="text-sm font-mono">{dfTime.format(d)}</TableCell>
+                    <TableCell className={"text-sm font-mono " + (isE2Late ? "text-red-600 font-semibold" : "")} data-testid={`hist-time-${r.record_id}`}>
+                      {dfTime.format(d)}
+                    </TableCell>
                     <TableCell>
                       {r.type === "in" ? (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-medium">
-                          <LogIn className="h-3 w-3" /> Entrada
+                          <LogIn className="h-3 w-3" /> {(r.entry_index || 0) >= 1 ? `Entrada ${(r.entry_index || 0) + 1}` : "Entrada"}
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-200 text-slate-700 text-[11px] font-medium">
@@ -134,10 +137,13 @@ export default function HistorialPage() {
                     <TableCell>
                       {r.is_late ? (() => {
                         const isMajor = r.late_severity === "late_major";
+                        const isE2 = r.type === "in" && (r.entry_index || 0) >= 1;
                         const cls = isMajor
                           ? "bg-red-100 text-red-800"
                           : "bg-amber-100 text-amber-800";
-                        const label = isMajor ? "Retraso mayor" : "Retraso leve";
+                        const label = isE2
+                          ? "Exceso de descanso"
+                          : (isMajor ? "Retraso mayor" : "Retraso leve");
                         return (
                           <span className={"inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium " + cls}>
                             <AlertTriangle className="h-3 w-3" /> {label} · {r.late_minutes}m

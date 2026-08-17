@@ -584,6 +584,12 @@ async def on_startup() -> None:
         {"$set": {"justification_status": "none"}},
     )
 
+    # Backfill: recompute lateness for E2+ ("in" marca 2+ del día) usando la regla
+    # del gap S1→E2 (>60 min). Recorre por (user_id, día) y arregla los registros
+    # que fueron mal clasificados por la lógica antigua (que comparaba TODA entrada
+    # contra blocks[0].start, inflando artificialmente late_minutes en E2+).
+    await _backfill_entry_index_and_lateness()
+
     # Backfill: normaliza roles a las claves canónicas (admin/supervisor/employee)
     for alias, canonical in _ROLE_ALIASES.items():
         if alias == canonical:
@@ -683,6 +689,139 @@ async def _find_site_by_keywords(*keywords: str) -> Optional[Dict[str, Any]]:
         if all(k.lower() in name for k in keywords):
             return s
     return None
+
+
+async def _backfill_entry_index_and_lateness() -> None:
+    """Recalcula ``entry_index`` y la clasificación de tardanza para todos los
+    registros de asistencia ``type == "in"``:
+
+    - **E1** (primera entrada del día): fórmula clásica → ``delta`` respecto a
+      ``blocks[0].start + tolerance``.
+    - **E2+**: fórmula de gap → sólo se penaliza el exceso sobre 60 min entre
+      la primera salida S1 y la segunda entrada E2. Sin S1 previo no se marca
+      como tarde (el registro se considera "fuera de patrón").
+
+    Es idempotente: sólo escribe los campos si difieren de los actuales.
+    Se ejecuta una única vez tras el startup (rápido: agrupa por user_id+día).
+    """
+    schedules_cache: Dict[str, Any] = {}
+
+    async def _get_sched(sid: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not sid:
+            return None
+        if sid in schedules_cache:
+            return schedules_cache[sid]
+        s = await db.schedules.find_one({"schedule_id": sid})
+        schedules_cache[sid] = s
+        return s
+
+    # Traer usuarios con su schedule_id (para consultar rápido)
+    user_sched: Dict[str, Optional[str]] = {}
+    async for u in db.users.find({}, {"user_id": 1, "schedule_id": 1, "_id": 0}):
+        user_sched[u["user_id"]] = u.get("schedule_id")
+
+    # Agrupamos por user_id+día — traemos TODO ordenado por timestamp
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    async for r in db.attendance.find(
+        {},
+        {"record_id": 1, "user_id": 1, "type": 1, "timestamp": 1,
+         "is_late": 1, "late_minutes": 1, "late_severity": 1,
+         "requires_justification": 1, "entry_index": 1,
+         "justification_status": 1, "_id": 0},
+    ).sort("timestamp", 1):
+        ts = r.get("timestamp")
+        if not isinstance(ts, datetime):
+            continue
+        if not r.get("record_id") or not r.get("user_id"):
+            continue
+        day = ts.astimezone(APP_TZ).strftime("%Y-%m-%d")
+        key = f"{r['user_id']}::{day}"
+        grouped.setdefault(key, []).append(r)
+
+    fixed = 0
+    for key, recs in grouped.items():
+        uid, day = key.split("::", 1)
+        # Ordenados por timestamp asc
+        recs.sort(key=lambda x: x["timestamp"])
+        # Índice de "in"
+        in_idx = 0
+        last_out_ts: Optional[datetime] = None
+        sched = await _get_sched(user_sched.get(uid))
+        blocks = (sched or {}).get("blocks") or []
+        tol_general = int((sched or {}).get("tolerance_minutes", 10))
+        tol_justif = int((sched or {}).get("justification_tolerance_minutes", 20))
+
+        for r in recs:
+            t = r.get("type")
+            if t == "out":
+                last_out_ts = r["timestamp"]
+                continue
+            if t != "in":
+                continue
+
+            # Recalcular clasificación
+            is_late, late_min = False, 0
+            severity = "on_time"
+            req_just = False
+
+            if sched and blocks:
+                local_ts = r["timestamp"].astimezone(APP_TZ)
+                if in_idx == 0:
+                    # E1
+                    try:
+                        hh, mm = map(int, blocks[0]["start"].split(":"))
+                        expected = local_ts.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                        delta = int((local_ts - expected).total_seconds() // 60)
+                        if delta > tol_general:
+                            is_late = True
+                            late_min = delta
+                            if delta > (tol_general + tol_justif):
+                                severity = "late_major"
+                                req_just = True
+                            else:
+                                severity = "late_minor"
+                    except Exception:
+                        pass
+                else:
+                    # E2+
+                    if last_out_ts is not None:
+                        s1_local = last_out_ts.astimezone(APP_TZ)
+                        gap = int((local_ts - s1_local).total_seconds() // 60)
+                        if gap > 60:
+                            is_late = True
+                            late_min = gap - 60
+                            if late_min > tol_justif:
+                                severity = "late_major"
+                                req_just = True
+                            else:
+                                severity = "late_minor"
+
+            # Preservar decisiones ya tomadas por el supervisor:
+            # si hay un status distinto de "none"/"pending" NO forzamos requires_justification.
+            jstatus = r.get("justification_status") or "none"
+            if jstatus in ("approved", "rejected"):
+                req_just = False
+
+            new_vals = {
+                "is_late": is_late,
+                "late_minutes": late_min,
+                "late_severity": severity,
+                "requires_justification": req_just,
+                "entry_index": in_idx,
+            }
+            old_vals = {k: r.get(k) for k in new_vals.keys()}
+            if old_vals != new_vals:
+                await db.attendance.update_one(
+                    {"record_id": r["record_id"]},
+                    {"$set": new_vals},
+                )
+                fixed += 1
+            in_idx += 1
+
+    if fixed:
+        logger.info("Backfill: recomputadas tardanzas E1/E2 en %d registros.", fixed)
+
+
 
 
 async def _seed_kiosk_users() -> None:
@@ -2434,6 +2573,13 @@ async def _register_attendance(user: Dict[str, Any], type_: str,
     #   • on_time     → dentro de tolerancia general
     #   • late_minor  → excede tolerancia general, dentro de la ventana de justificación
     #   • late_major  → excede ambas tolerancias (obligatorio justificar)
+    #
+    # Lógica de E1 vs E2+ (homogeneizada con matrix_report.py):
+    #   - E1  → tardanza respecto a blocks[0].start + tolerance (regla clásica).
+    #   - E2+ → SOLO cuenta como retraso el exceso sobre 60 min de descanso
+    #           entre la primera salida (S1) y la segunda entrada (E2).
+    #           Fórmula: late_minutes = max(0, gap_S1_E2 - 60).
+    #           Si gap ≤ 60 → on_time (marcaje en negro, sin justificación).
     is_late, late_min = False, 0
     late_severity = "on_time"
     requires_justification = False
@@ -2441,20 +2587,69 @@ async def _register_attendance(user: Dict[str, Any], type_: str,
         sched = await db.schedules.find_one({"schedule_id": user["schedule_id"]})
         if sched and sched.get("blocks"):
             local_now = now_utc().astimezone(APP_TZ)
-            first_block = sched["blocks"][0]
-            hh, mm = map(int, first_block["start"].split(":"))
-            expected = local_now.replace(hour=hh, minute=mm, second=0, microsecond=0)
             tol_general = int(sched.get("tolerance_minutes", 10))
             tol_justif = int(sched.get("justification_tolerance_minutes", 20))
-            delta = int((local_now - expected).total_seconds() // 60)
-            if delta > tol_general:
-                is_late = True
-                late_min = delta
-                if delta > (tol_general + tol_justif):
-                    late_severity = "late_major"
-                    requires_justification = True
-                else:
-                    late_severity = "late_minor"
+
+            # Detectar si es E2+ (hay al menos un "in" previo del mismo usuario ese día)
+            day_start_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_start_utc = day_start_local.astimezone(timezone.utc)
+            day_end_utc = (day_start_local + timedelta(days=1)).astimezone(timezone.utc)
+            prior_ins = await db.attendance.count_documents({
+                "user_id": user["user_id"],
+                "type": "in",
+                "timestamp": {"$gte": day_start_utc, "$lt": day_end_utc},
+            })
+
+            if prior_ins == 0:
+                # === E1 → regla clásica (tardanza vs bloque 1) ===
+                first_block = sched["blocks"][0]
+                hh, mm = map(int, first_block["start"].split(":"))
+                expected = local_now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+                delta = int((local_now - expected).total_seconds() // 60)
+                if delta > tol_general:
+                    is_late = True
+                    late_min = delta
+                    if delta > (tol_general + tol_justif):
+                        late_severity = "late_major"
+                        requires_justification = True
+                    else:
+                        late_severity = "late_minor"
+            else:
+                # === E2+ → regla de exceso de descanso (S1 → E2, umbral 60 min) ===
+                last_out = await db.attendance.find_one(
+                    {
+                        "user_id": user["user_id"],
+                        "type": "out",
+                        "timestamp": {"$gte": day_start_utc, "$lt": day_end_utc},
+                    },
+                    sort=[("timestamp", -1)],
+                )
+                if last_out and last_out.get("timestamp"):
+                    s1_local = last_out["timestamp"].astimezone(APP_TZ)
+                    gap = int((local_now - s1_local).total_seconds() // 60)
+                    if gap > 60:
+                        is_late = True
+                        late_min = gap - 60
+                        # Severidad basada en la ventana de justificación
+                        if late_min > tol_justif:
+                            late_severity = "late_major"
+                            requires_justification = True
+                        else:
+                            late_severity = "late_minor"
+
+    # Determinar índice de entrada (0=E1, 1=E2, ...) para que la UI resalte E2+
+    # sin recalcular. Sólo aplica para type == "in".
+    entry_index = None
+    if type_ == "in":
+        local_now = now_utc().astimezone(APP_TZ)
+        day_start_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_start_utc = day_start_local.astimezone(timezone.utc)
+        day_end_utc = (day_start_local + timedelta(days=1)).astimezone(timezone.utc)
+        entry_index = await db.attendance.count_documents({
+            "user_id": user["user_id"],
+            "type": "in",
+            "timestamp": {"$gte": day_start_utc, "$lt": day_end_utc},
+        })
 
     doc = {
         "record_id": new_id("att", 12),
@@ -2474,6 +2669,7 @@ async def _register_attendance(user: Dict[str, Any], type_: str,
         "rejection_reason": None,
         "decided_by": None,
         "decided_at": None,
+        "entry_index": entry_index,
         "method": method,
     }
     if selfie_base64:
