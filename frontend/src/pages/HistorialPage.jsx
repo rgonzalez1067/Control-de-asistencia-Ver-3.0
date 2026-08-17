@@ -14,7 +14,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import { History, LogIn, LogOut, MessageSquarePlus, AlertTriangle, MapPin } from "lucide-react";
+import { History, LogIn, LogOut, MessageSquarePlus, AlertTriangle, MapPin, Clock3, CheckCircle2, XCircle } from "lucide-react";
 
 const TZ = "America/Caracas";
 const dfDate = new Intl.DateTimeFormat("es-VE", { day: "2-digit", month: "short", year: "numeric", timeZone: TZ });
@@ -151,13 +151,55 @@ export default function HistorialPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      {r.justification ? (
-                        <span className="text-xs text-muted-foreground italic">&ldquo;{r.justification}&rdquo;</span>
-                      ) : r.is_late ? (
-                        <Button variant="ghost" size="sm" onClick={() => setJustifying(r)} className="text-xs" data-testid={`hist-justify-${r.record_id}`}>
-                          <MessageSquarePlus className="h-3.5 w-3.5 mr-1" /> Justificar
-                        </Button>
-                      ) : <span className="text-muted-foreground/60">—</span>}
+                      {(() => {
+                        const st = r.justification_status || "none";
+                        // Ya decidido
+                        if (st === "approved") {
+                          return (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-emerald-100 text-emerald-800">
+                                <CheckCircle2 className="h-3 w-3" /> Justificado
+                              </span>
+                              {r.justification && (
+                                <p className="text-[11px] text-muted-foreground italic">&ldquo;{r.justification}&rdquo;</p>
+                              )}
+                            </div>
+                          );
+                        }
+                        if (st === "rejected") {
+                          return (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-red-100 text-red-800">
+                                <XCircle className="h-3 w-3" /> Injustificado
+                              </span>
+                              {r.rejection_reason && (
+                                <p className="text-[11px] text-red-700">Motivo: {r.rejection_reason}</p>
+                              )}
+                              {r.justification && (
+                                <p className="text-[11px] text-muted-foreground italic">Enviaste: &ldquo;{r.justification}&rdquo;</p>
+                              )}
+                            </div>
+                          );
+                        }
+                        if (st === "pending") {
+                          return (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-100 text-amber-800">
+                                <Clock3 className="h-3 w-3" /> Pendiente de aprobación
+                              </span>
+                              {r.justification && (
+                                <p className="text-[11px] text-muted-foreground italic">&ldquo;{r.justification}&rdquo;</p>
+                              )}
+                            </div>
+                          );
+                        }
+                        // Sin justificar aún
+                        return r.is_late ? (
+                          <Button variant="ghost" size="sm" onClick={() => setJustifying(r)} className="text-xs" data-testid={`hist-justify-${r.record_id}`}>
+                            <MessageSquarePlus className="h-3.5 w-3.5 mr-1" /> Justificar
+                          </Button>
+                        ) : <span className="text-muted-foreground/60">—</span>;
+                      })()}
                     </TableCell>
                   </TableRow>
                 );

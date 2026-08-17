@@ -111,7 +111,7 @@ export default function ReportsPage() {
     const ins = filtered.filter((r) => r.type === "in");
     const outs = filtered.filter((r) => r.type === "out");
     const late = ins.filter((r) => r.is_late);
-    const withJustification = filtered.filter((r) => r.justification);
+    const withJustification = filtered.filter((r) => r.justification_status === "approved");
     return { ins: ins.length, outs: outs.length, late: late.length, just: withJustification.length };
   }, [filtered]);
 
@@ -266,7 +266,7 @@ export default function ReportsPage() {
         <MiniStat icon={LogIn} tint="text-emerald-600" label="Entradas" value={stats.ins} />
         <MiniStat icon={LogOutIcon} tint="text-slate-700" label="Salidas" value={stats.outs} />
         <MiniStat icon={AlertTriangle} tint="text-amber-600" label="Tardanzas" value={stats.late} />
-        <MiniStat icon={CheckCircle2} tint="text-fuchsia-600" label="Con justificación" value={stats.just} />
+        <MiniStat icon={CheckCircle2} tint="text-fuchsia-600" label="Justificadas" value={stats.just} />
       </div>
 
       <Card className="border-border/70 bg-card/80 backdrop-blur overflow-hidden">
@@ -318,16 +318,30 @@ export default function ReportsPage() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      {r.is_late ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] text-amber-700">
-                          <AlertTriangle className="h-3 w-3" /> Tarde · {r.late_minutes}m
-                        </span>
-                      ) : r.type === "in" ? (
+                      {r.is_late ? (() => {
+                        const st = r.justification_status || "none";
+                        if (st === "approved") {
+                          return <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700">Retraso justificado · {r.late_minutes}m</span>;
+                        }
+                        if (st === "rejected") {
+                          return <span className="inline-flex items-center gap-1 text-[11px] text-red-700"><AlertTriangle className="h-3 w-3" /> Injustificado · {r.late_minutes}m</span>;
+                        }
+                        if (st === "pending") {
+                          return <span className="inline-flex items-center gap-1 text-[11px] text-amber-700"><AlertTriangle className="h-3 w-3" /> Pendiente · {r.late_minutes}m</span>;
+                        }
+                        return (
+                          <span className="inline-flex items-center gap-1 text-[11px] text-amber-700">
+                            <AlertTriangle className="h-3 w-3" /> Tarde · {r.late_minutes}m
+                          </span>
+                        );
+                      })() : r.type === "in" ? (
                         <span className="text-[11px] text-emerald-700">A tiempo</span>
                       ) : <span className="text-muted-foreground/60">—</span>}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground italic max-w-xs truncate">
-                      {r.justification || "—"}
+                      {r.justification_status === "rejected" && r.rejection_reason
+                        ? <span className="text-red-700 not-italic">Rechazada: {r.rejection_reason}</span>
+                        : (r.justification || "—")}
                     </TableCell>
                   </TableRow>
                 );

@@ -515,6 +515,12 @@ class JustifyIn(BaseModel):
     justification: str
 
 
+class JustifyDecideIn(BaseModel):
+    record_id: str
+    decision: Literal["approved", "rejected"]
+    rejection_reason: Optional[str] = None
+
+
 class NoveltyIn(BaseModel):
     type: Literal["vacation", "leave", "medical", "permission", "remote", "client_visit", "other"]
     start_date: str
@@ -563,6 +569,19 @@ async def on_startup() -> None:
         {"$or": [{"justification_tolerance_minutes": {"$exists": False}},
                  {"justification_tolerance_minutes": None}]},
         {"$set": {"justification_tolerance_minutes": 20}},
+    )
+
+    # Backfill: asistencia legacy sin justification_status.
+    # - Con texto de justificación → 'approved' (mantiene comportamiento histórico).
+    # - Sin texto → 'none'.
+    await db.attendance.update_many(
+        {"justification_status": {"$exists": False},
+         "justification": {"$nin": [None, ""]}},
+        {"$set": {"justification_status": "approved"}},
+    )
+    await db.attendance.update_many(
+        {"justification_status": {"$exists": False}},
+        {"$set": {"justification_status": "none"}},
     )
 
     # Backfill: normaliza roles a las claves canónicas (admin/supervisor/employee)
@@ -2451,6 +2470,10 @@ async def _register_attendance(user: Dict[str, Any], type_: str,
         "late_severity": late_severity,
         "requires_justification": requires_justification,
         "justification": None,
+        "justification_status": "none",
+        "rejection_reason": None,
+        "decided_by": None,
+        "decided_at": None,
         "method": method,
     }
     if selfie_base64:
@@ -2510,11 +2533,62 @@ async def attendance_justify(payload: JustifyIn,
         query["user_id"] = {"$in": await supervisor_scope_ids(user)}
     res = await db.attendance.update_one(
         query,
-        {"$set": {"justification": payload.justification, "requires_justification": False}},
+        {"$set": {
+            "justification": payload.justification,
+            "justification_status": "pending",
+            "rejection_reason": None,
+            "decided_by": None,
+            "decided_at": None,
+            "requires_justification": False,
+        }},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Registro no encontrado")
     return {"ok": True}
+
+
+@api.post("/attendance/justify/decide")
+async def attendance_justify_decide(
+    payload: JustifyDecideIn,
+    user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director")),
+) -> Dict[str, Any]:
+    """Aprobar o rechazar la justificación de un empleado.
+    - approved  → 'Retraso Justificado' (minutos NO penalizan en reportes)
+    - rejected  → 'Retraso Injustificado' (minutos SÍ suman a "Minutos Perdidos")
+    """
+    rec = await db.attendance.find_one({"record_id": payload.record_id})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Registro no encontrado")
+
+    # Scope: leaders solo deciden sobre su equipo
+    if user["role"] in LEADER_ROLES:
+        team_ids = await supervisor_scope_ids(user)
+        if rec.get("user_id") not in team_ids:
+            raise HTTPException(status_code=403, detail="Fuera de tu equipo")
+
+    if not rec.get("justification"):
+        raise HTTPException(status_code=400, detail="El registro no tiene justificación enviada por el empleado")
+
+    if payload.decision == "rejected":
+        reason = (payload.rejection_reason or "").strip()
+        if len(reason) < 3:
+            raise HTTPException(status_code=400, detail="La razón del rechazo es obligatoria")
+        upd = {
+            "justification_status": "rejected",
+            "rejection_reason": reason,
+            "decided_by": user["user_id"],
+            "decided_at": now_utc(),
+        }
+    else:
+        upd = {
+            "justification_status": "approved",
+            "rejection_reason": None,
+            "decided_by": user["user_id"],
+            "decided_at": now_utc(),
+        }
+
+    await db.attendance.update_one({"record_id": payload.record_id}, {"$set": upd})
+    return {"ok": True, "status": upd["justification_status"]}
 
 
 # ==================================================================
@@ -3114,7 +3188,8 @@ async def stats_executive(days: int = 30,
     async for r in db.attendance.find(
         q,
         {"user_id": 1, "is_late": 1, "late_minutes": 1, "late_severity": 1,
-         "requires_justification": 1, "justification": 1, "_id": 0},
+         "requires_justification": 1, "justification": 1,
+         "justification_status": 1, "_id": 0},
     ):
         total_ins += 1
         uid = r.get("user_id")
@@ -3122,12 +3197,16 @@ async def stats_executive(days: int = 30,
         dept_id = user.get("department_id") or "__none"
         per_dept_total[dept_id] = per_dept_total.get(dept_id, 0) + 1
         if r.get("is_late"):
+            # Aprobadas: NO cuentan como retraso ni suman minutos
+            if r.get("justification_status") == "approved":
+                continue
             total_late += 1
             total_late_minutes += int(r.get("late_minutes") or 0)
             sev = r.get("late_severity") or ("late_major" if int(r.get("late_minutes") or 0) > 30 else "late_minor")
             if sev == "late_major":
                 total_late_major += 1
-                if r.get("requires_justification") and not r.get("justification"):
+                jstatus = r.get("justification_status") or "none"
+                if jstatus in ("none", "pending"):
                     total_late_major_pending += 1
             else:
                 total_late_minor += 1
@@ -3196,9 +3275,16 @@ async def stats_dashboard(user: Dict[str, Any] = Depends(require_roles("admin", 
         **scope,
         "timestamp": {"$gte": start},
         "type": "in",
+        "is_late": True,
         "late_severity": "late_major",
-        "requires_justification": True,
-        "$or": [{"justification": None}, {"justification": ""}],
+        "justification_status": {"$in": ["none", "pending"]},
+    })
+    # Contador de justificaciones pendientes de decisión (aprobar/rechazar).
+    pending_justifications = await db.attendance.count_documents({
+        **scope,
+        "type": "in",
+        "is_late": True,
+        "justification_status": "pending",
     })
     pending_nov = await db.novelties.count_documents({**nov_scope, "status": "pending"})
     # attendance last 7 days
@@ -3216,6 +3302,7 @@ async def stats_dashboard(user: Dict[str, Any] = Depends(require_roles("admin", 
         "check_ins_today": today_in,
         "late_today": today_late,
         "late_major_pending": today_late_major_pending,
+        "pending_justifications": pending_justifications,
         "pending_novelties": pending_nov,
         "series_7d": series,
     }
@@ -3263,7 +3350,8 @@ async def reports_export(from_date: Optional[str] = Query(None),
     w = csv.writer(buf)
     w.writerow(["record_id", "user_id", "name", "cedula", "type", "timestamp_utc",
                 "timestamp_local", "site_id", "within_geofence", "is_late", "late_minutes",
-                "late_severity", "requires_justification", "justification"])
+                "late_severity", "requires_justification", "justification",
+                "justification_status", "rejection_reason"])
     async for r in db.attendance.find(q).sort("timestamp", -1):
         u = users.get(r.get("user_id"), {})
         ts = r.get("timestamp")
@@ -3277,7 +3365,9 @@ async def reports_export(from_date: Optional[str] = Query(None),
                     r.get("type"), ts_utc, ts_local, r.get("site_id"),
                     r.get("within_geofence"), r.get("is_late"), r.get("late_minutes"),
                     r.get("late_severity") or "", r.get("requires_justification") or False,
-                    r.get("justification") or ""])
+                    r.get("justification") or "",
+                    r.get("justification_status") or "none",
+                    r.get("rejection_reason") or ""])
     buf.seek(0)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                              headers={"Content-Disposition": "attachment; filename=asistencia_report.csv"})

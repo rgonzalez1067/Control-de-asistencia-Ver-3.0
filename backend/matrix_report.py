@@ -386,10 +386,11 @@ async def build_matrix(
             # Justificación / totales sobre el primer bloque tardío
             first_late = next((b for b in block_records if b["in_late"]), None)
             if first_late:
-                # Busca justificación en attendance doc del "in" correspondiente
-                # (Aproximación: revisamos si hay algún doc "in" del día con justification)
+                # Solo cuenta como justificado si el supervisor aprobó la solicitud
+                # (justification_status == "approved"). Los estados "pending" o
+                # "rejected" NO omiten la penalización.
                 has_just = any(
-                    (a.get("justification") or "").strip()
+                    (a.get("justification_status") == "approved")
                     for a in att_docs
                     if a.get("user_id") == uid and a.get("type") == "in"
                     and isinstance(a.get("timestamp"), datetime)

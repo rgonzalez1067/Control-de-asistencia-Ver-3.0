@@ -205,3 +205,62 @@ provisión de estos usuarios debe replicarse automáticamente en cualquier deplo
   Un usuario `kiosk` no puede desbloquearse a sí mismo — 401 automático.
 
 
+
+
+---
+
+## Fase 11 — Flujo de Aprobación/Rechazo de Justificaciones ✅ (2026-08-17)
+
+**Objetivo**: Los supervisores y admins pueden revisar las justificaciones enviadas
+por sus empleados desde la pantalla "Mi Equipo" y decidir Aceptar (retraso
+justificado, no penaliza minutos) o Rechazar con razón obligatoria (retraso
+injustificado, suma minutos perdidos).
+
+**Backend** (`/app/backend/server.py`):
+- Nuevos campos en `attendance`: `justification_status` (`none|pending|approved|rejected`),
+  `rejection_reason`, `decided_by`, `decided_at`.
+- `POST /api/attendance/justify` ahora setea `justification_status = "pending"` en lugar
+  de sólo limpiar `requires_justification`.
+- **NUEVO** `POST /api/attendance/justify/decide` — admin/coordinador/gerente/director:
+  - `decision="approved"` → `justification_status="approved"` (excluye penalización).
+  - `decision="rejected"` requiere `rejection_reason` (≥3 chars) — sino HTTP 400.
+  - Leaders sólo deciden sobre su propio equipo (403 fuera de scope).
+- **Startup backfill**: registros legacy con `justification` de texto → `approved`;
+  sin texto → `none`.
+- `GET /api/stats/executive/summary`: los `approved` no cuentan en `total_late`,
+  `total_late_minutes`, ni en el ranking por departamento.
+- `GET /api/stats/dashboard`: expone `pending_justifications` (count global del scope).
+- `GET /api/reports/export` (CSV): añade columnas `justification_status` y `rejection_reason`.
+- `matrix_report.py`: sólo `approved` cuenta como `late_justified`; `pending`/`rejected`/
+  `none` suman `lost_minutes`.
+
+**Frontend**:
+- `/app/frontend/src/pages/TeamPage.jsx`: matriz de "Mi Equipo" ahora colorea cada celda por
+  `justification_status` (pendiente=amber pulsante + `FileWarning`, aprobada=emerald +
+  `CheckCircle2`, rechazada=red + `XCircle`). Cada celda con justificación pendiente o
+  ya decidida es clickeable → abre `Dialog` con texto del empleado y botones "Aceptar
+  justificación" (verde) / "Rechazar" (rojo). Al rechazar, se despliega textarea
+  obligatoria "Razón del rechazo" antes de confirmar. KPI nuevo: "Justif. pendientes".
+- `/app/frontend/src/pages/HistorialPage.jsx`: el empleado ve badges de estado:
+  `Pendiente de aprobación` (amber), `Justificado` (emerald), `Injustificado` (red)
+  con "Motivo: {rejection_reason}" cuando aplica.
+- `/app/frontend/src/pages/ReportsPage.jsx`: columna Estado muestra "Retraso justificado",
+  "Injustificado", "Pendiente"; columna Justificación resalta razón de rechazo en rojo.
+
+**Data-testids sembrados en TeamPage**:
+`team-kpi-pending-just`, `team-cell-review-{user_id}-{yyyy-mm-dd}`,
+`team-justify-dialog`, `team-justify-text`, `team-btn-approve`, `team-btn-reject`,
+`team-reject-reason`, `team-btn-reject-confirm`.
+
+**Testing** (2026-08-17):
+- Backend: 9/9 pytest pass en `/app/backend/tests/test_justify_flow.py` — submit,
+  decide approve/reject, 400 sin reason, 403 fuera de scope, dashboard KPI,
+  executive summary excluye approved, CSV headers.
+- Frontend: Playwright E2E validado en TeamPage (celda pendiente clickeable, dialog
+  con texto, flujo aprobar y rechazar con validación de razón), HistorialPage
+  (badges de estado), ReportsPage (columnas actualizadas).
+
+**Deuda técnica identificada por testing agent** (no blocker):
+- `server.py` en 3496 líneas — necesita refactor a routers.
+- KPI "Justif. pendientes" en TeamPage se calcula del lado cliente sobre el período
+  visible; el dashboard es global. Se puede alinear en el futuro.
