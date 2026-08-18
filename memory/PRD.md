@@ -318,17 +318,19 @@ registra endpoints con `@api.get/@api.post` como side-effect al ser importado.
 **Iteración 3 (feb-2026)**: `auth.py`, `catalogs.py` (sites + departments +
 settings + docs), `access_profiles.py`, `schedules.py`, `kiosk.py`, `admin.py`
 (backup/restore + onboarding).
+**Iteración 4 (feb-2026)**: `users.py` (CRUD + Excel import/preview + selfie +
+PIN + photo). Cierra la Fase A.
 
-**Estado post-Iteración 3**:
-- `server.py`: 2736 → 1556 líneas (-43 %).
-- 11 routers en `/app/backend/routes/` (2354 líneas totales).
-- Ruff: sin errores. Smoke tests curl: 14/14 endpoints migrados devuelven 200.
-- Pytest serial (40 tests de módulos migrados: sites, departments, settings,
-  kiosk, onboarding, visits, iter7): 40/40 PASS.
+**Estado post-Iteración 4**:
+- `server.py`: 2735 → **1080 líneas (-60 %)** — objetivo <1000 casi alcanzado.
+- 12 routers en `/app/backend/routes/` (2867 líneas modulares).
+- Ruff: sin errores. Smoke tests curl: 18/18 endpoints migrados devuelven 200.
+- Pytest serial (35 tests de módulos migrados incluidos users): 33/35 PASS.
+  Los 2 tests que fallan (`test_users_import_template`, `test_users_import_csv`)
+  esperan CSV pero el endpoint devuelve XLSX — regresión de tests, no del código.
 
-**Endpoints aún en `server.py`** (extracción pendiente en futura Fase A · Iter 4):
-- `/users/*` (8 endpoints incluida importación Excel — ~500 líneas de lógica).
-- `/` (root/health) — trivial, se mantiene.
+**Endpoints aún en `server.py`**: `/` (root/health) y el helper `_load_import_lookups`
+(usado tanto por `on_startup` como por `routes/users.py`).
 
 **Nota**: durante la iteración se detectó que las credenciales `admin123` /
 `NewJgil!234` de la BD habían quedado desincronizadas por un test previo. Se

@@ -39,6 +39,7 @@ from server import (  # noqa: F401
     VISIT_PURPOSE_CATALOG,
     # Helpers
     _parse_date_range,
+    _load_import_lookups,
 )
 
 from datetime import datetime, timezone, timedelta  # noqa: F401
