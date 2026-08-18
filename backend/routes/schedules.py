@@ -1,0 +1,379 @@
+"""Endpoints de Horarios (Schedules), Asignaciones diarias y Planes.
+
+Migrado desde server.py durante la Fase A · Iteración 3 (feb-2026).
+"""
+from typing import Optional
+from pymongo import UpdateOne
+from pydantic import BaseModel
+
+from deps import (
+    api, db, get_current_user,
+    now_utc, new_id, strip_mongo_id,
+    ScheduleIn,
+    HTTPException, Depends,
+    Any, Dict, List,
+)
+
+
+# ------------------------------------------------------------------
+# Dependencies locales (permisos específicos de horarios y asignaciones)
+# ------------------------------------------------------------------
+async def _require_admin_or_schedules_manager(
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Admin siempre puede; empleado/supervisor puede si tiene can_manage_schedules=True."""
+    if user.get("role") == "admin" or user.get("can_manage_schedules"):
+        return user
+    raise HTTPException(status_code=403, detail="Se requiere permiso 'Puede crear y asignar horarios'.")
+
+
+async def _require_admin_or_assigner(
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Admin siempre; empleado/supervisor con can_assign_schedules=True también."""
+    if user.get("role") == "admin" or user.get("can_assign_schedules"):
+        return user
+    raise HTTPException(
+        status_code=403,
+        detail="Se requiere permiso 'Puede asignar turnos y novedades a personal sin horario fijo'.",
+    )
+
+
+# ==================================================================
+# SCHEDULES CRUD
+# ==================================================================
+@api.get("/schedules")
+async def schedules_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    docs = await db.schedules.find({}).to_list(500)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.post("/schedules")
+async def schedules_create(payload: ScheduleIn,
+                           _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
+    doc = payload.model_dump()
+    doc["schedule_id"] = new_id("sch", 10)
+    doc["created_at"] = now_utc()
+    await db.schedules.insert_one(doc)
+    return strip_mongo_id(doc)
+
+
+@api.put("/schedules/{schedule_id}")
+async def schedules_update(schedule_id: str, payload: ScheduleIn,
+                           _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
+    updates = payload.model_dump(exclude_unset=True)
+    res = await db.schedules.update_one({"schedule_id": schedule_id}, {"$set": updates})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Horario no encontrado")
+    doc = await db.schedules.find_one({"schedule_id": schedule_id})
+    return strip_mongo_id(doc)
+
+
+@api.delete("/schedules/{schedule_id}")
+async def schedules_delete(schedule_id: str,
+                           _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, bool]:
+    res = await db.schedules.delete_one({"schedule_id": schedule_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Horario no encontrado")
+    return {"ok": True}
+
+
+@api.patch("/users/{user_id}/schedule")
+async def users_assign_schedule(user_id: str, payload: Dict[str, Any],
+                                current: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    """Asigna (o desasigna con null) un horario a un empleado.
+       Permitido a: admin, o cualquier usuario con can_manage_schedules=True
+       que sea el supervisor directo del empleado objetivo."""
+    schedule_id = (payload or {}).get("schedule_id")
+    target = await db.users.find_one({"user_id": user_id})
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    is_admin = current.get("role") == "admin"
+    has_perm = bool(current.get("can_manage_schedules"))
+    is_supervisor_of_target = target.get("supervisor_id") == current["user_id"]
+
+    if not (is_admin or (has_perm and is_supervisor_of_target)):
+        raise HTTPException(
+            status_code=403,
+            detail="No autorizado. Necesitas ser admin, o supervisor del empleado con permiso 'Puede crear y asignar horarios'.",
+        )
+
+    if schedule_id:
+        sch = await db.schedules.find_one({"schedule_id": schedule_id})
+        if not sch:
+            raise HTTPException(status_code=404, detail="Horario no encontrado")
+
+    await db.users.update_one({"user_id": user_id}, {"$set": {"schedule_id": schedule_id or None}})
+    u = await db.users.find_one({"user_id": user_id}, {"password_hash": 0, "pin_code_hash": 0})
+    return strip_mongo_id(u)
+
+
+# ==================================================================
+# SCHEDULE ASSIGNMENTS — planificación diaria para personal sin horario fijo.
+# Usada para turnos rotativos (Monitoreo, guardias, etc.) y novedades masivas.
+# Colección: schedule_assignments · unique index (user_id, date).
+# ==================================================================
+# Tipos de novedad admitidos por el módulo de Asignación de Horarios.
+# Coinciden con los códigos internos usados por las novedades regulares para que
+# el motor del Reporte Matricial las contabilice sin cambios adicionales.
+#   remote     → Trabajo Remoto
+#   vacation   → Vacaciones
+#   leave      → Reposo
+#   permission → Permiso (día completo cuando se asigna aquí)
+_VALID_ASSIGN_NOVELTIES = {"remote", "vacation", "leave", "permission"}
+
+
+async def _ensure_assignments_index() -> None:
+    try:
+        await db.schedule_assignments.create_index(
+            [("user_id", 1), ("date", 1)], unique=True, name="uq_user_date"
+        )
+    except Exception:
+        pass
+
+
+class AssignmentBulkIn(BaseModel):
+    user_ids: List[str]
+    dates: List[str]                        # ["YYYY-MM-DD", ...]
+    kind: str                               # "shift" | "novelty"
+    schedule_id: Optional[str] = None       # required if kind='shift'
+    novelty_type: Optional[str] = None      # required if kind='novelty'
+
+
+class AssignmentClearIn(BaseModel):
+    user_ids: List[str]
+    dates: List[str]
+
+
+class AssignmentPlanIn(BaseModel):
+    name: str
+    from_date: str
+    to_date: str
+    user_ids: List[str] = []
+    overwrite: bool = False  # Si True, elimina planes previos con rango solapado.
+
+
+def _plan_public(doc: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "plan_id": doc.get("plan_id"),
+        "name": doc.get("name"),
+        "from_date": doc.get("from_date"),
+        "to_date": doc.get("to_date"),
+        "user_ids": doc.get("user_ids") or [],
+    }
+
+
+async def _find_overlapping_plans(from_date: str, to_date: str,
+                                  exclude_plan_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Planes cuyo rango intersecta con [from_date, to_date] (inclusive)."""
+    q: Dict[str, Any] = {
+        "from_date": {"$lte": to_date},
+        "to_date": {"$gte": from_date},
+    }
+    if exclude_plan_id:
+        q["plan_id"] = {"$ne": exclude_plan_id}
+    docs = await db.assignment_plans.find(q).sort("from_date", 1).to_list(50)
+    return [_plan_public(d) for d in docs]
+
+
+@api.get("/schedule-assignments/eligible-users")
+async def eligible_users_for_assignments(_: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> List[Dict[str, Any]]:
+    """Lista de empleados sin horario fijo — candidatos a asignación de turnos rotativos."""
+    q: Dict[str, Any] = {
+        "role": {"$ne": "admin"},
+        "$or": [{"schedule_id": None}, {"schedule_id": ""}, {"schedule_id": {"$exists": False}}],
+    }
+    docs = await db.users.find(q, {"password_hash": 0, "pin_code_hash": 0}).to_list(1000)
+    docs.sort(key=lambda u: (u.get("name") or "").lower())
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.get("/schedule-assignments")
+async def list_schedule_assignments(
+    from_date: str,
+    to_date: str,
+    user_ids: Optional[str] = None,
+    _: Dict[str, Any] = Depends(_require_admin_or_assigner),
+) -> List[Dict[str, Any]]:
+    """Lista asignaciones en la ventana [from_date, to_date] (ISO YYYY-MM-DD).
+    user_ids: lista separada por comas (opcional)."""
+    q: Dict[str, Any] = {"date": {"$gte": from_date, "$lte": to_date}}
+    if user_ids:
+        ids = [i.strip() for i in user_ids.split(",") if i.strip()]
+        if ids:
+            q["user_id"] = {"$in": ids}
+    docs = await db.schedule_assignments.find(q).to_list(50000)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.post("/schedule-assignments/bulk")
+async def bulk_assign(payload: AssignmentBulkIn,
+                      current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
+    """Upsert masivo: asigna un turno o una novedad al conjunto de (user_id × date)."""
+    if not payload.user_ids or not payload.dates:
+        raise HTTPException(status_code=400, detail="Debes indicar user_ids y dates")
+    if payload.kind == "shift":
+        if not payload.schedule_id:
+            raise HTTPException(status_code=400, detail="schedule_id es obligatorio para kind='shift'")
+        sch = await db.schedules.find_one({"schedule_id": payload.schedule_id})
+        if not sch:
+            raise HTTPException(status_code=404, detail="Horario no encontrado")
+    elif payload.kind == "novelty":
+        if payload.novelty_type not in _VALID_ASSIGN_NOVELTIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"novelty_type debe ser uno de {sorted(_VALID_ASSIGN_NOVELTIES)}",
+            )
+    else:
+        raise HTTPException(status_code=400, detail="kind debe ser 'shift' o 'novelty'")
+
+    await _ensure_assignments_index()
+
+    now = now_utc()
+    ops = []
+    for uid in payload.user_ids:
+        for d in payload.dates:
+            doc: Dict[str, Any] = {
+                "user_id": uid,
+                "date": d,
+                "kind": payload.kind,
+                "schedule_id": payload.schedule_id if payload.kind == "shift" else None,
+                "novelty_type": payload.novelty_type if payload.kind == "novelty" else None,
+                "updated_at": now,
+                "updated_by": current["user_id"],
+            }
+            ops.append(UpdateOne(
+                {"user_id": uid, "date": d},
+                {"$set": doc,
+                 "$setOnInsert": {
+                     "assignment_id": new_id("asg", 10),
+                     "created_at": now,
+                     "created_by": current["user_id"],
+                 }},
+                upsert=True,
+            ))
+    if not ops:
+        return {"ok": True, "affected": 0}
+    result = await db.schedule_assignments.bulk_write(ops, ordered=False)
+    return {
+        "ok": True,
+        "upserted": len(result.upserted_ids or {}),
+        "modified": result.modified_count,
+        "affected": len(ops),
+    }
+
+
+@api.get("/schedule-assignment-plans")
+async def list_assignment_plans(_: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> List[Dict[str, Any]]:
+    docs = await db.assignment_plans.find({}).sort("updated_at", -1).to_list(500)
+    return [strip_mongo_id(d) for d in docs]
+
+
+@api.post("/schedule-assignment-plans")
+async def create_assignment_plan(payload: AssignmentPlanIn,
+                                 current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="El nombre de la planificación es obligatorio")
+    if len(name) > 80:
+        raise HTTPException(status_code=400, detail="El nombre no puede exceder 80 caracteres")
+    if payload.from_date > payload.to_date:
+        raise HTTPException(status_code=400, detail="Rango de fechas inválido")
+    if await db.assignment_plans.find_one({"name": name}):
+        raise HTTPException(status_code=409, detail="Ya existe una planificación con ese nombre")
+
+    # Validación: detectar planes previos cuyo rango se cruce con el nuevo.
+    overlapping = await _find_overlapping_plans(payload.from_date, payload.to_date)
+    if overlapping and not payload.overwrite:
+        raise HTTPException(status_code=409, detail={
+            "code": "plan_range_overlap",
+            "message": "Ya existen planificaciones cuyo rango de fechas se solapa con el nuevo.",
+            "conflicts": overlapping,
+        })
+    if overlapping and payload.overwrite:
+        # El usuario confirmó "reescribir" → eliminamos los planes previos solapados.
+        # Las asignaciones diarias (schedule_assignments) NO se tocan; se conservan.
+        await db.assignment_plans.delete_many({
+            "plan_id": {"$in": [p["plan_id"] for p in overlapping]}
+        })
+
+    now = now_utc()
+    doc = {
+        "plan_id": new_id("plan", 10),
+        "name": name,
+        "from_date": payload.from_date,
+        "to_date": payload.to_date,
+        "user_ids": payload.user_ids,
+        "created_by": current["user_id"],
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.assignment_plans.insert_one(doc)
+    return strip_mongo_id(doc)
+
+
+@api.put("/schedule-assignment-plans/{plan_id}")
+async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
+                                 current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="El nombre es obligatorio")
+    if len(name) > 80:
+        raise HTTPException(status_code=400, detail="El nombre no puede exceder 80 caracteres")
+    if payload.from_date > payload.to_date:
+        raise HTTPException(status_code=400, detail="Rango de fechas inválido")
+    dup = await db.assignment_plans.find_one({"name": name, "plan_id": {"$ne": plan_id}})
+    if dup:
+        raise HTTPException(status_code=409, detail="Ya existe otra planificación con ese nombre")
+
+    # Validación de solape con OTROS planes (excluyendo el actual).
+    overlapping = await _find_overlapping_plans(payload.from_date, payload.to_date, exclude_plan_id=plan_id)
+    if overlapping and not payload.overwrite:
+        raise HTTPException(status_code=409, detail={
+            "code": "plan_range_overlap",
+            "message": "El nuevo rango se solapa con otras planificaciones existentes.",
+            "conflicts": overlapping,
+        })
+    if overlapping and payload.overwrite:
+        await db.assignment_plans.delete_many({
+            "plan_id": {"$in": [p["plan_id"] for p in overlapping]}
+        })
+
+    res = await db.assignment_plans.update_one(
+        {"plan_id": plan_id},
+        {"$set": {
+            "name": name,
+            "from_date": payload.from_date,
+            "to_date": payload.to_date,
+            "user_ids": payload.user_ids,
+            "updated_at": now_utc(),
+            "updated_by": current["user_id"],
+        }},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Planificación no encontrada")
+    doc = await db.assignment_plans.find_one({"plan_id": plan_id})
+    return strip_mongo_id(doc)
+
+
+@api.delete("/schedule-assignment-plans/{plan_id}")
+async def delete_assignment_plan(plan_id: str,
+                                 _: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, bool]:
+    res = await db.assignment_plans.delete_one({"plan_id": plan_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Planificación no encontrada")
+    return {"ok": True}
+
+
+@api.post("/schedule-assignments/clear")
+async def bulk_clear(payload: AssignmentClearIn,
+                     _: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
+    """Elimina asignaciones para el conjunto de (user_id × date)."""
+    if not payload.user_ids or not payload.dates:
+        raise HTTPException(status_code=400, detail="Debes indicar user_ids y dates")
+    result = await db.schedule_assignments.delete_many({
+        "user_id": {"$in": payload.user_ids},
+        "date": {"$in": payload.dates},
+    })
+    return {"ok": True, "deleted": result.deleted_count}

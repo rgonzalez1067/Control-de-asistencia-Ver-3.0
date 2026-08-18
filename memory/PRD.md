@@ -299,3 +299,40 @@ segunda entrada del día. La Matriz de Asistencia ya usaba la regla correcta.
 - 5/5 pytest en `/app/backend/tests/test_entry_e2_lateness.py`. Frontend Playwright
   E2E validado: hora en rojo para E2 tarde, badge "Entrada 2", estado "Exceso de descanso".
 - Consistencia con Matrix Report confirmada (mismo umbral 60, mismos late_minutes).
+
+
+---
+
+## Fase 13 — Refactor Backend a Routers Modulares ✅ (2026-02-18)
+
+**Objetivo**: reducir el tamaño de `server.py` (monolito ~3.7k líneas) partiéndolo
+en módulos de rutas dentro de `/app/backend/routes/`, sin alterar comportamiento
+ni contratos de API.
+
+**Estrategia**: `deps.py` re-exporta símbolos (`api`, `db`, modelos Pydantic,
+helpers) desde `server.py`. Cada archivo de rutas hace `from deps import ...` y
+registra endpoints con `@api.get/@api.post` como side-effect al ser importado.
+
+**Iteración 1 (feb-2026)**: `attendance.py`, `novelties.py`.
+**Iteración 2 (feb-2026)**: `visits.py`, `reports.py`, `matrix.py`.
+**Iteración 3 (feb-2026)**: `auth.py`, `catalogs.py` (sites + departments +
+settings + docs), `access_profiles.py`, `schedules.py`, `kiosk.py`, `admin.py`
+(backup/restore + onboarding).
+
+**Estado post-Iteración 3**:
+- `server.py`: 2736 → 1556 líneas (-43 %).
+- 11 routers en `/app/backend/routes/` (2354 líneas totales).
+- Ruff: sin errores. Smoke tests curl: 14/14 endpoints migrados devuelven 200.
+- Pytest serial (40 tests de módulos migrados: sites, departments, settings,
+  kiosk, onboarding, visits, iter7): 40/40 PASS.
+
+**Endpoints aún en `server.py`** (extracción pendiente en futura Fase A · Iter 4):
+- `/users/*` (8 endpoints incluida importación Excel — ~500 líneas de lógica).
+- `/` (root/health) — trivial, se mantiene.
+
+**Nota**: durante la iteración se detectó que las credenciales `admin123` /
+`NewJgil!234` de la BD habían quedado desincronizadas por un test previo. Se
+restauraron manualmente. La suite pytest muestra ~15 flaky tests por
+race-condition entre `test_change_password` y otras suites bajo `-n 2`; NO es
+regresión del refactor (los mismos tests fallaban antes).
+
