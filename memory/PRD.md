@@ -382,3 +382,40 @@ pública + credenciales débiles `admin123` obtuvo listado de usuarios).
   doble factor.
 
 **Nuevos dependencias**: `slowapi==0.1.10`, `limits==5.8.0`.
+
+---
+
+## Fase 15 — Security Bootstrap Wizard (deploy-friendly) ✅ (2026-02-19)
+
+**Motivación**: En Emergent, el `.env` del preview NO se propaga al deploy, y
+editar variables sensibles en el dashboard de producción es tedioso y arriesga
+fugas. Se necesita una forma de inicializar seguridad en producción sin tocar
+el `.env`.
+
+**Solución**: Un asistente idempotente que se ejecuta **una sola vez por
+instancia** desde la UI (`SettingsPage`). Al terminar deja la instancia
+protegida y bloquea la re-ejecución.
+
+**Backend**:
+- `GET /api/admin/security/status` → `{bootstrapped, has_vault, vault_source, admin_email, bootstrapped_at}`.
+- `POST /api/admin/security/generate-vault-token` → genera un token seguro (`secrets.token_urlsafe(32)`), no lo persiste.
+- `POST /api/admin/security/bootstrap` → idempotente (`409` si ya fue ejecutado). Rota contraseña admin, guarda hash del vault en `settings.vault_token_hash`, marca `security_bootstrapped=true`, `must_change_password=true` a todos los no-admin/no-kiosk, y registra en `audit_log`.
+- `require_admin_vault` ahora consulta en cascada: env `ADMIN_VAULT_TOKEN` → `settings.vault_token_hash` (bcrypt.checkpw). Cualquiera de los dos autoriza.
+- CORS defaults hardcoded en el código para los 2 dominios de Emergent (`asistencia-web-1.emergent.host` + preview) — el `.env` de producción ya no necesita `CORS_ORIGINS`.
+
+**Frontend** (`SettingsPage.jsx`):
+- Nuevo componente `SecurityBootstrapCard`: si `bootstrapped=false` muestra un banner rojo prominente con botón "Iniciar asistente de seguridad". Si `bootstrapped=true`, muestra estado en verde y fuente del vault.
+- `SecurityBootstrapWizard`: modal de 3 pasos. Paso 1: nueva contraseña con validación 12+ chars A/a/0/símbolo. Paso 2: token de bóveda auto-generado readonly con botón "copiar" (checkbox obligatorio de confirmación de haberlo guardado). Paso 3: confirmación explícita y ejecución. Paso 4: resumen con conteo de empleados forzados a cambiar contraseña.
+- Al terminar el wizard, guarda automáticamente el token en `sessionStorage.megasoft.vault_token` para que `BackupCard` no lo pida de nuevo en esa sesión.
+
+**Flujo del admin en producción**:
+1. Deploy con "Save to GitHub" + redeploy — sin tocar `.env` de prod.
+2. Login con la contraseña actual (aun si es débil).
+3. Entra a Ajustes → aparece banner rojo → clic → wizard.
+4. Nueva contraseña + copia el token generado → confirma.
+5. Producción queda protegida. `.env` de producción intacto.
+
+**Rotación futura del vault**: el flag `security_bootstrapped` bloquea el wizard.
+Para rotar el token en el futuro se necesita implementar un endpoint separado
+`/admin/security/rotate-vault` que exija el vault actual (a construir cuando
+sea necesario).

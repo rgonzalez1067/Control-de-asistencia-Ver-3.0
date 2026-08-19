@@ -131,10 +131,9 @@ async def admin_reset_all_passwords(
     Payload: {"new_password": "Mega2026*"}
 
     Requiere doble autenticación: JWT admin + header X-Admin-Token (bóveda)."""
-    import os as _os
-    expected_vault = _os.environ.get("ADMIN_VAULT_TOKEN", "")
+    from routes.admin import _verify_vault_token
     provided_vault = request.headers.get("X-Admin-Token", "")
-    if not expected_vault or provided_vault != expected_vault:
+    if not await _verify_vault_token(provided_vault):
         raise HTTPException(status_code=403,
                             detail="Se requiere el token de bóveda administrativa (X-Admin-Token)")
     new_password = (payload or {}).get("new_password")

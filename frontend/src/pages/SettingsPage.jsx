@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound, MonitorSmartphone, Unlock, MapPin, Clock, BookText, FileText } from "lucide-react";
+import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound, MonitorSmartphone, Unlock, MapPin, Clock, BookText, FileText, Shield, Copy, CheckCircle2, ShieldAlert } from "lucide-react";
 
 const TIMEZONES = [
   "America/Caracas", "America/Bogota", "America/Mexico_City", "America/Buenos_Aires",
@@ -195,6 +195,7 @@ export default function SettingsPage() {
       <KioskSessionsCard />
       <ManualsCard />
       <ResetAllPasswordsCard />
+      <SecurityBootstrapCard />
 
       <div className="flex items-center gap-2 justify-end sticky bottom-4 rounded-2xl bg-card/90 backdrop-blur border border-border/60 shadow-xl shadow-primary/10 px-3 py-2">
         <Button variant="outline" onClick={load} className="rounded-full" data-testid="settings-reset">
@@ -818,3 +819,279 @@ function ManualsCard() {
   );
 }
 
+
+
+// =====================================================================
+// Security Bootstrap card — sólo admin. Se muestra "resaltada" mientras
+// no esté ejecutada; después queda como estado informativo (compacta).
+// Permite:
+//   1) inicializar la seguridad de la instancia (contraseña + vault token)
+//   2) confirmar visualmente que el vault está activo
+// =====================================================================
+function SecurityBootstrapCard() {
+  const { user } = useAuth();
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    (async () => {
+      try {
+        const { data } = await api.get("/admin/security/status");
+        setStatus(data);
+      } catch (e) { /* silencioso — endpoint sólo admin */ }
+      finally { setLoading(false); }
+    })();
+  }, [user?.role]);
+
+  if (user?.role !== "admin" || loading) return null;
+
+  const bootstrapped = status?.bootstrapped;
+  return (
+    <>
+      <Card
+        data-testid="security-bootstrap-card"
+        className={
+          bootstrapped
+            ? "border-emerald-200 bg-emerald-50/30"
+            : "border-red-300 bg-red-50/50 shadow-lg shadow-red-100 ring-2 ring-red-200/60"
+        }
+      >
+        <CardHeader className="flex flex-row items-start gap-4">
+          <div className={
+            "h-11 w-11 rounded-2xl grid place-items-center shrink-0 " +
+            (bootstrapped ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700")
+          }>
+            {bootstrapped ? <ShieldCheck className="h-6 w-6" /> : <ShieldAlert className="h-6 w-6" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <CardTitle className="flex items-center gap-2">
+              {bootstrapped ? "Seguridad inicializada" : "Configurar seguridad (obligatorio)"}
+              {bootstrapped && <Badge variant="outline" className="border-emerald-300 text-emerald-700 bg-white text-[10px]">Activo</Badge>}
+            </CardTitle>
+            <CardDescription className={bootstrapped ? "text-emerald-900/70" : "text-red-900/80"}>
+              {bootstrapped
+                ? <>Contraseña admin rotada y vault token activo. Bootstrap ejecutado el {new Date(status.bootstrapped_at).toLocaleString()}.</>
+                : <>Este entorno aún usa la seguridad por defecto (credenciales débiles y sin vault en base de datos).
+                    Ejecuta el asistente <b>una sola vez</b> para rotar la contraseña del admin, generar un token de bóveda propio y forzar a todos los empleados a cambiar su contraseña.</>}
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {!bootstrapped ? (
+            <Button
+              onClick={() => setOpen(true)}
+              className="rounded-full bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-200"
+              data-testid="security-bootstrap-open"
+            >
+              <Shield className="h-4 w-4 mr-1.5" /> Iniciar asistente de seguridad
+            </Button>
+          ) : (
+            <div className="text-xs text-emerald-800/80">
+              Origen del vault: <b>{status.vault_source === "env" ? "variable de entorno (.env)" : "base de datos (bootstrap)"}</b>.
+              Para rotar el token en el futuro se necesita el vault actual.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      {open && (
+        <SecurityBootstrapWizard
+          onDone={(newStatus) => { setStatus(newStatus); setOpen(false); }}
+          onCancel={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+
+function SecurityBootstrapWizard({ onDone, onCancel }) {
+  const [step, setStep] = useState(1);           // 1=password, 2=vault, 3=confirm, 4=done
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [vaultToken, setVaultToken] = useState("");
+  const [tokenCopied, setTokenCopied] = useState(false);
+  const [ackSaved, setAckSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    if (step === 2 && !vaultToken) {
+      // Genera automáticamente al entrar al paso 2 la primera vez
+      (async () => {
+        try {
+          const { data } = await api.post("/admin/security/generate-vault-token");
+          setVaultToken(data.vault_token);
+        } catch (e) { toast.error("No se pudo generar el token"); }
+      })();
+    }
+  }, [step]);
+
+  async function regenToken() {
+    try {
+      const { data } = await api.post("/admin/security/generate-vault-token");
+      setVaultToken(data.vault_token);
+      setTokenCopied(false);
+      setAckSaved(false);
+    } catch (e) { toast.error("No se pudo generar el token"); }
+  }
+
+  async function copyToken() {
+    try {
+      await navigator.clipboard.writeText(vaultToken);
+      setTokenCopied(true);
+      toast.success("Token copiado al portapapeles");
+    } catch (e) {
+      // Fallback para navegadores sin permiso Clipboard API
+      const ta = document.createElement("textarea");
+      ta.value = vaultToken; document.body.appendChild(ta); ta.select();
+      document.execCommand("copy"); ta.remove();
+      setTokenCopied(true);
+      toast.success("Token copiado");
+    }
+  }
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/security/bootstrap", {
+        admin_password: password,
+        vault_token: vaultToken,
+      });
+      setResult(data);
+      // Guarda inmediatamente el vault token en sessionStorage para que el
+      // BackupCard no lo pida de nuevo en esta sesión.
+      sessionStorage.setItem("megasoft.vault_token", vaultToken);
+      setStep(4);
+      // Refrescar status en el card padre después de cerrar
+      try {
+        const s = await api.get("/admin/security/status");
+        setTimeout(() => onDone(s.data), 0); // difierido: espera que el user vea la confirmación
+      } catch { /* status es informativo — si falla, no bloqueamos el wizard */ }
+    } catch (e) {
+      const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
+      toast.error(msg);
+    } finally { setBusy(false); }
+  }
+
+  const passwordStrong = password.length >= 12
+    && /[A-Z]/.test(password) && /[a-z]/.test(password)
+    && /[0-9]/.test(password) && /[^A-Za-z0-9]/.test(password);
+  const passwordsMatch = password === password2 && password.length > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm grid place-items-center p-4" data-testid="security-wizard-modal">
+      <Card className="w-full max-w-lg border-red-200 shadow-2xl">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-red-100 grid place-items-center">
+              <Shield className="h-5 w-5 text-red-700" />
+            </div>
+            <div>
+              <CardTitle>Asistente de seguridad · Paso {step === 4 ? 3 : step}/3</CardTitle>
+              <CardDescription className="text-red-900/70">
+                {step === 1 && "Elige la nueva contraseña del administrador."}
+                {step === 2 && "Guarda el token de bóveda: sólo se muestra una vez."}
+                {step === 3 && "Confirma la ejecución. Esta acción es única e irreversible."}
+                {step === 4 && "Todo listo — este entorno ya está protegido."}
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {step === 1 && (
+            <>
+              <div className="space-y-2">
+                <Label>Nueva contraseña del administrador</Label>
+                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                       placeholder="Mín 12 chars · A-Z · a-z · 0-9 · símbolo"
+                       data-testid="wizard-password-1" autoFocus />
+              </div>
+              <div className="space-y-2">
+                <Label>Confirma la contraseña</Label>
+                <Input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)}
+                       data-testid="wizard-password-2" />
+              </div>
+              <div className="text-xs space-y-1">
+                <div className={passwordStrong ? "text-emerald-700" : "text-muted-foreground"}>
+                  {passwordStrong ? "✓" : "○"} Fortaleza: 12+ caracteres con mayúscula, minúscula, número y símbolo
+                </div>
+                <div className={passwordsMatch ? "text-emerald-700" : "text-muted-foreground"}>
+                  {passwordsMatch ? "✓" : "○"} Ambas contraseñas coinciden
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={onCancel} data-testid="wizard-cancel">Cancelar</Button>
+                <Button onClick={() => setStep(2)} disabled={!passwordStrong || !passwordsMatch}
+                        data-testid="wizard-next-2">Siguiente →</Button>
+              </div>
+            </>
+          )}
+          {step === 2 && (
+            <>
+              <div className="rounded-xl bg-amber-50 border border-amber-300 p-3 text-xs text-amber-900">
+                <b>⚠️ Guarda este token AHORA</b> en tu gestor de contraseñas.
+                Después del bootstrap no podrás verlo de nuevo. Lo usarás para autorizar backups, restauraciones y resets masivos.
+              </div>
+              <div className="space-y-2">
+                <Label>Token de bóveda (X-Admin-Token)</Label>
+                <div className="flex gap-2">
+                  <Input value={vaultToken} readOnly className="font-mono text-xs" data-testid="wizard-vault-token" />
+                  <Button type="button" variant="outline" onClick={copyToken} className="shrink-0" data-testid="wizard-copy-token">
+                    {tokenCopied ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={regenToken} className="shrink-0" data-testid="wizard-regen-token" title="Generar otro">
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <label className="flex items-start gap-2 text-sm text-muted-foreground cursor-pointer">
+                <input type="checkbox" checked={ackSaved} onChange={(e) => setAckSaved(e.target.checked)}
+                       className="mt-0.5" data-testid="wizard-ack-saved" />
+                <span>Confirmo que copié este token y lo guardé en un lugar seguro. Entiendo que no volverá a mostrarse.</span>
+              </label>
+              <div className="flex justify-between gap-2 pt-2">
+                <Button variant="outline" onClick={() => setStep(1)}>← Atrás</Button>
+                <Button onClick={() => setStep(3)} disabled={!ackSaved || !tokenCopied}
+                        data-testid="wizard-next-3">Siguiente →</Button>
+              </div>
+            </>
+          )}
+          {step === 3 && (
+            <>
+              <div className="rounded-xl bg-red-50 border border-red-300 p-3 text-xs text-red-900 space-y-1.5">
+                <div><b>Al confirmar se ejecutará en una sola operación:</b></div>
+                <div>1. Se rotará tu contraseña de admin a la elegida.</div>
+                <div>2. Se guardará el hash del token de bóveda en la base de datos.</div>
+                <div>3. Se forzará el cambio de contraseña a TODOS los empleados no-admin en su próximo login.</div>
+                <div>4. Este asistente quedará bloqueado (no se puede reejecutar).</div>
+              </div>
+              <div className="flex justify-between gap-2 pt-2">
+                <Button variant="outline" onClick={() => setStep(2)} disabled={busy}>← Atrás</Button>
+                <Button onClick={submit} disabled={busy}
+                        className="bg-red-600 hover:bg-red-700 text-white"
+                        data-testid="wizard-submit">
+                  {busy ? "Ejecutando…" : "Confirmar y proteger este entorno"}
+                </Button>
+              </div>
+            </>
+          )}
+          {step === 4 && (
+            <>
+              <div className="rounded-xl bg-emerald-50 border border-emerald-300 p-4 text-sm text-emerald-900 space-y-1.5">
+                <div className="flex items-center gap-2 font-semibold"><CheckCircle2 className="h-5 w-5" />Seguridad inicializada</div>
+                <div>· Contraseña admin rotada.</div>
+                <div>· Vault token guardado y activo.</div>
+                <div>· {result?.employees_forced_reset ?? 0} empleado(s) marcados para cambio obligatorio en próximo login.</div>
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button onClick={onCancel} data-testid="wizard-close">Cerrar</Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

@@ -1,15 +1,20 @@
-"""Endpoints administrativos: Backup / Restore de colecciones + Onboarding selfie.
+"""Endpoints administrativos: Backup / Restore de colecciones + Onboarding selfie
+   + Security Bootstrap (one-time init de contraseña admin y token de bóveda).
 
 Migrado desde server.py durante la Fase A · Iteración 3 (feb-2026).
 Iteración de seguridad (feb-2026): backup ampliado + X-Admin-Token en export/import/collections.
+Iteración de deploy (feb-2026): security bootstrap idempotente para inicializar
+producción sin editar `.env` (evita rotar el token en un dashboard).
 """
 import json
 import os
+import secrets
 from bson import ObjectId
 
 from deps import (
     api, db, get_current_user, require_roles,
     now_utc,
+    hash_password, verify_password,
     SelfieIn,
     HTTPException, Depends, UploadFile, File, Request,
     StreamingResponse,
@@ -17,11 +22,12 @@ from deps import (
     datetime,
     audit_log,
 )
+from pydantic import BaseModel, Field
 
 
 # ==================================================================
 # BACKUP / RESTORE (admin only) — protegido con doble factor:
-# JWT admin + header X-Admin-Token (ADMIN_VAULT_TOKEN en .env).
+# JWT admin + header X-Admin-Token (ADMIN_VAULT_TOKEN en .env o vault_token_hash en DB).
 # ==================================================================
 # Colecciones exportables. Se AMPLIÓ (feb-2026) para incluir todo:
 #   - access_profiles      → catálogos RBAC (perfiles y permisos por menú)
@@ -36,19 +42,141 @@ EXPORTABLE_COLLECTIONS = [
 ]
 
 
-def require_admin_vault(request: Request,
-                        _: Dict[str, Any] = Depends(require_roles("admin"))) -> None:
+async def _verify_vault_token(provided: str) -> bool:
+    """Compara `provided` contra dos fuentes en cascada:
+    1) Variable de entorno `ADMIN_VAULT_TOKEN` (útil en preview/desarrollo).
+    2) `settings.vault_token_hash` en MongoDB (útil en producción tras bootstrap).
+    Devuelve True si coincide contra alguna."""
+    if not provided:
+        return False
+    env_token = os.environ.get("ADMIN_VAULT_TOKEN", "")
+    if env_token and secrets.compare_digest(provided, env_token):
+        return True
+    doc = await db.settings.find_one({"_id": "company"}, {"vault_token_hash": 1})
+    stored_hash = (doc or {}).get("vault_token_hash", "")
+    if stored_hash and verify_password(provided, stored_hash):
+        return True
+    return False
+
+
+async def require_admin_vault(request: Request,
+                              _: Dict[str, Any] = Depends(require_roles("admin"))) -> None:
     """Doble autenticación: además del JWT admin, exige un header
-    ``X-Admin-Token`` que sólo el admin conoce fuera-de-banda (definido en
-    ``ADMIN_VAULT_TOKEN`` del ``.env``). Mitiga que una fuga de credenciales
-    JWT permita descargar todo el backup sin conocer el token adicional."""
-    expected = os.environ.get("ADMIN_VAULT_TOKEN", "")
+    ``X-Admin-Token`` que sólo el admin conoce fuera-de-banda. La verificación
+    consulta primero la variable de entorno ``ADMIN_VAULT_TOKEN`` y luego el
+    hash guardado en ``settings.vault_token_hash`` (útil en producción)."""
     provided = request.headers.get("X-Admin-Token", "")
-    if not expected:
-        raise HTTPException(status_code=503, detail="Vault no configurado en el servidor")
-    if provided != expected:
+    if not await _verify_vault_token(provided):
+        # ¿Está configurado en algún lado?
+        env_token = os.environ.get("ADMIN_VAULT_TOKEN", "")
+        doc = await db.settings.find_one({"_id": "company"}, {"vault_token_hash": 1})
+        has_any = bool(env_token) or bool((doc or {}).get("vault_token_hash"))
+        if not has_any:
+            raise HTTPException(status_code=503,
+                                detail="Vault administrativo no configurado. Ejecuta /api/admin/security/bootstrap.")
         raise HTTPException(status_code=403,
                             detail="Se requiere el token de bóveda administrativa (X-Admin-Token)")
+
+
+# ==================================================================
+# SECURITY BOOTSTRAP (one-time init de admin password + vault token)
+# ==================================================================
+class SecurityBootstrapIn(BaseModel):
+    admin_password: str = Field(..., min_length=8, max_length=128)
+    vault_token: str = Field(..., min_length=16, max_length=128)
+
+
+@api.get("/admin/security/status")
+async def admin_security_status(
+    user: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
+    """Devuelve el estado del bootstrap de seguridad para que la UI decida si
+    debe mostrar el wizard obligatorio de configuración."""
+    doc = await db.settings.find_one({"_id": "company"},
+                                     {"security_bootstrapped": 1, "vault_token_hash": 1,
+                                      "security_bootstrapped_at": 1}) or {}
+    env_vault_present = bool(os.environ.get("ADMIN_VAULT_TOKEN"))
+    return {
+        "bootstrapped": bool(doc.get("security_bootstrapped")),
+        "has_vault": env_vault_present or bool(doc.get("vault_token_hash")),
+        "vault_source": ("env" if env_vault_present else
+                         ("db" if doc.get("vault_token_hash") else None)),
+        "admin_email": user.get("email"),
+        "bootstrapped_at": (doc.get("security_bootstrapped_at").isoformat()
+                            if doc.get("security_bootstrapped_at") else None),
+    }
+
+
+@api.post("/admin/security/bootstrap")
+async def admin_security_bootstrap(
+    request: Request,
+    payload: SecurityBootstrapIn,
+    user: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
+    """Endpoint IDEMPOTENTE que sólo se puede ejecutar una vez por instancia.
+    Configura la seguridad en producción sin necesidad de editar `.env`:
+      1. Rota la contraseña del admin actual al valor recibido.
+      2. Guarda el hash bcrypt del ``vault_token`` en ``settings.vault_token_hash``.
+      3. Marca ``settings.security_bootstrapped=true`` (así nunca se re-ejecuta).
+      4. Marca ``must_change_password=true`` en TODOS los empleados no-admin/no-kiosk.
+      5. Registra el evento en ``audit_log``.
+    """
+    settings_doc = await db.settings.find_one({"_id": "company"}) or {}
+    if settings_doc.get("security_bootstrapped"):
+        raise HTTPException(status_code=409,
+                            detail="El bootstrap de seguridad ya fue ejecutado. "
+                                   "Usa el endpoint de rotación si necesitas cambiar el vault.")
+
+    # 1) Rotar contraseña admin
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "password_hash": hash_password(payload.admin_password),
+            "must_change_password": False,
+            "password_updated_at": now_utc(),
+        }},
+    )
+    # 2) Guardar hash del vault token
+    vault_hash = hash_password(payload.vault_token)
+    # 3) Marcar bootstrap
+    now = now_utc()
+    await db.settings.update_one(
+        {"_id": "company"},
+        {"$set": {
+            "vault_token_hash": vault_hash,
+            "security_bootstrapped": True,
+            "security_bootstrapped_at": now,
+            "security_bootstrapped_by": user["user_id"],
+        }},
+        upsert=True,
+    )
+    # 4) Force must_change_password sobre empleados no-admin/no-kiosk
+    forced = await db.users.update_many(
+        {"role": {"$nin": ["admin", "kiosk"]}},
+        {"$set": {"must_change_password": True, "password_updated_at": now}},
+    )
+    # 5) Audit
+    await audit_log("security_bootstrap", request,
+                    user_id=user["user_id"], email=user.get("email"),
+                    extra={"forced_password_resets": forced.modified_count})
+    return {
+        "ok": True,
+        "message": "Seguridad inicializada correctamente. Guarda el vault token en un lugar seguro.",
+        "admin_password_rotated": True,
+        "vault_token_saved": True,
+        "employees_forced_reset": forced.modified_count,
+        "bootstrapped_at": now.isoformat(),
+    }
+
+
+@api.post("/admin/security/generate-vault-token")
+async def admin_security_generate_token(
+    _: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, str]:
+    """Genera un vault token aleatorio criptográficamente fuerte que el admin
+    puede usar en el paso bootstrap (o rotación futura). NO se persiste — es
+    responsabilidad del cliente enviarlo luego a `/security/bootstrap`."""
+    return {"vault_token": secrets.token_urlsafe(32)}
 
 
 def _serialize_doc(d: Dict[str, Any]) -> Dict[str, Any]:

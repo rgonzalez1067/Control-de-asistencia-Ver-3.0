@@ -1123,15 +1123,21 @@ from routes import (  # noqa: F401,E402
 app.include_router(api)
 
 # CORS estricto (feb-2026): sólo aceptar orígenes explícitos declarados en la
-# variable `CORS_ORIGINS`. NO usar "*" en producción: permite que cualquier
-# sitio de la web ejecute peticiones autenticadas desde el navegador de un
-# admin. Nota: esto NO bloquea curl/postman (esos ignoran CORS); para eso
-# usamos rate-limit + JWT + X-Admin-Token en endpoints sensibles.
+# variable `CORS_ORIGINS`. Si la variable está vacía, se usan los dominios
+# conocidos de Emergent (producción + preview) para no depender del `.env`
+# de producción. En producción, para agregar otro dominio, exportar
+# `CORS_ORIGINS="dom1,dom2,..."` en las variables de entorno del deploy.
+_DEFAULT_CORS_ORIGINS = [
+    "https://asistencia-web-1.emergent.host",
+    "https://asistencia-web-1.preview.emergentagent.com",
+]
 _cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
 _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
-if not _cors_origins or _cors_origins == ["*"]:
-    logger.warning("CORS_ORIGINS abierto (%s). Configúralo explícitamente en producción.", _cors_raw)
-    _cors_origins = ["*"]
+if not _cors_origins:
+    _cors_origins = _DEFAULT_CORS_ORIGINS
+    logger.info("CORS_ORIGINS no definido; usando defaults: %s", _cors_origins)
+elif _cors_origins == ["*"]:
+    logger.warning("CORS_ORIGINS='*' — configuración insegura en producción.")
 
 app.add_middleware(
     CORSMiddleware,
