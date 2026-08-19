@@ -220,46 +220,60 @@ function BackupCard() {
   const [collections, setCollections] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [loading, setLoading] = useState(false);
+  const [locked, setLocked] = useState(true); // true si no hemos cargado colecciones
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [mode, setMode] = useState("upsert");
   const fileRef = useRef(null);
 
-  // Helper: obtiene el token de bóveda del sessionStorage. Si no está, lo pide
-  // al admin con prompt y lo guarda (sólo dura hasta cerrar la pestaña).
-  function getVaultToken() {
-    let t = sessionStorage.getItem("megasoft.vault_token") || "";
-    if (!t) {
-      t = window.prompt(
+  // Helper: obtiene el token de bóveda del sessionStorage. Devuelve string vacío
+  // si no está — el llamador decide si pedirlo con prompt o mostrar la UI.
+  function readVault() {
+    return sessionStorage.getItem("megasoft.vault_token") || "";
+  }
+
+  async function loadCollections({ askIfMissing } = { askIfMissing: false }) {
+    let vt = readVault();
+    if (!vt && askIfMissing) {
+      vt = window.prompt(
         "🔒 Bóveda administrativa\n\nIngresa el token X-Admin-Token para operar el backup.\n(Se guarda sólo en esta sesión del navegador).",
         ""
       ) || "";
-      if (t) sessionStorage.setItem("megasoft.vault_token", t);
+      if (vt) sessionStorage.setItem("megasoft.vault_token", vt);
     }
-    return t;
+    if (!vt) { setLocked(true); return; }
+    setLoading(true);
+    try {
+      const { data } = await api.get("/admin/collections", {
+        headers: { "X-Admin-Token": vt },
+      });
+      setCollections(data);
+      setSelected(new Set(data.map((c) => c.name)));
+      setLocked(false);
+    } catch (e) {
+      if (e.response?.status === 403) {
+        sessionStorage.removeItem("megasoft.vault_token");
+        toast.error("Token de bóveda inválido. Vuelve a desbloquear.");
+        setLocked(true);
+      } else if (e.response?.status === 503) {
+        toast.error("Vault no configurado. Ejecuta el asistente de seguridad primero.");
+        setLocked(true);
+      } else {
+        toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+      }
+    } finally { setLoading(false); }
   }
 
   useEffect(() => {
     if (user?.role !== "admin") return;
-    (async () => {
-      try {
-        const vt = getVaultToken();
-        if (!vt) { setLoading(false); return; }
-        const { data } = await api.get("/admin/collections", {
-          headers: { "X-Admin-Token": vt },
-        });
-        setCollections(data);
-        setSelected(new Set(data.map((c) => c.name))); // por defecto todas
-      } catch (e) {
-        if (e.response?.status === 403) {
-          sessionStorage.removeItem("megasoft.vault_token");
-          toast.error("Token de bóveda inválido. Vuelve a intentarlo.");
-        } else {
-          toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
-        }
-      }
-      finally { setLoading(false); }
-    })();
+    // Intento silencioso: si ya hay token en sessionStorage, cargar. Si no,
+    // dejamos la card en estado "bloqueada" con botón para desbloquear.
+    loadCollections({ askIfMissing: false });
+    // Escucha eventos del wizard de bootstrap para auto-refresh cuando el
+    // admin recién termine de guardar el token.
+    const handler = () => loadCollections({ askIfMissing: false });
+    window.addEventListener("megasoft:vault-updated", handler);
+    return () => window.removeEventListener("megasoft:vault-updated", handler);
   }, [user?.role]);
 
   if (user?.role !== "admin") return null;
@@ -275,10 +289,18 @@ function BackupCard() {
     });
   };
 
+  function clearVault() {
+    sessionStorage.removeItem("megasoft.vault_token");
+    setCollections([]);
+    setSelected(new Set());
+    setLocked(true);
+    toast.info("Token de bóveda olvidado en esta sesión");
+  }
+
   async function doExport() {
     if (!selected.size) { toast.error("Selecciona al menos una colección"); return; }
-    const vt = getVaultToken();
-    if (!vt) return;
+    const vt = readVault();
+    if (!vt) { toast.error("Desbloquea primero con el token de bóveda"); return; }
     setExporting(true);
     try {
       const resp = await fetch(`${API}/admin/export`, {
@@ -309,8 +331,8 @@ function BackupCard() {
 
   async function doImport(file) {
     if (!file) return;
-    const vt = getVaultToken();
-    if (!vt) return;
+    const vt = readVault();
+    if (!vt) { toast.error("Desbloquea primero con el token de bóveda"); return; }
     const warn = mode === "replace"
       ? "⚠️ MODO REEMPLAZO: se BORRARÁN los datos actuales de las colecciones seleccionadas antes de restaurar. ¿Continuar?"
       : "Se importarán los datos del archivo (upsert por llave natural). ¿Continuar?";
@@ -362,16 +384,54 @@ function BackupCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {locked ? (
+          <div className="rounded-xl border-2 border-dashed border-amber-300 bg-white/60 p-6 text-center space-y-3" data-testid="backup-locked">
+            <div className="mx-auto h-12 w-12 rounded-2xl bg-amber-100 grid place-items-center">
+              <KeyRound className="h-6 w-6 text-amber-700" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-semibold text-amber-900">Backup bloqueado</p>
+              <p className="text-xs text-amber-800/80 max-w-md mx-auto">
+                Para ver, exportar o importar colecciones necesitas desbloquear con el <b>token de bóveda (X-Admin-Token)</b>.
+                Si aún no lo tienes, ejecuta primero el <b>asistente de seguridad</b> (arriba en esta misma página).
+              </p>
+            </div>
+            <Button
+              onClick={() => loadCollections({ askIfMissing: true })}
+              className="rounded-full bg-amber-600 hover:bg-amber-700 text-white"
+              data-testid="backup-unlock"
+              disabled={loading}
+            >
+              <Unlock className="h-4 w-4 mr-1.5" />
+              {loading ? "Verificando…" : "Desbloquear con token de bóveda"}
+            </Button>
+          </div>
+        ) : (
+        <>
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-foreground">Colecciones ({selected.size}/{collections.length})</p>
-          <button
-            type="button"
-            onClick={toggleAll}
-            className="text-xs font-semibold text-amber-700 hover:underline"
-            data-testid="backup-toggle-all"
-          >
-            {allSelected ? "Deseleccionar todas" : "Seleccionar todas"}
-          </button>
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" className="border-emerald-300 text-emerald-700 bg-white text-[10px] gap-1">
+              <CheckCircle2 className="h-3 w-3" /> Vault activo
+            </Badge>
+            <button
+              type="button"
+              onClick={clearVault}
+              className="text-[11px] text-muted-foreground hover:text-red-600 hover:underline"
+              title="Olvidar el token de esta sesión"
+              data-testid="backup-clear-vault"
+            >
+              Bloquear
+            </button>
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="text-xs font-semibold text-amber-700 hover:underline"
+              data-testid="backup-toggle-all"
+            >
+              {allSelected ? "Deseleccionar todas" : "Seleccionar todas"}
+            </button>
+          </div>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
           {collections.map((c) => (
@@ -449,6 +509,8 @@ function BackupCard() {
             {importing ? "Importando…" : "Importar backup…"}
           </Button>
         </div>
+        </>
+        )}
       </CardContent>
     </Card>
   );
@@ -963,6 +1025,9 @@ function SecurityBootstrapWizard({ onDone, onCancel }) {
       // Guarda inmediatamente el vault token en sessionStorage para que el
       // BackupCard no lo pida de nuevo en esta sesión.
       sessionStorage.setItem("megasoft.vault_token", vaultToken);
+      // Notifica a otros componentes (BackupCard) que el vault ya está listo,
+      // así se auto-refrescan sin necesidad de recargar la página.
+      window.dispatchEvent(new CustomEvent("megasoft:vault-updated"));
       setStep(4);
       // Refrescar status en el card padre después de cerrar
       try {
