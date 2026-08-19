@@ -224,14 +224,39 @@ function BackupCard() {
   const [mode, setMode] = useState("upsert");
   const fileRef = useRef(null);
 
+  // Helper: obtiene el token de bóveda del sessionStorage. Si no está, lo pide
+  // al admin con prompt y lo guarda (sólo dura hasta cerrar la pestaña).
+  function getVaultToken() {
+    let t = sessionStorage.getItem("megasoft.vault_token") || "";
+    if (!t) {
+      t = window.prompt(
+        "🔒 Bóveda administrativa\n\nIngresa el token X-Admin-Token para operar el backup.\n(Se guarda sólo en esta sesión del navegador).",
+        ""
+      ) || "";
+      if (t) sessionStorage.setItem("megasoft.vault_token", t);
+    }
+    return t;
+  }
+
   useEffect(() => {
     if (user?.role !== "admin") return;
     (async () => {
       try {
-        const { data } = await api.get("/admin/collections");
+        const vt = getVaultToken();
+        if (!vt) { setLoading(false); return; }
+        const { data } = await api.get("/admin/collections", {
+          headers: { "X-Admin-Token": vt },
+        });
         setCollections(data);
         setSelected(new Set(data.map((c) => c.name))); // por defecto todas
-      } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
+      } catch (e) {
+        if (e.response?.status === 403) {
+          sessionStorage.removeItem("megasoft.vault_token");
+          toast.error("Token de bóveda inválido. Vuelve a intentarlo.");
+        } else {
+          toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+        }
+      }
       finally { setLoading(false); }
     })();
   }, [user?.role]);
@@ -251,16 +276,23 @@ function BackupCard() {
 
   async function doExport() {
     if (!selected.size) { toast.error("Selecciona al menos una colección"); return; }
+    const vt = getVaultToken();
+    if (!vt) return;
     setExporting(true);
     try {
       const resp = await fetch(`${API}/admin/export`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${getToken()}`,
+          "X-Admin-Token": vt,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ collections: Array.from(selected) }),
       });
+      if (resp.status === 403) {
+        sessionStorage.removeItem("megasoft.vault_token");
+        throw new Error("Token de bóveda inválido");
+      }
       if (!resp.ok) throw new Error("Error al exportar");
       const blob = await resp.blob();
       const link = document.createElement("a");
@@ -276,6 +308,8 @@ function BackupCard() {
 
   async function doImport(file) {
     if (!file) return;
+    const vt = getVaultToken();
+    if (!vt) return;
     const warn = mode === "replace"
       ? "⚠️ MODO REEMPLAZO: se BORRARÁN los datos actuales de las colecciones seleccionadas antes de restaurar. ¿Continuar?"
       : "Se importarán los datos del archivo (upsert por llave natural). ¿Continuar?";
@@ -290,9 +324,16 @@ function BackupCard() {
       });
       const resp = await fetch(`${API}/admin/import?${qs}`, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${getToken()}` },
+        headers: {
+          "Authorization": `Bearer ${getToken()}`,
+          "X-Admin-Token": vt,
+        },
         body: fd,
       });
+      if (resp.status === 403) {
+        sessionStorage.removeItem("megasoft.vault_token");
+        throw new Error("Token de bóveda inválido");
+      }
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.detail || "Error al importar");
       const restoredTotal = Object.values(data.restored || {}).reduce((a, b) => a + b, 0);
@@ -314,8 +355,9 @@ function BackupCard() {
           <CardTitle className="text-amber-900">Copia de seguridad — Backup & restauración</CardTitle>
         </div>
         <CardDescription className="text-amber-900/80">
-          Exporta o restaura configuraciones y catálogos (usuarios, sedes, departamentos, horarios, novedades, visitas, ajustes).
-          El registro de <b>asistencia (entradas/salidas) queda excluido</b> por regla del producto.
+          Exporta o restaura toda la data: usuarios, sedes, departamentos, horarios, novedades, visitas,
+          ajustes, perfiles RBAC, <b>asistencia (historial de marcajes)</b>, asignaciones diarias y planes.
+          Protegido con doble factor: JWT admin + <b>token de bóveda</b> (X-Admin-Token).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -432,11 +474,26 @@ function ResetAllPasswordsCard() {
       'Esta acción es masiva e irreversible.\n\nEscribe la palabra CONFIRMAR (en mayúsculas) para proceder:',
     );
     if (confirm2 !== "CONFIRMAR") { toast.error("Cancelado — palabra de confirmación incorrecta"); return; }
+    // Doble factor: exige el token de bóveda administrativa.
+    let vt = sessionStorage.getItem("megasoft.vault_token") || "";
+    if (!vt) {
+      vt = window.prompt(
+        "🔒 Bóveda administrativa\n\nIngresa el token X-Admin-Token para autorizar el reset masivo.",
+        ""
+      ) || "";
+      if (vt) sessionStorage.setItem("megasoft.vault_token", vt);
+    }
+    if (!vt) { toast.error("Token de bóveda requerido"); return; }
     setRunning(true);
     try {
-      const { data } = await api.post("/admin/reset-all-passwords", { new_password: newPw });
+      const { data } = await api.post(
+        "/admin/reset-all-passwords",
+        { new_password: newPw },
+        { headers: { "X-Admin-Token": vt } },
+      );
       toast.success(`Contraseñas reseteadas: ${data.affected} usuario(s)`);
     } catch (e) {
+      if (e.response?.status === 403) sessionStorage.removeItem("megasoft.vault_token");
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     } finally { setRunning(false); }
   }

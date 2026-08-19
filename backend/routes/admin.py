@@ -1,29 +1,54 @@
 """Endpoints administrativos: Backup / Restore de colecciones + Onboarding selfie.
 
 Migrado desde server.py durante la Fase A · Iteración 3 (feb-2026).
+Iteración de seguridad (feb-2026): backup ampliado + X-Admin-Token en export/import/collections.
 """
 import json
+import os
 from bson import ObjectId
 
 from deps import (
     api, db, get_current_user, require_roles,
     now_utc,
     SelfieIn,
-    HTTPException, Depends, UploadFile, File,
+    HTTPException, Depends, UploadFile, File, Request,
     StreamingResponse,
     Any, Dict, List, Optional,
     datetime,
+    audit_log,
 )
 
 
 # ==================================================================
-# BACKUP / RESTORE (admin only)
+# BACKUP / RESTORE (admin only) — protegido con doble factor:
+# JWT admin + header X-Admin-Token (ADMIN_VAULT_TOKEN en .env).
 # ==================================================================
-# Colecciones exportables. `attendance` queda excluida por regla del producto.
+# Colecciones exportables. Se AMPLIÓ (feb-2026) para incluir todo:
+#   - access_profiles      → catálogos RBAC (perfiles y permisos por menú)
+#   - attendance           → historial completo de marcajes
+#   - schedule_assignments → asignaciones diarias (turnos rotativos)
+#   - assignment_plans     → planes de asignación (rango de fechas)
 EXPORTABLE_COLLECTIONS = [
     "users", "sites", "departments", "schedules",
     "novelties", "visits", "settings",
+    "access_profiles", "attendance",
+    "schedule_assignments", "assignment_plans",
 ]
+
+
+def require_admin_vault(request: Request,
+                        _: Dict[str, Any] = Depends(require_roles("admin"))) -> None:
+    """Doble autenticación: además del JWT admin, exige un header
+    ``X-Admin-Token`` que sólo el admin conoce fuera-de-banda (definido en
+    ``ADMIN_VAULT_TOKEN`` del ``.env``). Mitiga que una fuga de credenciales
+    JWT permita descargar todo el backup sin conocer el token adicional."""
+    expected = os.environ.get("ADMIN_VAULT_TOKEN", "")
+    provided = request.headers.get("X-Admin-Token", "")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Vault no configurado en el servidor")
+    if provided != expected:
+        raise HTTPException(status_code=403,
+                            detail="Se requiere el token de bóveda administrativa (X-Admin-Token)")
 
 
 def _serialize_doc(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -44,7 +69,7 @@ def _serialize_doc(d: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @api.get("/admin/collections", include_in_schema=False)
-async def admin_collections(_: Dict[str, Any] = Depends(require_roles("admin"))) -> List[Dict[str, Any]]:
+async def admin_collections(_: None = Depends(require_admin_vault)) -> List[Dict[str, Any]]:
     """Lista colecciones exportables con conteo de documentos."""
     out = []
     for name in EXPORTABLE_COLLECTIONS:
@@ -54,8 +79,8 @@ async def admin_collections(_: Dict[str, Any] = Depends(require_roles("admin")))
 
 
 @api.post("/admin/export", include_in_schema=False)
-async def admin_export(payload: Dict[str, Any],
-                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> StreamingResponse:
+async def admin_export(request: Request, payload: Dict[str, Any],
+                       _: None = Depends(require_admin_vault)) -> StreamingResponse:
     """Exporta las colecciones seleccionadas como JSON."""
     selected = payload.get("collections") or []
     selected = [c for c in selected if c in EXPORTABLE_COLLECTIONS]
@@ -66,12 +91,17 @@ async def admin_export(payload: Dict[str, Any],
         "generated_at": now_utc().isoformat(),
         "collections": {},
     }
+    total_docs = 0
     for name in selected:
-        docs = await db[name].find({}).to_list(20000)
+        docs = await db[name].find({}).to_list(200000)
         dump["collections"][name] = [_serialize_doc(d) for d in docs]
+        total_docs += len(docs)
     payload_bytes = json.dumps(dump, ensure_ascii=False, indent=2).encode("utf-8")
     ts = now_utc().strftime("%Y%m%d_%H%M%S")
     filename = f"megasoft-backup-{ts}.json"
+    await audit_log("admin_export", request,
+                    extra={"collections": selected, "total_docs": total_docs,
+                           "bytes": len(payload_bytes)})
     return StreamingResponse(
         iter([payload_bytes]),
         media_type="application/json",
@@ -80,10 +110,11 @@ async def admin_export(payload: Dict[str, Any],
 
 
 @api.post("/admin/import", include_in_schema=False)
-async def admin_import(file: UploadFile = File(...),
+async def admin_import(request: Request,
+                       file: UploadFile = File(...),
                        mode: str = "upsert",
                        collections: Optional[str] = None,
-                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+                       _: None = Depends(require_admin_vault)) -> Dict[str, Any]:
     """Importa un backup JSON.
     - mode='upsert' (por defecto): inserta o actualiza según llave natural.
     - mode='replace': elimina todos los documentos existentes de esa colección y reemplaza.
@@ -108,12 +139,13 @@ async def admin_import(file: UploadFile = File(...),
         "users": "user_id", "sites": "site_id", "departments": "department_id",
         "schedules": "schedule_id", "novelties": "novelty_id",
         "visits": "visit_id", "settings": "_id",
+        "access_profiles": "profile_id",
+        "attendance": "record_id",
+        "schedule_assignments": "assignment_id",
+        "assignment_plans": "plan_id",
     }
     summary: Dict[str, Any] = {"restored": {}, "skipped": {}, "mode": mode}
     for name, docs in (payload.get("collections") or {}).items():
-        if name == "attendance":
-            summary["skipped"][name] = "asistencia excluida por regla del producto"
-            continue
         if name not in EXPORTABLE_COLLECTIONS:
             summary["skipped"][name] = "colección no permitida"
             continue
@@ -159,6 +191,7 @@ async def admin_import(file: UploadFile = File(...),
                     n_up += 1
             summary["restored"][name] = n_up
 
+    await audit_log("admin_import", request, extra={"mode": mode, "summary": summary})
     return summary
 
 

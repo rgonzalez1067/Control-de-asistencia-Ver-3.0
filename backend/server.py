@@ -55,6 +55,57 @@ api = APIRouter(prefix="/api")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("megasoft.api")
 
+# ------------------------------------------------------------------
+# Rate limiting — mitiga fuerza bruta contra /auth/login y similares.
+# Se instala en el `app` para poder decorar endpoints en cualquier router.
+# ------------------------------------------------------------------
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from starlette.responses import JSONResponse as _RLJSONResp
+from starlette.requests import Request as _StarRequest
+
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
+app.state.limiter = limiter
+
+
+async def _rate_limit_exceeded_handler(request: _StarRequest, exc: RateLimitExceeded):
+    return _RLJSONResp(
+        status_code=429,
+        content={"detail": "Demasiados intentos. Espera unos minutos e inténtalo de nuevo."},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+
+# ------------------------------------------------------------------
+# Audit log — persiste eventos sensibles (login exitoso/fallido y accesos
+# admin) en la colección `audit_log`. Permite detectar accesos anómalos.
+# ------------------------------------------------------------------
+async def audit_log(event: str, request, *, user_id: Optional[str] = None,
+                    email: Optional[str] = None, extra: Optional[Dict[str, Any]] = None) -> None:
+    try:
+        ip = request.client.host if request and request.client else None
+        fwd = request.headers.get("X-Forwarded-For", "") if request else ""
+        real_ip = (fwd.split(",")[0].strip() if fwd else ip)
+        ua = request.headers.get("User-Agent", "") if request else ""
+        await db.audit_log.insert_one({
+            "event": event,
+            "user_id": user_id,
+            "email": email,
+            "ip": real_ip,
+            "user_agent": ua[:300],
+            "path": str(request.url.path) if request else None,
+            "method": request.method if request else None,
+            "timestamp": now_utc(),
+            "extra": extra or {},
+        })
+    except Exception:  # noqa: BLE001 — auditar nunca debe tumbar el request
+        logger.exception("audit_log write failed for event=%s", event)
+
 
 # ------------------------------------------------------------------
 # Helpers
@@ -1071,10 +1122,21 @@ from routes import (  # noqa: F401,E402
 
 app.include_router(api)
 
+# CORS estricto (feb-2026): sólo aceptar orígenes explícitos declarados en la
+# variable `CORS_ORIGINS`. NO usar "*" en producción: permite que cualquier
+# sitio de la web ejecute peticiones autenticadas desde el navegador de un
+# admin. Nota: esto NO bloquea curl/postman (esos ignoran CORS); para eso
+# usamos rate-limit + JWT + X-Admin-Token en endpoints sensibles.
+_cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+_cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+if not _cors_origins or _cors_origins == ["*"]:
+    logger.warning("CORS_ORIGINS abierto (%s). Configúralo explícitamente en producción.", _cors_raw)
+    _cors_origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=False,
-    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

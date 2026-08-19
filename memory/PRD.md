@@ -338,3 +338,47 @@ restauraron manualmente. La suite pytest muestra ~15 flaky tests por
 race-condition entre `test_change_password` y otras suites bajo `-n 2`; NO es
 regresión del refactor (los mismos tests fallaban antes).
 
+
+
+---
+
+## Fase 14 — Endurecimiento de Seguridad + Backup Completo ✅ (2026-02-19)
+
+**Disparador**: fuga externa de datos de empleados (un desarrollador con la URL
+pública + credenciales débiles `admin123` obtuvo listado de usuarios).
+
+**Backup ampliado** (`routes/admin.py`):
+- `EXPORTABLE_COLLECTIONS` ahora incluye **11 colecciones** (antes 7):
+  - `users`, `sites`, `departments`, `schedules`, `novelties`, `visits`, `settings`
+  - **NUEVO**: `access_profiles` (RBAC), `attendance` (historial de marcajes),
+    `schedule_assignments`, `assignment_plans`.
+- `NAT_KEYS` extendido para upsert de las 4 nuevas colecciones.
+- Se removió el skip forzado de `attendance` en `admin_import` — ahora se
+  respalda y restaura como cualquier otra colección.
+
+**Endurecimiento de seguridad**:
+1. **Contraseña admin rotada** a `Sol*1401*1010` (env `ADMIN_PASSWORD`).
+2. **Rate-limit** en `/api/auth/login` (5/min por IP) y `/api/auth/register`
+   (3/min por IP) usando `slowapi` + middleware. Respuestas 429 tras exceder.
+3. **CORS estricto** — `.env` `CORS_ORIGINS` fijado a dominios explícitos
+   (`asistencia-web-1.emergent.host` + preview). Sin más `*` en producción.
+4. **X-Admin-Token (bóveda administrativa)** en 4 endpoints sensibles:
+   `/api/admin/collections`, `/api/admin/export`, `/api/admin/import`,
+   `/api/admin/reset-all-passwords`. Token en env `ADMIN_VAULT_TOKEN` (32 bytes
+   url-safe). Sin token → 403.
+5. **Colección `audit_log`**: registra `login_success`, `login_failed`,
+   `admin_reset_password`, `admin_reset_all_passwords`, `admin_export`,
+   `admin_import`, `register_bootstrap_admin` con IP (respeta X-Forwarded-For),
+   User-Agent, path, timestamp.
+6. **`must_change_password=true`** propagado a 141 usuarios no-admin/no-kiosk
+   tras la fuga.
+
+**Frontend** (`SettingsPage.jsx`):
+- `getVaultToken()` prompt one-shot que guarda el token en `sessionStorage`
+  (`megasoft.vault_token`). Se anexa como header `X-Admin-Token` en todas las
+  llamadas admin sensibles. Si el server responde 403 el token se borra y se
+  vuelve a pedir.
+- Copy actualizado: menciona que el backup **incluye asistencia** y protege con
+  doble factor.
+
+**Nuevos dependencias**: `slowapi==0.1.10`, `limits==5.8.0`.
