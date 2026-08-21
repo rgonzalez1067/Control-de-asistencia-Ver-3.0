@@ -690,7 +690,12 @@ async def on_startup() -> None:
         if upd:
             await db.users.update_one({"user_id": u["user_id"]}, {"$set": upd})
 
-    # Admin bootstrap (idempotent) — no toca hash existente si ya valida
+    # Admin bootstrap (idempotent) — sólo crea el admin si no existe.
+    # NO reescribe contraseñas que ya fueron cambiadas por el usuario (vía
+    # /auth/change-password, /security/bootstrap o /auth/reset-password): esos
+    # endpoints marcan `password_updated_by_user=True` para bloquear este seed.
+    # Si necesitas forzar una rotación desde `ADMIN_PASSWORD` env, borra ese
+    # flag manualmente en la BD (una vez, no en cada arranque).
     admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
     admin_password = os.environ.get("ADMIN_PASSWORD", "")
     if admin_email and admin_password:
@@ -702,18 +707,23 @@ async def on_startup() -> None:
                 "name": "Administrator",
                 "role": "admin",
                 "password_hash": hash_password(admin_password),
+                "password_updated_by_user": False,  # rotable por env hasta el primer cambio
                 "onboarded": False,
                 "created_at": now_utc(),
             })
             logger.info("Seed: admin '%s' creado.", admin_email)
         else:
-            # Solo actualiza si la contraseña actual NO valida
-            if not verify_password(admin_password, existing.get("password_hash", "")):
-                await db.users.update_one(
-                    {"_id": existing["_id"]},
-                    {"$set": {"password_hash": hash_password(admin_password)}},
-                )
-                logger.info("Seed: contraseña admin refrescada.")
+            # Sólo re-sella si el usuario aún NO cambió su contraseña por su cuenta.
+            # Esto evita que un restart borre un cambio legítimo del admin.
+            if not existing.get("password_updated_by_user"):
+                if not verify_password(admin_password, existing.get("password_hash", "")):
+                    await db.users.update_one(
+                        {"_id": existing["_id"]},
+                        {"$set": {"password_hash": hash_password(admin_password)}},
+                    )
+                    logger.info("Seed: contraseña admin refrescada desde env.")
+            else:
+                logger.debug("Seed: admin tiene contraseña propia — env ignorada.")
 
     # ------------------------------------------------------------------
     # Seed de usuarios Kiosco por sede (idempotente).

@@ -134,6 +134,7 @@ async def admin_security_bootstrap(
             "password_hash": hash_password(payload.admin_password),
             "must_change_password": False,
             "password_updated_at": now_utc(),
+            "password_updated_by_user": True,
         }},
     )
     # 2) Guardar hash del vault token
