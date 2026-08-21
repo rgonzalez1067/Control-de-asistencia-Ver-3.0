@@ -87,11 +87,12 @@ async def build_matrix(
     user_ids: Optional[List[str]] = None,
     site_id: Optional[str] = None,
     schedule_id: Optional[str] = None,
+    sort_by: str = "name",   # "name" | "entry_asc" | "entry_desc"
 ) -> Dict[str, Any]:
     days = _iter_dates(from_date, to_date)
     if not days:
         return {"from_date": from_date, "to_date": to_date, "days": days,
-                "schedule": None, "blocks_per_day": 1, "rows": []}
+                "schedule": None, "blocks_per_day": 1, "rows": [], "sort_by": sort_by}
 
     # Modo especial: usuarios SIN horario fijo — sus bloques/tolerancia vienen
     # del turno asignado en Planificación (schedule_assignments) por día.
@@ -102,8 +103,9 @@ async def build_matrix(
     # ---- Determinar horario y # de bloques ----
     schedule: Optional[Dict[str, Any]] = None
     blocks_per_day = 1  # default → 1 bloque, 2 casillas por día (E, S)
-    if is_special:
-        blocks_per_day = 2  # reserva espacio para turnos rotativos de hasta 2 bloques
+    # Nota: en "Horario Especial" se fuerza 1 solo bloque por día (E1, S1)
+    # según la Adenda al Requerimiento (feb-2026). Los turnos rotativos usan
+    # un único par entrada/salida por día — E2/S2 se ocultan.
     if schedule_id:
         schedule = await db.schedules.find_one({"schedule_id": schedule_id})
         if schedule:
@@ -164,7 +166,8 @@ async def build_matrix(
 
     if not users:
         return {"from_date": from_date, "to_date": to_date, "days": days,
-                "schedule": _schedule_dto(schedule), "blocks_per_day": blocks_per_day, "rows": []}
+                "schedule": _schedule_dto(schedule), "blocks_per_day": blocks_per_day,
+                "sort_by": sort_by, "rows": []}
 
     uid_list = [u["user_id"] for u in users]
     dept_map = {d["department_id"]: d["name"]
@@ -454,12 +457,58 @@ async def build_matrix(
             "totals": totals,
         })
 
+    # -------------------------------------------------------------------
+    # Ordenamiento dinámico (Adenda feb-2026)
+    #   "name"        → Alfabético por nombre completo (default histórico).
+    #   "entry_asc"   → Empleados con el marcaje E1 más temprano al principio.
+    #   "entry_desc"  → Empleados con el marcaje E1 más tardío al principio.
+    #
+    # Para el ordenamiento por entrada usamos el MÍNIMO (asc) o MÁXIMO (desc)
+    # de la hora del PRIMER marcaje válido (E1) a lo largo del rango. Los
+    # empleados sin ningún E1 registrado quedan al final en ambos casos —
+    # se les asigna un centinela (float('inf')/-inf) para no contaminar el orden.
+    # -------------------------------------------------------------------
+    def _row_e1_agg(row: Dict[str, Any], mode: str) -> float:
+        """Retorna la métrica de ordenamiento por entrada.
+        mode='min' → devuelve el E1 más temprano del rango (para entry_asc).
+        mode='max' → devuelve el E1 más tardío del rango (para entry_desc).
+        La hora se convierte a "minutos desde medianoche local" para comparar.
+        Sin ningún E1 registrado → centinela infinito/-infinito para que estos
+        empleados queden al final tanto en ASC como en DESC."""
+        vals: List[int] = []
+        cells = row.get("cells") or {}
+        # `cells` es un dict día → {blocks:[{in, out, ...}, ...], ...}
+        for _day, cell in cells.items():
+            if not isinstance(cell, dict):
+                continue
+            blocks = cell.get("blocks") or []
+            if not blocks:
+                continue
+            e1 = blocks[0].get("in") if isinstance(blocks[0], dict) else None
+            if not e1 or not isinstance(e1, str) or ":" not in e1:
+                continue
+            try:
+                hh, mm = e1.split(":")[:2]
+                vals.append(int(hh) * 60 + int(mm))
+            except (ValueError, IndexError):
+                continue
+        if not vals:
+            return float("inf") if mode == "min" else float("-inf")
+        return min(vals) if mode == "min" else max(vals)
+
+    if sort_by == "entry_asc":
+        rows.sort(key=lambda r: (_row_e1_agg(r, "min"), (r.get("name") or "").lower()))
+    elif sort_by == "entry_desc":
+        rows.sort(key=lambda r: (-_row_e1_agg(r, "max"), (r.get("name") or "").lower()))
+    # sort_by == "name" ya viene ordenado desde la query a Mongo.
+
     return {
         "from_date": from_date, "to_date": to_date, "days": days,
         "schedule": _schedule_dto(schedule),
         "blocks_per_day": blocks_per_day,
         "tolerance_minutes": tolerance,
         "justification_tolerance_minutes": just_tolerance,
+        "sort_by": sort_by,
         "rows": rows,
     }
 

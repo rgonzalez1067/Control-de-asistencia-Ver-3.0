@@ -33,6 +33,7 @@ export default function ReporteMatricialPage() {
     user_id: "__all",
     site_id: "__all",
     schedule_id: "",
+    sort_by: "name",
   });
   const [departments, setDepartments] = useState([]);
   const [users, setUsers] = useState([]);
@@ -84,6 +85,7 @@ export default function ReporteMatricialPage() {
         from_date: filters.from_date,
         to_date: filters.to_date,
         schedule_id: filters.schedule_id,
+        sort_by: filters.sort_by || "name",
       };
       if (filters.department_id !== "__all") params.department_ids = filters.department_id;
       if (filters.user_id !== "__all") params.user_ids = filters.user_id;
@@ -94,7 +96,7 @@ export default function ReporteMatricialPage() {
     finally { setLoading(false); }
   }
 
-  useEffect(() => { if (filters.schedule_id) load(); /* eslint-disable-next-line */ }, [filters.schedule_id]);
+  useEffect(() => { if (filters.schedule_id) load(); /* eslint-disable-next-line */ }, [filters.schedule_id, filters.sort_by]);
 
   async function download(kind) {
     if (!filters.schedule_id) { toast.error("Selecciona un tipo de horario"); return; }
@@ -103,6 +105,7 @@ export default function ReporteMatricialPage() {
       const params = new URLSearchParams({
         from_date: filters.from_date, to_date: filters.to_date,
         schedule_id: filters.schedule_id,
+        sort_by: filters.sort_by || "name",
       });
       if (filters.department_id !== "__all") params.set("department_ids", filters.department_id);
       if (filters.user_id !== "__all") params.set("user_ids", filters.user_id);
@@ -167,7 +170,7 @@ export default function ReporteMatricialPage() {
             <Filter className="h-4 w-4 text-primary" />
             <p className="text-sm font-semibold text-foreground">Filtros</p>
           </div>
-          <div className={`grid gap-3 grid-cols-2 sm:grid-cols-3 ${isEmployee ? "lg:grid-cols-4" : "lg:grid-cols-4"}`}>
+          <div className={`grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5`}>
             <div className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">Desde</Label>
               <Input type="date" value={filters.from_date} onChange={(e) => setFilters((f) => ({ ...f, from_date: e.target.value }))} data-testid="matrix-from" />
@@ -201,6 +204,17 @@ export default function ReporteMatricialPage() {
                   {sites.map((s) => (
                     <SelectItem key={s.site_id} value={s.site_id}>{s.name}</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground">Orden de registros</Label>
+              <Select value={filters.sort_by} onValueChange={(v) => setFilters((f) => ({ ...f, sort_by: v }))}>
+                <SelectTrigger data-testid="matrix-sort-by" className="truncate"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="name" data-testid="matrix-sort-name">Por defecto (alfabético)</SelectItem>
+                  <SelectItem value="entry_asc" data-testid="matrix-sort-asc">Ascendente por entrada (más temprano primero)</SelectItem>
+                  <SelectItem value="entry_desc" data-testid="matrix-sort-desc">Descendente por entrada (más tardío primero)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
