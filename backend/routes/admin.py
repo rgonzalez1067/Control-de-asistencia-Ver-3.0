@@ -335,3 +335,101 @@ async def onboarding_selfie(payload: SelfieIn,
         updates["face_descriptor"] = payload.face_descriptor
     await db.users.update_one({"_id": user["_id"]}, {"$set": updates})
     return {"ok": True}
+
+
+
+# ==================================================================
+# WIPE DATABASE (destructivo, admin only, con doble factor + frase)
+# ==================================================================
+# Colecciones que se borran completamente. `attendance` incluida — es la razón
+# por la que este endpoint se creó (limpiar el entorno para volver a empezar).
+_WIPE_COLLECTIONS = [
+    "attendance",
+    "novelties",
+    "visits",
+    "schedule_assignments",
+    "assignment_plans",
+    "schedules",
+    "access_profiles",
+    "sites",
+    "departments",
+    "kiosk_sessions",
+]
+_WIPE_CONFIRMATION_PHRASE = "BORRAR TODO"
+
+
+class WipeDatabaseIn(BaseModel):
+    confirmation_phrase: str = Field(..., min_length=1, max_length=64)
+
+
+@api.post("/admin/wipe-database", include_in_schema=False)
+async def admin_wipe_database(
+    request: Request,
+    payload: WipeDatabaseIn,
+    user: Dict[str, Any] = Depends(require_roles("admin")),
+    __: None = Depends(require_admin_vault),
+) -> Dict[str, Any]:
+    """💥 Borra TODOS los datos operativos del sistema.
+
+    **Preserva** (para que el admin pueda seguir entrando):
+      - Su propia cuenta de administrador (`user_id == current admin`).
+      - Ajustes de seguridad en `settings`: `vault_token_hash`,
+        `security_bootstrapped`, `security_bootstrapped_at`.
+      - Colección `audit_log` — el evento del wipe queda registrado.
+
+    **Borra** todo lo demás: usuarios (excepto el admin actual), asistencia,
+    novedades, visitas, asignaciones, planes, horarios, perfiles RBAC, sedes,
+    departamentos, sesiones de kiosco. También limpia el resto de campos del
+    doc `settings` (nombre de empresa, logo, tolerancias, etc.) preservando
+    únicamente los campos de seguridad listados arriba.
+
+    Requiere:
+      - JWT admin
+      - X-Admin-Token válido (bóveda)
+      - `confirmation_phrase == "BORRAR TODO"` (mayúsculas exactas).
+    """
+    if payload.confirmation_phrase.strip() != _WIPE_CONFIRMATION_PHRASE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Debes escribir exactamente '{_WIPE_CONFIRMATION_PHRASE}' para confirmar.",
+        )
+
+    admin_id = user["user_id"]
+    admin_email = user.get("email")
+    counts: Dict[str, int] = {}
+
+    # 1) Borrar colecciones completas
+    for name in _WIPE_COLLECTIONS:
+        res = await db[name].delete_many({})
+        counts[name] = res.deleted_count
+
+    # 2) Borrar usuarios excepto el admin actual
+    res = await db.users.delete_many({"user_id": {"$ne": admin_id}})
+    counts["users"] = res.deleted_count
+
+    # 3) Limpiar settings preservando sólo los campos de seguridad
+    settings_doc = await db.settings.find_one({"_id": "company"}) or {}
+    preserved_keys = {
+        "vault_token_hash",
+        "security_bootstrapped",
+        "security_bootstrapped_at",
+        "security_bootstrapped_by",
+    }
+    preserved = {k: settings_doc[k] for k in preserved_keys if k in settings_doc}
+    # Reemplaza el doc entero por uno mínimo con sólo los campos preservados.
+    await db.settings.replace_one(
+        {"_id": "company"},
+        {"_id": "company", **preserved, "wiped_at": now_utc(), "wiped_by": admin_id},
+        upsert=True,
+    )
+    counts["settings_reset"] = 1
+
+    # 4) Audit log del evento
+    await audit_log("admin_wipe_database", request, user_id=admin_id, email=admin_email,
+                    extra={"deleted": counts, "preserved_admin": admin_id})
+    return {
+        "ok": True,
+        "message": "Base de datos vaciada. Sólo se preservó el admin actual y los ajustes de seguridad.",
+        "deleted": counts,
+        "preserved_admin": {"user_id": admin_id, "email": admin_email},
+    }

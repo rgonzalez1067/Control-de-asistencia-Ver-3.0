@@ -196,6 +196,7 @@ export default function SettingsPage() {
       <ManualsCard />
       <ResetAllPasswordsCard />
       <SecurityBootstrapCard />
+      <WipeDatabaseCard />
 
       <div className="flex items-center gap-2 justify-end sticky bottom-4 rounded-2xl bg-card/90 backdrop-blur border border-border/60 shadow-xl shadow-primary/10 px-3 py-2">
         <Button variant="outline" onClick={load} className="rounded-full" data-testid="settings-reset">
@@ -1160,3 +1161,175 @@ function SecurityBootstrapWizard({ onDone, onCancel }) {
     </div>
   );
 }
+
+
+
+// =====================================================================
+// Wipe Database card — ZONA DE PELIGRO. Sólo admin.
+// Requiere: X-Admin-Token (bóveda) + frase exacta "BORRAR TODO".
+// Preserva el admin actual + ajustes de seguridad. Todo lo demás se pierde.
+// =====================================================================
+function WipeDatabaseCard() {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  if (user?.role !== "admin") return null;
+
+  return (
+    <>
+      <Card className="border-red-300 bg-gradient-to-br from-red-50 to-red-50/40" data-testid="wipe-db-card">
+        <CardHeader className="flex flex-row items-start gap-4">
+          <div className="h-11 w-11 rounded-2xl bg-red-100 text-red-700 grid place-items-center shrink-0">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <div className="flex-1">
+            <CardTitle className="text-red-900">Zona de peligro — Borrar base de datos</CardTitle>
+            <CardDescription className="text-red-900/80">
+              Elimina <b>irrevocablemente</b> todos los datos operativos: empleados (excepto tu cuenta),
+              asistencia, novedades, visitas, sedes, departamentos, horarios, planes, perfiles RBAC y sesiones de kiosco.
+              <br />
+              Se preservan sólo tu cuenta de administrador y los ajustes de seguridad (vault token). Antes de continuar
+              descarga un <b>backup completo</b> desde la sección Copia de seguridad.
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Button
+            onClick={() => setOpen(true)}
+            className="rounded-full bg-red-700 hover:bg-red-800 text-white shadow-lg shadow-red-200"
+            data-testid="wipe-db-open"
+          >
+            <AlertTriangle className="h-4 w-4 mr-1.5" />
+            Borrar todos los datos…
+          </Button>
+        </CardContent>
+      </Card>
+      {open && <WipeDatabaseModal onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+
+function WipeDatabaseModal({ onClose }) {
+  const [phrase, setPhrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const REQUIRED = "BORRAR TODO";
+
+  async function submit() {
+    if (phrase.trim() !== REQUIRED) {
+      toast.error(`Debes escribir exactamente '${REQUIRED}'`);
+      return;
+    }
+    let vt = sessionStorage.getItem("megasoft.vault_token") || "";
+    if (!vt) {
+      vt = window.prompt(
+        "🔒 Bóveda administrativa\n\nIngresa el token X-Admin-Token para autorizar el borrado.",
+        ""
+      ) || "";
+      if (vt) sessionStorage.setItem("megasoft.vault_token", vt);
+    }
+    if (!vt) { toast.error("Token de bóveda requerido"); return; }
+    setBusy(true);
+    try {
+      const { data } = await api.post(
+        "/admin/wipe-database",
+        { confirmation_phrase: phrase.trim() },
+        { headers: { "X-Admin-Token": vt } },
+      );
+      setResult(data);
+      toast.success("Base de datos vaciada correctamente");
+    } catch (e) {
+      if (e.response?.status === 403) sessionStorage.removeItem("megasoft.vault_token");
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm grid place-items-center p-4" data-testid="wipe-db-modal">
+      <Card className="w-full max-w-lg border-red-300 shadow-2xl">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-red-100 grid place-items-center">
+              <AlertTriangle className="h-5 w-5 text-red-700" />
+            </div>
+            <div>
+              <CardTitle className="text-red-900">
+                {result ? "Base de datos vaciada" : "Confirmar borrado total"}
+              </CardTitle>
+              <CardDescription className="text-red-900/70">
+                {result
+                  ? "Resultado del borrado (irreversible)."
+                  : "Esta acción NO se puede deshacer. Sólo tu cuenta y los ajustes de seguridad quedarán."}
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!result ? (
+            <>
+              <div className="rounded-xl bg-red-50 border border-red-300 p-3 text-xs text-red-900 space-y-1.5">
+                <div><b>Se van a borrar por completo:</b></div>
+                <ul className="list-disc pl-4 space-y-0.5">
+                  <li>Empleados (excepto tu propia cuenta)</li>
+                  <li>Marcajes de asistencia (histórico completo)</li>
+                  <li>Novedades, justificaciones y visitas</li>
+                  <li>Sedes, departamentos y horarios</li>
+                  <li>Planes y asignaciones de horarios</li>
+                  <li>Perfiles de acceso (RBAC)</li>
+                  <li>Sesiones de kiosco activas</li>
+                  <li>Ajustes de empresa (nombre, logo, tolerancias)</li>
+                </ul>
+                <div className="pt-1"><b>Se preservan:</b> tu cuenta admin y el token de bóveda.</div>
+              </div>
+              <div className="space-y-2">
+                <Label>
+                  Para confirmar, escribe <span className="font-mono font-bold text-red-700">BORRAR TODO</span> abajo (mayúsculas exactas):
+                </Label>
+                <Input
+                  value={phrase}
+                  onChange={(e) => setPhrase(e.target.value)}
+                  placeholder="BORRAR TODO"
+                  autoFocus
+                  data-testid="wipe-db-phrase"
+                  className="font-mono"
+                />
+              </div>
+              <div className="flex justify-between gap-2 pt-2">
+                <Button variant="outline" onClick={onClose} disabled={busy}>Cancelar</Button>
+                <Button
+                  onClick={submit}
+                  disabled={busy || phrase.trim() !== REQUIRED}
+                  className="bg-red-700 hover:bg-red-800 text-white"
+                  data-testid="wipe-db-confirm"
+                >
+                  {busy ? "Borrando…" : "Confirmar borrado total"}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="rounded-xl bg-emerald-50 border border-emerald-300 p-4 text-sm space-y-1.5">
+                <div className="font-semibold text-emerald-900">Resultado</div>
+                {Object.entries(result.deleted || {}).map(([k, v]) => (
+                  <div key={k} className="flex justify-between text-emerald-900/80">
+                    <span className="capitalize">{k.replace(/_/g, " ")}</span>
+                    <span className="font-mono">{v} borrado(s)</span>
+                  </div>
+                ))}
+                <div className="pt-1 text-emerald-900">
+                  Admin preservado: <b>{result.preserved_admin?.email}</b>
+                </div>
+              </div>
+              <div className="flex justify-end pt-2">
+                <Button onClick={() => { onClose(); window.location.reload(); }} data-testid="wipe-db-close">
+                  Cerrar y recargar
+                </Button>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
