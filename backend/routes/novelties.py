@@ -62,6 +62,22 @@ async def novelties_create(payload: NoveltyIn,
     return strip_mongo_id(doc)
 
 
+@api.post("/novelties/bulk-decide")
+async def novelties_bulk_decide(payload: NoveltyDecideIn,
+                                user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> Dict[str, int]:
+    q: Dict[str, Any] = {"novelty_id": {"$in": payload.novelty_ids}, "status": "pending"}
+    if user["role"] in LEADER_ROLES:
+        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
+    res = await db.novelties.update_many(
+        q,
+        {"$set": {"status": payload.decision, "decided_at": now_utc(),
+                  "decided_by": user["user_id"], "decision_comment": payload.comment}},
+    )
+    return {"updated": res.modified_count}
+
+
+# ---- Rutas parametrizadas (deben declararse DESPUÉS de las literales
+# como /novelties/bulk-decide, si no algunos proxies/routers responden 405) ----
 @api.delete("/novelties/{novelty_id}")
 async def novelties_delete(novelty_id: str,
                            user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
@@ -101,17 +117,3 @@ async def novelties_patch(novelty_id: str,
         return {"ok": True, "unchanged": True}
     await db.novelties.update_one({"novelty_id": novelty_id}, {"$set": updates})
     return {"ok": True, "updated_fields": list(updates.keys())}
-
-
-@api.post("/novelties/bulk-decide")
-async def novelties_bulk_decide(payload: NoveltyDecideIn,
-                                user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> Dict[str, int]:
-    q: Dict[str, Any] = {"novelty_id": {"$in": payload.novelty_ids}, "status": "pending"}
-    if user["role"] in LEADER_ROLES:
-        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
-    res = await db.novelties.update_many(
-        q,
-        {"$set": {"status": payload.decision, "decided_at": now_utc(),
-                  "decided_by": user["user_id"], "decision_comment": payload.comment}},
-    )
-    return {"updated": res.modified_count}

@@ -116,13 +116,18 @@ async def kiosk_sites() -> List[Dict[str, Any]]:
 
 @api.get("/kiosk/roster")
 async def kiosk_roster() -> List[Dict[str, Any]]:
-    """Lista de usuarios con datos mínimos para reconocimiento en el kiosco."""
+    """Lista de usuarios con datos mínimos para reconocimiento en el kiosco.
+    Devuelve TODOS los usuarios onboarded sin filtrar por sede — un empleado
+    de la sede B puede marcar en el kiosco de la sede A si necesita hacerlo."""
     docs = await db.users.find(
         {"onboarded": True},
         {"user_id": 1, "name": 1, "cedula": 1, "role": 1, "picture": 1, "site_id": 1,
          "department_id": 1, "schedule_id": 1, "position": 1,
          "selfie_base64": 1, "face_descriptor": 1, "_id": 0},
-    ).to_list(2000)
+    ).to_list(5000)
+    # Orden alfabético estable para que el PinPickerDialog del frontend muestre
+    # nombres consistentes aunque limite los primeros N resultados.
+    docs.sort(key=lambda u: (u.get("name") or "").lower())
     return docs
 
 

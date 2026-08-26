@@ -849,13 +849,19 @@ function ReenrollPinDialog({ target, onCancel, onSuccess }) {
 
 function PinPickerDialog({ open, roster, onCancel, onPick, title, description, testId }) {
   const [q, setQ] = useState("");
+  // Búsqueda sin acentos: normaliza "María" → "maria" para que el user
+  // pueda escribir sin tildes y aún así encontrarse.
+  const stripAccents = (s) => (s || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const filtered = useMemo(() => {
-    const n = q.toLowerCase().trim();
+    const n = stripAccents(q.trim());
     return (roster || [])
       .filter((u) => !n
-        || u.name.toLowerCase().includes(n)
+        || stripAccents(u.name).includes(n)
         || (u.cedula || "").includes(n))
-      .slice(0, 60);
+      // Antes limitábamos a 60 → cortaba usuarios de otras sedes. Ahora 500,
+      // suficiente para cualquier empresa realista.
+      .slice(0, 500);
   }, [roster, q]);
 
   return (
