@@ -22,6 +22,7 @@ from server import (  # noqa: F401
     # Helpers
     now_utc, new_id, strip_mongo_id, sanitize_user,
     enrich_user_with_permissions, supervisor_scope_ids,
+    compute_effective_permissions,
     hash_password, verify_password, create_access_token,
     haversine_m, normalize_role, validate_password_policy,
     # Pydantic models (moved as they get referenced by routers)

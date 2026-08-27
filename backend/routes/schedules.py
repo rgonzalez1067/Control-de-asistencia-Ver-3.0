@@ -12,17 +12,29 @@ from deps import (
     ScheduleIn,
     HTTPException, Depends,
     Any, Dict, List,
+    compute_effective_permissions,
 )
 
 
 # ------------------------------------------------------------------
 # Dependencies locales (permisos específicos de horarios y asignaciones)
 # ------------------------------------------------------------------
+async def _has_rbac_perm(user: Dict[str, Any], key: str) -> bool:
+    """True si el perfil de acceso del usuario incluye la clave RBAC dada."""
+    try:
+        perms = await compute_effective_permissions(user)
+        return bool(perms.get(key))
+    except Exception:
+        return False
+
+
 async def _require_admin_or_schedules_manager(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Admin siempre puede; empleado/supervisor puede si tiene can_manage_schedules=True."""
+    """Admin siempre; empleado/supervisor con permiso `horarios` (RBAC) o flag legacy `can_manage_schedules`."""
     if user.get("role") == "admin" or user.get("can_manage_schedules"):
+        return user
+    if await _has_rbac_perm(user, "horarios"):
         return user
     raise HTTPException(status_code=403, detail="Se requiere permiso 'Puede crear y asignar horarios'.")
 
@@ -30,8 +42,10 @@ async def _require_admin_or_schedules_manager(
 async def _require_admin_or_assigner(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Admin siempre; empleado/supervisor con can_assign_schedules=True también."""
+    """Admin siempre; empleado/supervisor con permiso `asignar_horarios` (RBAC) o flag legacy `can_assign_schedules`."""
     if user.get("role") == "admin" or user.get("can_assign_schedules"):
+        return user
+    if await _has_rbac_perm(user, "asignar_horarios"):
         return user
     raise HTTPException(
         status_code=403,

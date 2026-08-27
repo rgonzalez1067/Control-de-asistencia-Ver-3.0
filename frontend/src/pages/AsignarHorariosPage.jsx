@@ -65,7 +65,9 @@ function isWeekend(iso) {
 
 export default function AsignarHorariosPage() {
   const { user } = useAuth();
-  const canAccess = user?.role === "admin" || !!user?.can_assign_schedules;
+  const canAccess = user?.role === "admin"
+    || !!user?.can_assign_schedules
+    || !!(user?.effective_permissions || {}).asignar_horarios;
 
   const [fromDate, setFromDate] = useState(todayISO(0));
   const [toDate, setToDate] = useState(todayISO(13));
