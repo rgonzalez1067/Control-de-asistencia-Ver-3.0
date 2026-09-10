@@ -15,6 +15,14 @@ import autoTable from "jspdf-autotable";
 
 const RANK_COLORS = ["bg-amber-400", "bg-slate-400", "bg-orange-400", "bg-primary/70", "bg-primary/50"];
 
+function fmtMinutes(m) {
+  if (!m) return "0 min";
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rest = Math.round(m % 60);
+  return rest ? `${h} h ${rest} min` : `${h} h`;
+}
+
 export default function ExecutiveWidget() {
   const [data, setData] = useState(null);
   const [days, setDays] = useState("30");
@@ -36,14 +44,6 @@ export default function ExecutiveWidget() {
     } finally { setLoading(false); }
   }
   useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [days]);
-
-  function fmtMinutes(m) {
-    if (!m) return "0 min";
-    if (m < 60) return `${m} min`;
-    const h = Math.floor(m / 60);
-    const rest = Math.round(m % 60);
-    return rest ? `${h} h ${rest} min` : `${h} h`;
-  }
 
   async function downloadPDF() {
     if (!data) return;

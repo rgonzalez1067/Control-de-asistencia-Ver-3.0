@@ -53,6 +53,38 @@ async def kiosk_unlock(payload: KioskUnlockIn) -> Dict[str, Any]:
     return {"ok": True, "unlocked_by": user["user_id"], "unlocked_at": now_utc().isoformat()}
 
 
+def _find_best_face_matches(desc: List[float], admins: List[Dict[str, Any]]):
+    best = None
+    second = None
+    for a in admins:
+        ref = a.get("face_descriptor") or []
+        if len(ref) != 128:
+            continue
+        dist = _math.sqrt(sum((float(x) - float(y)) ** 2 for x, y in zip(ref, desc)))
+        if best is None or dist < best[1]:
+            second = best
+            best = (a, dist)
+        elif second is None or dist < second[1]:
+            second = (a, dist)
+    return best, second
+
+
+async def _check_kiosk_reopen_permission(request: Request, site_id: str) -> bool:
+    auth = request.headers.get("Authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return False
+    token = auth.split(" ", 1)[1].strip()
+    try:
+        payload_jwt = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        uid = payload_jwt.get("sub")
+        if uid:
+            requester = await db.users.find_one({"user_id": uid})
+            return bool(requester and requester.get("role") == "kiosk" and requester.get("site_id") == site_id)
+    except jwt.PyJWTError:
+        pass
+    return False
+
+
 @api.post("/kiosk/unlock-face")
 async def kiosk_unlock_face(payload: KioskFaceUnlockIn) -> Dict[str, Any]:
     """Admin desbloquea el modo kiosco con su rostro (face-api descriptor)."""
@@ -71,19 +103,7 @@ async def kiosk_unlock_face(payload: KioskFaceUnlockIn) -> Dict[str, Any]:
     if not admins:
         raise HTTPException(status_code=404, detail="No hay administradores con rostro registrado")
 
-    best = None
-    second = None
-    for a in admins:
-        ref = a.get("face_descriptor") or []
-        if len(ref) != 128:
-            continue
-        dist = _math.sqrt(sum((float(x) - float(y)) ** 2 for x, y in zip(ref, desc)))
-        if best is None or dist < best[1]:
-            second = best
-            best = (a, dist)
-        elif second is None or dist < second[1]:
-            second = (a, dist)
-
+    best, second = _find_best_face_matches(desc, admins)
     if not best:
         raise HTTPException(status_code=401, detail="No se pudo comparar el rostro")
 
@@ -114,20 +134,27 @@ async def kiosk_sites() -> List[Dict[str, Any]]:
     return docs
 
 
-@api.get("/kiosk/roster")
-async def kiosk_roster() -> List[Dict[str, Any]]:
-    """Lista de usuarios con datos mínimos para reconocimiento en el kiosco.
-    Devuelve TODOS los usuarios onboarded sin filtrar por sede — un empleado
-    de la sede B puede marcar en el kiosco de la sede A si necesita hacerlo."""
+@api.get("/kiosk/roster", include_in_schema=False)
+async def kiosk_roster(
+    current_user: Dict[str, Any] = Depends(require_roles("kiosk", "admin")),
+) -> List[Dict[str, Any]]:
+    role = current_user.get("role")
+    kiosk_site = current_user.get("site_id")
+    query: Dict[str, Any] = {"onboarded": True}
+###    if role == "kiosk" and kiosk_site:
+###        query["site_id"] = kiosk_site
+
     docs = await db.users.find(
-        {"onboarded": True},
-        {"user_id": 1, "name": 1, "cedula": 1, "role": 1, "picture": 1, "site_id": 1,
-         "department_id": 1, "schedule_id": 1, "position": 1,
-         "selfie_base64": 1, "face_descriptor": 1, "_id": 0},
-    ).to_list(5000)
-    # Orden alfabético estable para que el PinPickerDialog del frontend muestre
-    # nombres consistentes aunque limite los primeros N resultados.
-    docs.sort(key=lambda u: (u.get("name") or "").lower())
+        query,
+        {
+            "user_id": 1,
+            "name": 1,
+            "site_id": 1,
+            "selfie_base64": 1,
+            "face_descriptor": 1,
+            "_id": 0,
+        },
+    ).sort("name",1).to_list(5000)
     return docs
 
 
@@ -140,24 +167,7 @@ async def kiosk_session_open(payload: Dict[str, Any], request: Request) -> Dict[
     if not site:
         raise HTTPException(status_code=404, detail="Sede no registrada")
 
-    # Si el request viene autenticado como un usuario `kiosk` cuya `site_id`
-    # coincide con la sede solicitada, se cierra automáticamente la sesión
-    # previa (típico caso: la tablet perdió energía y quedó una sesión huérfana).
-    force_from_kiosk_user = False
-    auth = request.headers.get("Authorization", "")
-    if auth.lower().startswith("bearer "):
-        token = auth.split(" ", 1)[1].strip()
-        try:
-            payload_jwt = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-            uid = payload_jwt.get("sub")
-            if uid:
-                requester = await db.users.find_one({"user_id": uid})
-                if (requester and requester.get("role") == "kiosk"
-                        and requester.get("site_id") == site_id):
-                    force_from_kiosk_user = True
-        except jwt.PyJWTError:
-            pass
-
+    force_from_kiosk_user = await _check_kiosk_reopen_permission(request, site_id)
     cutoff = now_utc() - timedelta(minutes=KIOSK_SESSION_TTL_MIN)
     existing = await db.kiosk_sessions.find_one({
         "site_id": site_id,

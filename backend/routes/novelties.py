@@ -12,6 +12,24 @@ from deps import (
 )
 
 
+async def _validate_novelty_target(target: str, user: Dict[str, Any]) -> None:
+    if target != user["user_id"] and user["role"] not in LEADER_OR_ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    if user["role"] in LEADER_ROLES and target != user["user_id"]:
+        team_ids = await supervisor_scope_ids(user)
+        if target not in team_ids:
+            raise HTTPException(status_code=403, detail="El empleado no pertenece a tu equipo")
+
+
+def _validate_novelty_range(payload: NoveltyIn) -> None:
+    if payload.type == "vacation":
+        return
+    if not payload.start_time or not payload.end_time:
+        raise HTTPException(status_code=400, detail="Debes indicar rango horario (hora inicio y hora fin)")
+    if payload.start_time >= payload.end_time and payload.start_date == payload.end_date:
+        raise HTTPException(status_code=400, detail="La hora fin debe ser mayor a la hora inicio")
+
+
 @api.get("/novelties")
 async def novelties_list(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     q: Dict[str, Any] = {}
@@ -29,19 +47,9 @@ async def novelties_list(user: Dict[str, Any] = Depends(get_current_user)) -> Li
 async def novelties_create(payload: NoveltyIn,
                            user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     target = payload.user_id or user["user_id"]
-    if target != user["user_id"] and user["role"] not in LEADER_OR_ADMIN_ROLES:
-        raise HTTPException(status_code=403, detail="No autorizado")
-    if user["role"] in LEADER_ROLES and target != user["user_id"]:
-        team_ids = await supervisor_scope_ids(user)
-        if target not in team_ids:
-            raise HTTPException(status_code=403, detail="El empleado no pertenece a tu equipo")
-    if payload.type != "vacation":
-        if not payload.start_time or not payload.end_time:
-            raise HTTPException(status_code=400,
-                                detail="Debes indicar rango horario (hora inicio y hora fin)")
-        if payload.start_time >= payload.end_time and payload.start_date == payload.end_date:
-            raise HTTPException(status_code=400,
-                                detail="La hora fin debe ser mayor a la hora inicio")
+    await _validate_novelty_target(target, user)
+    _validate_novelty_range(payload)
+
     doc = {
         "novelty_id": new_id("nv", 12),
         "user_id": target,
@@ -62,58 +70,46 @@ async def novelties_create(payload: NoveltyIn,
     return strip_mongo_id(doc)
 
 
-@api.post("/novelties/bulk-decide")
-async def novelties_bulk_decide(payload: NoveltyDecideIn,
-                                user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> Dict[str, int]:
-    q: Dict[str, Any] = {"novelty_id": {"$in": payload.novelty_ids}, "status": "pending"}
-    if user["role"] in LEADER_ROLES:
-        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
-    res = await db.novelties.update_many(
-        q,
-        {"$set": {"status": payload.decision, "decided_at": now_utc(),
-                  "decided_by": user["user_id"], "decision_comment": payload.comment}},
-    )
-    return {"updated": res.modified_count}
-
-
-# ---- Rutas parametrizadas (deben declararse DESPUÉS de las literales
-# como /novelties/bulk-decide, si no algunos proxies/routers responden 405) ----
 @api.delete("/novelties/{novelty_id}")
 async def novelties_delete(novelty_id: str,
                            user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
-    q: Dict[str, Any] = {"novelty_id": novelty_id}
-    if user["role"] in LEADER_ROLES:
-        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
-    elif user["role"] != "admin":
-        q["user_id"] = user["user_id"]
-        q["status"] = "pending"
-    res = await db.novelties.delete_one(q)
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Novedad no encontrada")
-    return {"ok": True}
-
-
-@api.patch("/novelties/{novelty_id}")
-async def novelties_patch(novelty_id: str,
-                          payload: NoveltyPatchIn,
-                          user: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
-    """Solo administradores pueden modificar cualquier campo de una novedad."""
     doc = await db.novelties.find_one({"novelty_id": novelty_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Novedad no encontrada")
-    updates: Dict[str, Any] = {}
-    data = payload.model_dump(exclude_none=True)
-    if data.get("type") == "vacation":
-        data["start_time"] = None
-        data["end_time"] = None
-    for field in ("type", "start_date", "end_date", "start_time", "end_time",
-                  "reason", "status", "decision_comment", "user_id"):
-        if field in data:
-            updates[field] = data[field]
-    if updates.get("status") in ("approved", "rejected"):
-        updates["decided_at"] = now_utc()
-        updates["decided_by"] = user["user_id"]
-    if not updates:
-        return {"ok": True, "unchanged": True}
-    await db.novelties.update_one({"novelty_id": novelty_id}, {"$set": updates})
-    return {"ok": True, "updated_fields": list(updates.keys())}
+    if doc.get("created_by") != user["user_id"] and user["role"] not in LEADER_OR_ADMIN_ROLES:
+        raise HTTPException(status_code=403, detail="No autorizado para eliminar esta novedad")
+    await db.novelties.delete_one({"novelty_id": novelty_id})
+    return {"ok": True}
+
+
+@api.post("/novelties/bulk-decide")
+async def novelties_decide(payload: NoveltyDecideIn,
+                           user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> Dict[str, int]:
+    updates = {
+        "status": payload.decision,
+        "decided_at": now_utc(),
+        "decided_by": user["user_id"],
+        "decision_comment": payload.comment,
+    }
+    res = await db.novelties.update_many({"novelty_id": {"$in": payload.novelty_ids}}, {"$set": updates})
+    return {"modified_count": res.modified_count}
+
+
+@api.patch("/novelties/{novelty_id}")
+async def novelties_patch(novelty_id: str, payload: NoveltyPatchIn,
+                          user: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    doc = await db.novelties.find_one({"novelty_id": novelty_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Novedad no encontrada")
+    upd: Dict[str, Any] = {}
+    for k in ("type", "start_date", "end_date", "start_time", "end_time",
+              "reason", "status", "decision_comment", "user_id"):
+        val = getattr(payload, k, None)
+        if val is not None:
+            upd[k] = val
+    if upd:
+        upd["updated_at"] = now_utc()
+        upd["updated_by"] = user["user_id"]
+        await db.novelties.update_one({"novelty_id": novelty_id}, {"$set": upd})
+        doc = await db.novelties.find_one({"novelty_id": novelty_id})
+    return strip_mongo_id(doc)

@@ -681,6 +681,7 @@ export default function KioskScanPage() {
                   <UserCircle2 className="h-5 w-5 mr-2" /> Visita
                 </Button>
                 <button
+                  type="button"
                   onClick={() => { setPendingVisits([]); setCurrent(null); setPhase("ready"); }}
                   className="block w-full text-xs text-white/40 hover:text-white/70 mt-2"
                 >
@@ -849,18 +850,14 @@ function ReenrollPinDialog({ target, onCancel, onSuccess }) {
 
 function PinPickerDialog({ open, roster, onCancel, onPick, title, description, testId }) {
   const [q, setQ] = useState("");
-  // Búsqueda sin acentos: normaliza "María" → "maria" para que el user
-  // pueda escribir sin tildes y aún así encontrarse.
-  const stripAccents = (s) => (s || "")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const filtered = useMemo(() => {
-    const n = stripAccents(q.trim());
+    const removeAccents = (str) => str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+    const n = removeAccents(q.toLowerCase()).trim();
+    
     return (roster || [])
       .filter((u) => !n
-        || stripAccents(u.name).includes(n)
+        || removeAccents(u.name.toLowerCase()).includes(n)
         || (u.cedula || "").includes(n))
-      // Antes limitábamos a 60 → cortaba usuarios de otras sedes. Ahora 500,
-      // suficiente para cualquier empresa realista.
       .slice(0, 500);
   }, [roster, q]);
 
@@ -880,6 +877,7 @@ function PinPickerDialog({ open, roster, onCancel, onPick, title, description, t
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[460px] overflow-y-auto">
           {filtered.map((u) => (
             <button
+              type="button"
               key={u.user_id}
               onClick={() => onPick(u)}
               className="flex items-center gap-3 p-3 rounded-xl border border-border/60 hover:border-primary/40 hover:bg-muted/40 transition-colors text-left"

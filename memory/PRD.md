@@ -419,3 +419,28 @@ protegida y bloquea la re-ejecución.
 Para rotar el token en el futuro se necesita implementar un endpoint separado
 `/admin/security/rotate-vault` que exija el vault actual (a construir cuando
 sea necesario).
+
+---
+
+## 2026-09-10 — Homologación con fork GitLab (ticket #74354)
+
+Se fusionó el ZIP del repo externo GitLab (`control-de-asistencia-main`, v1.2, ajustado para ambiente NO-Emergent con Docker/Nginx) sobre esta versión.
+
+### Aplicado desde el ZIP
+- **Kiosco roster endurecido**: `GET /api/kiosk/roster` ahora exige Bearer (rol kiosk/admin), respuesta sin PII (sin cédula/cargo/departamento/posición), `include_in_schema=False`, sort en Mongo.
+- **Refactor SonarQube** en todos los `backend/routes/*.py` (helpers extraídos: `_restore_collection_docs`, `_compute_checkin_lateness`, `_validate_novelty_*`, `_process_late_record`, etc., constantes `ERR_*`).
+- **UsersPage**: password temporal con `window.crypto.getRandomValues` (antes `Math.random`).
+- **Deployment externo**: `docker-compose.yml`, `Jenkinsfile`, `backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx-ssl.conf` (CSP/HSTS), README con pipeline GitLab CI + Redmine.
+- `requirements.txt` / `package.json` del ZIP (sin deps Emergent; el código no las importa).
+
+### Decisiones del usuario (aplicadas)
+1. **wipe-database ELIMINADO** (endpoint + UI "Zona de Peligro") — el ZIP no lo tiene y el usuario decidió no conservarlo.
+2. **Seed admin env-autoritativo** (comportamiento ZIP): en cada arranque, si `ADMIN_PASSWORD` del `.env` no valida contra el hash, se re-sella. El flag `password_updated_by_user` ya NO protege. → La clave admin activa es siempre la del `.env` (actualmente `Sol*1401*1010`).
+3. **Adenda Matriz CONSERVADA** (nuestra): `matrix_report.py` y `routes/matrix.py` NO se tocaron — Horario Especial unibloque + `sort_by=name|entry_asc|entry_desc` (rango completo). El ZIP traía versión anterior (sort_order por primer día, 2 bloques) que se descartó.
+
+### Verificación post-merge
+- Login admin UI+e2e con `Sol*1401*1010` ✅ (seed restauró la clave al reiniciar)
+- `GET /kiosk/roster` sin token → 401 ✅ / con token kiosk → 200 sin PII ✅
+- `GET /reports/matrix?sort_by=entry_asc` → 200 ✅ (Adenda intacta)
+- RBAC schedules (`_has_rbac_perm`) presente en versión ZIP ✅
+- Frontend compila (webpack OK) ✅

@@ -41,10 +41,11 @@ function todayISO(offset = 0) {
 }
 function daysBetween(from, to) {
   const out = [];
-  const a = new Date(from + "T12:00");
-  const b = new Date(to + "T12:00");
-  for (let d = new Date(a); d <= b; d.setDate(d.getDate() + 1)) {
-    out.push(d.toISOString().slice(0, 10));
+  let cur = new Date(from + "T12:00");
+  const end = new Date(to + "T12:00");
+  while (cur <= end) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur = new Date(cur.getTime() + 86400000);
   }
   return out;
 }
@@ -65,9 +66,7 @@ function isWeekend(iso) {
 
 export default function AsignarHorariosPage() {
   const { user } = useAuth();
-  const canAccess = user?.role === "admin"
-    || !!user?.can_assign_schedules
-    || !!(user?.effective_permissions || {}).asignar_horarios;
+  const canAccess = user?.role === "admin" || !!user?.can_assign_schedules || !!user?.effective_permissions?.asignar_horarios;
 
   const [fromDate, setFromDate] = useState(todayISO(0));
   const [toDate, setToDate] = useState(todayISO(13));

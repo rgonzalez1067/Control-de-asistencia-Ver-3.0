@@ -23,13 +23,12 @@ ENV PATH="/usr/local/bin:${PATH}"
 # Instala dependencias primero para cacheo eficiente
 COPY requirements.txt .
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir \
-         --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
-         -r requirements.txt \
+    && pip install --no-cache-dir -r requirements.txt \
     && python -c "import uvicorn, fastapi; print('deps OK', uvicorn.__version__)"
 
-# Copia el código y assets (manual, tests, etc.)
-COPY . .
+# Copia explícita del código fuente y módulos
+COPY server.py deps.py matrix_report.py ./
+COPY routes/ ./routes/
 
 # Ejecutar como usuario no-root
 RUN useradd -m -u 1000 megasoft && chown -R megasoft:megasoft /app
@@ -41,6 +40,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -f http://localhost:8001/api/settings || exit 1
 
 # Producción: 2 workers uvicorn. Ajusta --workers según núcleos.
-# `python -m uvicorn` evita problemas de PATH cuando el binario está
-# instalado en un directorio no incluido en $PATH del usuario no-root.
 CMD ["python", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "2", "--proxy-headers"]

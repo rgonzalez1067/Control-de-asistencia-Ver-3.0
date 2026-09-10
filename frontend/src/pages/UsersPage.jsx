@@ -141,6 +141,19 @@ export default function UsersPage() {
     }).sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }));
   }, [users, q, roleFilter, deptFilter]);
 
+function generateSecureTempPassword() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
+  const bytes = new Uint8Array(10);
+  if (typeof window !== "undefined" && window.crypto) {
+    window.crypto.getRandomValues(bytes);
+  }
+  let res = "A1!";
+  for (let i = 0; i < bytes.length; i++) {
+    res += chars[bytes[i] % chars.length];
+  }
+  return res;
+}
+
   async function saveUser(form) {
     try {
       const payload = { ...form };
@@ -154,7 +167,7 @@ export default function UsersPage() {
         if (!payload[k]) payload[k] = null;
       });
       if (editing.mode === "create") {
-        if (!payload.password) payload.password = Math.random().toString(36).slice(2, 10) + "A1";
+        if (!payload.password) payload.password = generateSecureTempPassword();
         // En creación, no enviamos nulls (para no romper validaciones).
         ["department_id", "site_id", "supervisor_id", "schedule_id"].forEach((k) => {
           if (payload[k] === null) delete payload[k];

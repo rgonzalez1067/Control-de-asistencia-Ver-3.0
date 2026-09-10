@@ -11,12 +11,11 @@ from deps import (
     Any, Dict, List,
 )
 
+ERR_PROFILE_NOT_FOUND = "Perfil no encontrado"
+
 
 def _access_profile_to_public(p: Dict[str, Any]) -> Dict[str, Any]:
     p = strip_mongo_id(dict(p))
-    # Devuelve el diccionario completo incluyendo TODAS las claves del catálogo
-    # (default False para las no presentes) — así el frontend no tiene que
-    # decidir qué falta.
     perms = p.get("permissions", {}) or {}
     p["permissions"] = {k: bool(perms.get(k, False)) for k in MENU_KEYS}
     return p
@@ -57,8 +56,7 @@ async def access_profiles_update(profile_id: str, payload: AccessProfileIn,
                                  _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     existing = await db.access_profiles.find_one({"profile_id": profile_id})
     if not existing:
-        raise HTTPException(status_code=404, detail="Perfil no encontrado")
-    # Nombres únicos (case-insensitive, excluyendo el propio)
+        raise HTTPException(status_code=404, detail=ERR_PROFILE_NOT_FOUND)
     dupe = await db.access_profiles.find_one({
         "name": {"$regex": f"^{payload.name.strip()}$", "$options": "i"},
         "profile_id": {"$ne": profile_id},
@@ -81,10 +79,9 @@ async def access_profiles_delete(profile_id: str,
                                  _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
     prof = await db.access_profiles.find_one({"profile_id": profile_id})
     if not prof:
-        raise HTTPException(status_code=404, detail="Perfil no encontrado")
+        raise HTTPException(status_code=404, detail=ERR_PROFILE_NOT_FOUND)
     if prof.get("is_system"):
         raise HTTPException(status_code=400, detail="Los perfiles del sistema no se pueden eliminar")
-    # Al eliminar, se desasigna de cualquier usuario que lo tuviera.
     in_use = await db.users.count_documents({"access_profile_id": profile_id})
     if in_use:
         await db.users.update_many(
@@ -101,7 +98,7 @@ async def user_set_access_profile(user_id: str, payload: AssignProfileIn,
     if payload.profile_id:
         prof = await db.access_profiles.find_one({"profile_id": payload.profile_id})
         if not prof:
-            raise HTTPException(status_code=404, detail="Perfil no encontrado")
+            raise HTTPException(status_code=404, detail=ERR_PROFILE_NOT_FOUND)
     res = await db.users.update_one(
         {"user_id": user_id},
         {"$set": {"access_profile_id": payload.profile_id}},
@@ -118,9 +115,7 @@ async def access_profile_assign_department(payload: AssignProfileToDeptIn,
     if payload.profile_id:
         prof = await db.access_profiles.find_one({"profile_id": payload.profile_id})
         if not prof:
-            raise HTTPException(status_code=404, detail="Perfil no encontrado")
-    # Excluye admin/kiosk del re-perfilado — los admin nunca pierden acceso
-    # y los kiosk-users no usan sidebar.
+            raise HTTPException(status_code=404, detail=ERR_PROFILE_NOT_FOUND)
     q = {
         "department_id": payload.department_id,
         "role": {"$nin": ["admin", "kiosk"]},

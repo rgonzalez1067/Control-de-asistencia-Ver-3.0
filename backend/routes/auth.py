@@ -84,7 +84,6 @@ async def auth_change_password(payload: ChangePasswordIn,
     await db.users.update_one({"_id": user["_id"]},
                               {"$set": {"password_hash": hash_password(payload.new_password),
                                         "password_updated_at": now_utc(),
-                                        "password_updated_by_user": True,
                                         "must_change_password": False}})
     return {"ok": True}
 
@@ -112,7 +111,6 @@ async def auth_reset_password(request: Request, payload: ResetPasswordIn,
     res = await db.users.update_one(
         {"user_id": payload.user_id},
         {"$set": {"password_hash": hash_password(payload.new_password),
-                  "password_updated_by_user": True,
                   "must_change_password": True}},
     )
     if res.matched_count == 0:

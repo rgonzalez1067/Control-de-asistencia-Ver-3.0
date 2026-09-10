@@ -12,7 +12,6 @@ from deps import (
     ScheduleIn,
     HTTPException, Depends,
     Any, Dict, List,
-    compute_effective_permissions,
 )
 
 
@@ -20,38 +19,29 @@ from deps import (
 # Dependencies locales (permisos específicos de horarios y asignaciones)
 # ------------------------------------------------------------------
 async def _has_rbac_perm(user: Dict[str, Any], key: str) -> bool:
-    """True si el perfil de acceso del usuario incluye la clave RBAC dada."""
-    try:
-        perms = await compute_effective_permissions(user)
-        return bool(perms.get(key))
-    except Exception:
-        return False
-
+    from deps import enrich_user_with_permissions
+    enriched_user = await enrich_user_with_permissions(user)
+    perms = enriched_user.get("effective_permissions") or {}
+    return bool(perms.get(key))
 
 async def _require_admin_or_schedules_manager(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Admin siempre; empleado/supervisor con permiso `horarios` (RBAC) o flag legacy `can_manage_schedules`."""
-    if user.get("role") == "admin" or user.get("can_manage_schedules"):
-        return user
-    if await _has_rbac_perm(user, "horarios"):
+    """Admin siempre puede; empleado/supervisor puede si tiene can_manage_schedules=True o permiso RBAC."""
+    if user.get("role") == "admin" or user.get("can_manage_schedules") or await _has_rbac_perm(user, "horarios"):
         return user
     raise HTTPException(status_code=403, detail="Se requiere permiso 'Puede crear y asignar horarios'.")
-
 
 async def _require_admin_or_assigner(
     user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Admin siempre; empleado/supervisor con permiso `asignar_horarios` (RBAC) o flag legacy `can_assign_schedules`."""
-    if user.get("role") == "admin" or user.get("can_assign_schedules"):
-        return user
-    if await _has_rbac_perm(user, "asignar_horarios"):
+    """Admin siempre; empleado/supervisor con can_assign_schedules=True o permiso RBAC también."""
+    if user.get("role") == "admin" or user.get("can_assign_schedules") or await _has_rbac_perm(user, "asignar_horarios"):
         return user
     raise HTTPException(
         status_code=403,
         detail="Se requiere permiso 'Puede asignar turnos y novedades a personal sin horario fijo'.",
     )
-
 
 # ==================================================================
 # SCHEDULES CRUD
@@ -60,6 +50,9 @@ async def _require_admin_or_assigner(
 async def schedules_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
     docs = await db.schedules.find({}).to_list(500)
     return [strip_mongo_id(d) for d in docs]
+
+
+ERR_SCHEDULE_NOT_FOUND = "Horario no encontrado"
 
 
 @api.post("/schedules")
@@ -78,7 +71,7 @@ async def schedules_update(schedule_id: str, payload: ScheduleIn,
     updates = payload.model_dump(exclude_unset=True)
     res = await db.schedules.update_one({"schedule_id": schedule_id}, {"$set": updates})
     if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Horario no encontrado")
+        raise HTTPException(status_code=404, detail=ERR_SCHEDULE_NOT_FOUND)
     doc = await db.schedules.find_one({"schedule_id": schedule_id})
     return strip_mongo_id(doc)
 
@@ -88,7 +81,7 @@ async def schedules_delete(schedule_id: str,
                            _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, bool]:
     res = await db.schedules.delete_one({"schedule_id": schedule_id})
     if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Horario no encontrado")
+        raise HTTPException(status_code=404, detail=ERR_SCHEDULE_NOT_FOUND)
     return {"ok": True}
 
 
@@ -221,10 +214,7 @@ async def list_schedule_assignments(
     return [strip_mongo_id(d) for d in docs]
 
 
-@api.post("/schedule-assignments/bulk")
-async def bulk_assign(payload: AssignmentBulkIn,
-                      current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
-    """Upsert masivo: asigna un turno o una novedad al conjunto de (user_id × date)."""
+async def _validate_bulk_payload(payload: AssignmentBulkIn) -> None:
     if not payload.user_ids or not payload.dates:
         raise HTTPException(status_code=400, detail="Debes indicar user_ids y dates")
     if payload.kind == "shift":
@@ -232,7 +222,7 @@ async def bulk_assign(payload: AssignmentBulkIn,
             raise HTTPException(status_code=400, detail="schedule_id es obligatorio para kind='shift'")
         sch = await db.schedules.find_one({"schedule_id": payload.schedule_id})
         if not sch:
-            raise HTTPException(status_code=404, detail="Horario no encontrado")
+            raise HTTPException(status_code=404, detail=ERR_SCHEDULE_NOT_FOUND)
     elif payload.kind == "novelty":
         if payload.novelty_type not in _VALID_ASSIGN_NOVELTIES:
             raise HTTPException(
@@ -242,6 +232,12 @@ async def bulk_assign(payload: AssignmentBulkIn,
     else:
         raise HTTPException(status_code=400, detail="kind debe ser 'shift' o 'novelty'")
 
+
+@api.post("/schedule-assignments/bulk")
+async def bulk_assign(payload: AssignmentBulkIn,
+                      current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
+    """Upsert masivo: asigna un turno o una novedad al conjunto de (user_id × date)."""
+    await _validate_bulk_payload(payload)
     await _ensure_assignments_index()
 
     now = now_utc()

@@ -351,16 +351,18 @@ class ResetPasswordIn(BaseModel):
 # para el backend (seed + endpoints) y el frontend (grilla + sidebar).
 # El diccionario retornado por GET /api/access-profiles/catalog conserva el
 # orden de inserción, agrupando por sección.
+SECTION_OPERACION = "Operación"
+
 MENU_CATALOG: List[Dict[str, Any]] = [
     # Sección: Personal
     {"key": "mi_carnet",          "label": "Mi carnet",          "section": "Personal"},
     {"key": "historial",          "label": "Historial personal", "section": "Personal"},
     # Sección: Operación
-    {"key": "kiosco_activar",     "label": "Activar Kiosco",     "section": "Operación"},
-    {"key": "matriz",             "label": "Reporte matricial",  "section": "Operación"},
-    {"key": "novedades",          "label": "Novedades",          "section": "Operación"},
-    {"key": "equipo",             "label": "Mi equipo",          "section": "Operación"},
-    {"key": "dashboard",          "label": "Dashboard",          "section": "Operación"},
+    {"key": "kiosco_activar",     "label": "Activar Kiosco",     "section": SECTION_OPERACION},
+    {"key": "matriz",             "label": "Reporte matricial",  "section": SECTION_OPERACION},
+    {"key": "novedades",          "label": "Novedades",          "section": SECTION_OPERACION},
+    {"key": "equipo",             "label": "Mi equipo",          "section": SECTION_OPERACION},
+    {"key": "dashboard",          "label": "Dashboard",          "section": SECTION_OPERACION},
     # Sección: Visitas
     {"key": "visitas_agendar",    "label": "Agendar visita",     "section": "Visitas"},
     {"key": "visitas_historico",  "label": "Histórico de visitas", "section": "Visitas"},
@@ -690,12 +692,7 @@ async def on_startup() -> None:
         if upd:
             await db.users.update_one({"user_id": u["user_id"]}, {"$set": upd})
 
-    # Admin bootstrap (idempotent) — sólo crea el admin si no existe.
-    # NO reescribe contraseñas que ya fueron cambiadas por el usuario (vía
-    # /auth/change-password, /security/bootstrap o /auth/reset-password): esos
-    # endpoints marcan `password_updated_by_user=True` para bloquear este seed.
-    # Si necesitas forzar una rotación desde `ADMIN_PASSWORD` env, borra ese
-    # flag manualmente en la BD (una vez, no en cada arranque).
+    # Admin bootstrap (idempotent) — no toca hash existente si ya valida
     admin_email = os.environ.get("ADMIN_EMAIL", "").lower().strip()
     admin_password = os.environ.get("ADMIN_PASSWORD", "")
     if admin_email and admin_password:
@@ -707,23 +704,19 @@ async def on_startup() -> None:
                 "name": "Administrator",
                 "role": "admin",
                 "password_hash": hash_password(admin_password),
-                "password_updated_by_user": False,  # rotable por env hasta el primer cambio
+                "password_updated_by_user": False,
                 "onboarded": False,
                 "created_at": now_utc(),
             })
             logger.info("Seed: admin '%s' creado.", admin_email)
         else:
-            # Sólo re-sella si el usuario aún NO cambió su contraseña por su cuenta.
-            # Esto evita que un restart borre un cambio legítimo del admin.
-            if not existing.get("password_updated_by_user"):
-                if not verify_password(admin_password, existing.get("password_hash", "")):
-                    await db.users.update_one(
-                        {"_id": existing["_id"]},
-                        {"$set": {"password_hash": hash_password(admin_password)}},
-                    )
-                    logger.info("Seed: contraseña admin refrescada desde env.")
-            else:
-                logger.debug("Seed: admin tiene contraseña propia — env ignorada.")
+            # Solo actualiza si la contraseña actual NO valida
+            if not verify_password(admin_password, existing.get("password_hash", "")):
+                await db.users.update_one(
+                    {"_id": existing["_id"]},
+                    {"$set": {"password_hash": hash_password(admin_password)}},
+                )
+                logger.info("Seed: contraseña admin refrescada.")
 
     # ------------------------------------------------------------------
     # Seed de usuarios Kiosco por sede (idempotente).
@@ -752,19 +745,36 @@ async def _find_site_by_keywords(*keywords: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _calculate_backfill_lateness(r: Dict[str, Any], in_idx: int, last_out_ts: Optional[datetime], blocks: list, tol_general: int, tol_justif: int):
+    is_late, late_min, severity, req_just = False, 0, "on_time", False
+    local_ts = r["timestamp"].astimezone(APP_TZ)
+    if in_idx == 0:
+        try:
+            hh, mm = map(int, blocks[0]["start"].split(":"))
+            expected = local_ts.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            delta = int((local_ts - expected).total_seconds() // 60)
+            if delta > tol_general:
+                is_late, late_min = True, delta
+                if delta > (tol_general + tol_justif):
+                    severity, req_just = "late_major", True
+                else:
+                    severity = "late_minor"
+        except Exception:
+            pass
+    elif last_out_ts is not None:
+        s1_local = last_out_ts.astimezone(APP_TZ)
+        gap = int((local_ts - s1_local).total_seconds() // 60)
+        if gap > 60:
+            is_late, late_min = True, gap - 60
+            if late_min > tol_justif:
+                severity, req_just = "late_major", True
+            else:
+                severity = "late_minor"
+    return is_late, late_min, severity, req_just
+
+
 async def _backfill_entry_index_and_lateness() -> None:
-    """Recalcula ``entry_index`` y la clasificación de tardanza para todos los
-    registros de asistencia ``type == "in"``:
-
-    - **E1** (primera entrada del día): fórmula clásica → ``delta`` respecto a
-      ``blocks[0].start + tolerance``.
-    - **E2+**: fórmula de gap → sólo se penaliza el exceso sobre 60 min entre
-      la primera salida S1 y la segunda entrada E2. Sin S1 previo no se marca
-      como tarde (el registro se considera "fuera de patrón").
-
-    Es idempotente: sólo escribe los campos si difieren de los actuales.
-    Se ejecuta una única vez tras el startup (rápido: agrupa por user_id+día).
-    """
+    fixed = 0
     schedules_cache: Dict[str, Any] = {}
 
     async def _get_sched(sid: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -776,12 +786,10 @@ async def _backfill_entry_index_and_lateness() -> None:
         schedules_cache[sid] = s
         return s
 
-    # Traer usuarios con su schedule_id (para consultar rápido)
     user_sched: Dict[str, Optional[str]] = {}
     async for u in db.users.find({}, {"user_id": 1, "schedule_id": 1, "_id": 0}):
         user_sched[u["user_id"]] = u.get("schedule_id")
 
-    # Agrupamos por user_id+día — traemos TODO ordenado por timestamp
     grouped: Dict[str, List[Dict[str, Any]]] = {}
     async for r in db.attendance.find(
         {},
@@ -791,20 +799,14 @@ async def _backfill_entry_index_and_lateness() -> None:
          "justification_status": 1, "_id": 0},
     ).sort("timestamp", 1):
         ts = r.get("timestamp")
-        if not isinstance(ts, datetime):
-            continue
-        if not r.get("record_id") or not r.get("user_id"):
+        if not isinstance(ts, datetime) or not r.get("record_id") or not r.get("user_id"):
             continue
         day = ts.astimezone(APP_TZ).strftime("%Y-%m-%d")
-        key = f"{r['user_id']}::{day}"
-        grouped.setdefault(key, []).append(r)
+        grouped.setdefault(f"{r['user_id']}::{day}", []).append(r)
 
-    fixed = 0
     for key, recs in grouped.items():
-        uid, day = key.split("::", 1)
-        # Ordenados por timestamp asc
+        uid, _ = key.split("::", 1)
         recs.sort(key=lambda x: x["timestamp"])
-        # Índice de "in"
         in_idx = 0
         last_out_ts: Optional[datetime] = None
         sched = await _get_sched(user_sched.get(uid))
@@ -820,45 +822,12 @@ async def _backfill_entry_index_and_lateness() -> None:
             if t != "in":
                 continue
 
-            # Recalcular clasificación
-            is_late, late_min = False, 0
-            severity = "on_time"
-            req_just = False
-
+            is_late, late_min, severity, req_just = False, 0, "on_time", False
             if sched and blocks:
-                local_ts = r["timestamp"].astimezone(APP_TZ)
-                if in_idx == 0:
-                    # E1
-                    try:
-                        hh, mm = map(int, blocks[0]["start"].split(":"))
-                        expected = local_ts.replace(hour=hh, minute=mm, second=0, microsecond=0)
-                        delta = int((local_ts - expected).total_seconds() // 60)
-                        if delta > tol_general:
-                            is_late = True
-                            late_min = delta
-                            if delta > (tol_general + tol_justif):
-                                severity = "late_major"
-                                req_just = True
-                            else:
-                                severity = "late_minor"
-                    except Exception:
-                        pass
-                else:
-                    # E2+
-                    if last_out_ts is not None:
-                        s1_local = last_out_ts.astimezone(APP_TZ)
-                        gap = int((local_ts - s1_local).total_seconds() // 60)
-                        if gap > 60:
-                            is_late = True
-                            late_min = gap - 60
-                            if late_min > tol_justif:
-                                severity = "late_major"
-                                req_just = True
-                            else:
-                                severity = "late_minor"
+                is_late, late_min, severity, req_just = _calculate_backfill_lateness(
+                    r, in_idx, last_out_ts, blocks, tol_general, tol_justif
+                )
 
-            # Preservar decisiones ya tomadas por el supervisor:
-            # si hay un status distinto de "none"/"pending" NO forzamos requires_justification.
             jstatus = r.get("justification_status") or "none"
             if jstatus in ("approved", "rejected"):
                 req_just = False
@@ -870,12 +839,8 @@ async def _backfill_entry_index_and_lateness() -> None:
                 "requires_justification": req_just,
                 "entry_index": in_idx,
             }
-            old_vals = {k: r.get(k) for k in new_vals.keys()}
-            if old_vals != new_vals:
-                await db.attendance.update_one(
-                    {"record_id": r["record_id"]},
-                    {"$set": new_vals},
-                )
+            if any(r.get(k) != v for k, v in new_vals.items()):
+                await db.attendance.update_one({"record_id": r["record_id"]}, {"$set": new_vals})
                 fixed += 1
             in_idx += 1
 

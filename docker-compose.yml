@@ -6,11 +6,9 @@
 #      export REACT_APP_BACKEND_URL="https://asistencia.tudominio.com"
 #   3) docker compose up -d --build
 # =====================================================================
-version: "3.9"
-
 services:
   mongo:
-    image: mongo:7
+    image: mongo:4.4
     container_name: megasoft-mongo
     restart: unless-stopped
     volumes:
@@ -35,14 +33,14 @@ services:
       args:
         # ⚠️  IMPORTANTE: CRA baja las variables en build time.
         # Aquí pon la URL PÚBLICA con la que los usuarios accederán.
-        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-https://asistencia.tudominio.com}
+        REACT_APP_BACKEND_URL: ${REACT_APP_BACKEND_URL:-https://gestor.megasoft.com.ve:8443}
     container_name: megasoft-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "80:80"      # redirige a 443
-      - "443:443"    # HTTPS
+      - "8080:80"      # redirige a 443
+      - "8443:443"    # HTTPS
     volumes:
       # Monta los certificados del host en el contenedor. Los archivos deben
       # llamarse exactamente fullchain.pem y privkey.pem (o cambia los nombres

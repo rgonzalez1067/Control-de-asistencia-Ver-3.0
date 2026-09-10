@@ -16,92 +16,76 @@ from deps import (
 # ------------------------------------------------------------------
 # Helper — usado por endpoints de attendance y por kiosk.
 # ------------------------------------------------------------------
+async def _compute_checkin_lateness(sched: Dict[str, Any], user_id: str, local_now: datetime, day_start_utc: datetime, day_end_utc: datetime):
+    tol_general = int(sched.get("tolerance_minutes", 10))
+    tol_justif = int(sched.get("justification_tolerance_minutes", 20))
+    prior_ins = await db.attendance.count_documents({
+        "user_id": user_id,
+        "type": "in",
+        "timestamp": {"$gte": day_start_utc, "$lt": day_end_utc},
+    })
+    is_late, late_min, late_severity, requires_justification = False, 0, "on_time", False
+
+    if prior_ins == 0:
+        first_block = sched["blocks"][0]
+        hh, mm = map(int, first_block["start"].split(":"))
+        expected = local_now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        delta = int((local_now - expected).total_seconds() // 60)
+        if delta > tol_general:
+            is_late, late_min = True, delta
+            if delta > (tol_general + tol_justif):
+                late_severity, requires_justification = "late_major", True
+            else:
+                late_severity = "late_minor"
+    else:
+        last_out = await db.attendance.find_one(
+            {"user_id": user_id, "type": "out", "timestamp": {"$gte": day_start_utc, "$lt": day_end_utc}},
+            sort=[("timestamp", -1)],
+        )
+        if last_out and last_out.get("timestamp"):
+            s1_local = last_out["timestamp"].astimezone(APP_TZ)
+            gap = int((local_now - s1_local).total_seconds() // 60)
+            if gap > 60:
+                is_late, late_min = True, gap - 60
+                if late_min > tol_justif:
+                    late_severity, requires_justification = "late_major", True
+                else:
+                    late_severity = "late_minor"
+
+    return is_late, late_min, late_severity, requires_justification, prior_ins
+
+
 async def _register_attendance(user: Dict[str, Any], type_: str,
-                               latitude: Optional[float], longitude: Optional[float],
-                               site_id: Optional[str], selfie_base64: Optional[str],
-                               method: str = "web") -> Dict[str, Any]:
+                                latitude: Optional[float], longitude: Optional[float],
+                                site_id: Optional[str], selfie_base64: Optional[str],
+                                method: str = "web") -> Dict[str, Any]:
     site = None
     if site_id:
         site = await db.sites.find_one({"site_id": site_id})
     elif user.get("site_id"):
         site = await db.sites.find_one({"site_id": user["site_id"]})
 
-    within = None  # geocerca deshabilitada — sólo auditoría.
-
-    # Cálculo de tardanza (solo para "in") — clasificación dual
-    #   • on_time     → dentro de tolerancia general
-    #   • late_minor  → excede tolerancia general, dentro de la ventana de justificación
-    #   • late_major  → excede ambas tolerancias (obligatorio justificar)
-    #
-    # Lógica de E1 vs E2+ (homogeneizada con matrix_report.py):
-    #   - E1  → tardanza respecto a blocks[0].start + tolerance (regla clásica).
-    #   - E2+ → SOLO cuenta como retraso el exceso sobre 60 min de descanso
-    #           entre la primera salida (S1) y la segunda entrada (E2).
-    #           Fórmula: late_minutes = max(0, gap_S1_E2 - 60).
-    #           Si gap ≤ 60 → on_time (marcaje en negro, sin justificación).
-    is_late, late_min = False, 0
-    late_severity = "on_time"
-    requires_justification = False
-    if type_ == "in" and user.get("schedule_id"):
-        sched = await db.schedules.find_one({"schedule_id": user["schedule_id"]})
-        if sched and sched.get("blocks"):
-            local_now = now_utc().astimezone(APP_TZ)
-            tol_general = int(sched.get("tolerance_minutes", 10))
-            tol_justif = int(sched.get("justification_tolerance_minutes", 20))
-
-            day_start_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-            day_start_utc = day_start_local.astimezone(timezone.utc)
-            day_end_utc = (day_start_local + timedelta(days=1)).astimezone(timezone.utc)
-            prior_ins = await db.attendance.count_documents({
-                "user_id": user["user_id"],
-                "type": "in",
-                "timestamp": {"$gte": day_start_utc, "$lt": day_end_utc},
-            })
-
-            if prior_ins == 0:
-                # === E1 → regla clásica ===
-                first_block = sched["blocks"][0]
-                hh, mm = map(int, first_block["start"].split(":"))
-                expected = local_now.replace(hour=hh, minute=mm, second=0, microsecond=0)
-                delta = int((local_now - expected).total_seconds() // 60)
-                if delta > tol_general:
-                    is_late = True
-                    late_min = delta
-                    if delta > (tol_general + tol_justif):
-                        late_severity = "late_major"
-                        requires_justification = True
-                    else:
-                        late_severity = "late_minor"
-            else:
-                # === E2+ → regla de exceso de descanso (>60 min) ===
-                last_out = await db.attendance.find_one(
-                    {"user_id": user["user_id"], "type": "out",
-                     "timestamp": {"$gte": day_start_utc, "$lt": day_end_utc}},
-                    sort=[("timestamp", -1)],
-                )
-                if last_out and last_out.get("timestamp"):
-                    s1_local = last_out["timestamp"].astimezone(APP_TZ)
-                    gap = int((local_now - s1_local).total_seconds() // 60)
-                    if gap > 60:
-                        is_late = True
-                        late_min = gap - 60
-                        if late_min > tol_justif:
-                            late_severity = "late_major"
-                            requires_justification = True
-                        else:
-                            late_severity = "late_minor"
-
-    # entry_index: 0=E1, 1=E2, ...
+    within = None
+    is_late, late_min, late_severity, requires_justification = False, 0, "on_time", False
     entry_index = None
+
     if type_ == "in":
         local_now = now_utc().astimezone(APP_TZ)
         day_start_local = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
         day_start_utc = day_start_local.astimezone(timezone.utc)
         day_end_utc = (day_start_local + timedelta(days=1)).astimezone(timezone.utc)
-        entry_index = await db.attendance.count_documents({
-            "user_id": user["user_id"],
-            "type": "in",
-            "timestamp": {"$gte": day_start_utc, "$lt": day_end_utc},
+
+        if user.get("schedule_id"):
+            sched = await db.schedules.find_one({"schedule_id": user["schedule_id"]})
+            if sched and sched.get("blocks"):
+                is_late, late_min, late_severity, requires_justification, entry_index = await _compute_checkin_lateness(
+                    sched, user["user_id"], local_now, day_start_utc, day_end_utc
+                )
+        else:
+            entry_index = await db.attendance.count_documents({
+                "user_id": user["user_id"],
+                "type": "in",
+                "timestamp": {"$gte": day_start_utc, "$lt": day_end_utc},
         })
 
     doc = {
