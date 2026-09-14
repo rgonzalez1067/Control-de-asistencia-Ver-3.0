@@ -23,8 +23,9 @@ import {
 import {
   CalendarRange, Filter, Users, ChevronDown, RefreshCw,
   Clock, Palmtree, HeartPulse, Home, TicketCheck, Trash2, Sparkles,
-  Bookmark, Save, FolderOpen, X, Pencil,
+  Bookmark, Save, FolderOpen, X, Pencil, ArrowUp, ArrowDown,
 } from "lucide-react";
+import { SCHEDULE_COLOR_MAP } from "@/pages/SchedulesPage";
 
 const NOVELTY_OPTIONS = [
   { value: "remote",     label: "Trabajo Remoto",   icon: Home,        color: "bg-emerald-100 text-emerald-800 border-emerald-300" },
@@ -73,6 +74,10 @@ export default function AsignarHorariosPage() {
   const [eligibleUsers, setEligibleUsers] = useState([]);
   const [selectedUsers, setSelectedUsers] = useState([]);   // user_ids
   const [schedules, setSchedules] = useState([]);
+  // Orden manual de filas para la matriz (feb-2026). Contiene user_ids en el
+  // orden deseado. Si está vacío o su tamaño no coincide con las filas actuales,
+  // se aplica el orden alfabético como fallback.
+  const [rowOrder, setRowOrder] = useState([]);
   const [built, setBuilt] = useState(false);
   const [loading, setLoading] = useState(false);
   const [assignments, setAssignments] = useState({});      // key `${uid}|${date}` → asg
@@ -125,11 +130,29 @@ export default function AsignarHorariosPage() {
   const rows = useMemo(() => {
     if (!built) return [];
     const uids = selectedUsers.length > 0 ? selectedUsers : eligibleUsers.map((u) => u.user_id);
-    return uids
-      .map((id) => userMap[id])
-      .filter(Boolean)
-      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }));
-  }, [built, selectedUsers, eligibleUsers, userMap]);
+    const users = uids.map((id) => userMap[id]).filter(Boolean);
+    const byId = Object.fromEntries(users.map((u) => [u.user_id, u]));
+    // Si hay un rowOrder válido, respetarlo; si no, alfabético.
+    if (rowOrder.length > 0) {
+      const ordered = rowOrder.map((id) => byId[id]).filter(Boolean);
+      const missing = users.filter((u) => !rowOrder.includes(u.user_id));
+      return [...ordered, ...missing];
+    }
+    return users.sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }));
+  }, [built, selectedUsers, eligibleUsers, userMap, rowOrder]);
+
+  function moveRow(userId, delta) {
+    // Materializa el orden actual si aún no existía y aplica el swap.
+    setRowOrder((prev) => {
+      const base = prev.length > 0 ? [...prev] : rows.map((u) => u.user_id);
+      const i = base.indexOf(userId);
+      if (i < 0) return base;
+      const j = i + delta;
+      if (j < 0 || j >= base.length) return base;
+      [base[i], base[j]] = [base[j], base[i]];
+      return base;
+    });
+  }
 
   async function buildMatrix() {
     if (fromDate > toDate) { toast.error("El rango de fechas es inválido"); return; }
@@ -146,6 +169,7 @@ export default function AsignarHorariosPage() {
       setAssignments({});
       setSelectedCells(new Set());
       setCurrentPlan(null);
+      setRowOrder([]);
       setBuilt(true);
     } finally { setLoading(false); }
   }
@@ -542,11 +566,37 @@ export default function AsignarHorariosPage() {
                       No hay empleados en la matriz — ajusta los filtros y construye de nuevo.
                     </td></tr>
                   )}
-                  {rows.map((u) => (
+                  {rows.map((u, idx) => (
                     <tr key={u.user_id} className="border-b hover:bg-muted/20">
                       <td className="sticky left-0 z-10 bg-card px-2 py-2 border-r whitespace-nowrap">
-                        <p className="font-medium text-foreground text-sm">{u.name}</p>
-                        <p className="text-[10px] text-muted-foreground">{u.position || u.email}</p>
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex flex-col gap-0.5">
+                            <button
+                              type="button"
+                              onClick={() => moveRow(u.user_id, -1)}
+                              disabled={idx === 0}
+                              className="h-4 w-4 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed grid place-items-center"
+                              title="Mover arriba"
+                              data-testid={`asg-row-up-${u.user_id}`}
+                            >
+                              <ArrowUp className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => moveRow(u.user_id, 1)}
+                              disabled={idx === rows.length - 1}
+                              className="h-4 w-4 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed grid place-items-center"
+                              title="Mover abajo"
+                              data-testid={`asg-row-down-${u.user_id}`}
+                            >
+                              <ArrowDown className="h-3 w-3" />
+                            </button>
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground text-sm">{u.name}</p>
+                            <p className="text-[10px] text-muted-foreground">{u.position || u.email}</p>
+                          </div>
+                        </div>
                       </td>
                       {days.map((d) => {
                         const key = `${u.user_id}|${d}`;
@@ -557,9 +607,15 @@ export default function AsignarHorariosPage() {
                         let content = null;
                         if (asg) {
                           if (asg.kind === "shift") {
-                            const sname = scheduleMap[asg.schedule_id]?.name || "Turno";
+                            const sched = scheduleMap[asg.schedule_id];
+                            const sname = sched?.name || "Turno";
+                            const cdef = SCHEDULE_COLOR_MAP[sched?.color || ""] || SCHEDULE_COLOR_MAP[""];
+                            const styled = !!sched?.color;
                             content = (
-                              <div className="px-1.5 py-1 rounded-md border border-primary/30 bg-primary/10 text-primary dark:text-foreground font-medium truncate">
+                              <div
+                                className={"px-1.5 py-1 rounded-md border font-medium truncate " + (styled ? "" : "border-primary/30 bg-primary/10 text-primary dark:text-foreground")}
+                                style={styled ? { backgroundColor: cdef.bg, color: cdef.fg, borderColor: cdef.fg + "55" } : undefined}
+                              >
                                 <Clock className="h-3 w-3 inline mr-1 -mt-0.5" />
                                 {sname}
                               </div>

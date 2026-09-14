@@ -37,6 +37,8 @@ STATUS_ABSENT = "absent"
 STATUS_FUTURE = "future"
 STATUS_NON_WORKING = "non_working"
 STATUS_FULL_NOVELTY = "novelty_full"  # cubre todo el día (vacation/leave/remote)
+STATUS_DAY_OFF = "day_off"  # Día libre implícito: usuario en una planificación
+                             # cuya celda quedó sin asignación de turno ni novedad.
 
 
 def _iter_dates(from_d: str, to_d: str) -> List[str]:
@@ -217,6 +219,30 @@ async def build_matrix(
     for a in asg_docs:
         assignments_map.setdefault(a["user_id"], {})[a["date"]] = a
 
+    # ---- Cargar planes de asignación que solapan el rango (feb-2026 Adenda [1.D]) ----
+    # Sirven para identificar celdas vacías como "Día Libre": si un usuario está
+    # incluido en una planificación cuyo rango cubre un día y ese día no tiene
+    # asignación de turno ni novedad, se etiqueta la celda como descanso.
+    plan_docs = await db.assignment_plans.find({
+        "from_date": {"$lte": to_date},
+        "to_date": {"$gte": from_date},
+    }).to_list(5000)
+    planned_days: Dict[str, set] = {}
+    for p in plan_docs:
+        p_from, p_to = p.get("from_date"), p.get("to_date")
+        if not (p_from and p_to):
+            continue
+        # Los días efectivamente cubiertos por este plan dentro del rango consultado.
+        cov_from = max(from_date, p_from)
+        cov_to = min(to_date, p_to)
+        if cov_from > cov_to:
+            continue
+        for uid in (p.get("user_ids") or []):
+            planned_days.setdefault(uid, set())
+            for d in days:
+                if cov_from <= d <= cov_to:
+                    planned_days[uid].add(d)
+
     # ---- Cache de todos los horarios (necesario en modo especial para
     # resolver el turno asignado por día en cada usuario) ----
     schedules_by_id: Dict[str, Dict[str, Any]] = {}
@@ -288,21 +314,13 @@ async def build_matrix(
                 cells[day] = cell
                 continue
 
-            if day > today_iso:
-                cell["status"] = STATUS_FUTURE
-                cells[day] = cell
-                continue
-
-            # Novedades del día
+            # Novedades aprobadas del catálogo (incluye día actual y futuras).
+            # Se evalúan ANTES del corte STATUS_FUTURE para poder proyectar novedades
+            # planificadas en fechas venideras (Requerimiento feb-2026, punto 2).
             day_novs = [n for n in novs if _in_range(day, n.get("start_date"), n.get("end_date"))]
             full_nov = next((n for n in day_novs if n.get("type") in FULL_DAY_TYPES), None)
             partial_novs = [n for n in day_novs if n.get("type") in PARTIAL_TYPES]
 
-            # Marcajes crudos (cada uno: {ts, site})
-            ins  = sorted(att_days.get(day, {}).get("ins", []),  key=lambda x: x["ts"])
-            outs = sorted(att_days.get(day, {}).get("outs", []), key=lambda x: x["ts"])
-
-            # Novedad de día completo → no muestro marcajes
             if full_nov:
                 cell["status"] = STATUS_FULL_NOVELTY
                 cell["novelty_type"] = full_nov.get("type")
@@ -313,6 +331,20 @@ async def build_matrix(
                     totals[key] += 1
                 cells[day] = cell
                 continue
+
+            if day > today_iso:
+                # Sin asignación ni novedad. Si el usuario está incluido en una
+                # planificación que cubre este día → "Día Libre" (Adenda [1.D]).
+                if day in planned_days.get(uid, set()):
+                    cell["status"] = STATUS_DAY_OFF
+                else:
+                    cell["status"] = STATUS_FUTURE
+                cells[day] = cell
+                continue
+
+            # Marcajes crudos (cada uno: {ts, site})
+            ins  = sorted(att_days.get(day, {}).get("ins", []),  key=lambda x: x["ts"])
+            outs = sorted(att_days.get(day, {}).get("outs", []), key=lambda x: x["ts"])
 
             # Emparejar por bloques
             user_site = u.get("site_id")
@@ -412,6 +444,10 @@ async def build_matrix(
                 # el empleado NO tiene obligación de marcar → no cuenta como falta.
                 if is_special and not eff_has_schedule:
                     cell["status"] = STATUS_NON_WORKING
+                elif day in planned_days.get(uid, set()):
+                    # Adenda [1.D]: usuario incluido en planificación pero celda vacía.
+                    # No cuenta como ausencia — se considera Día Libre explícito.
+                    cell["status"] = STATUS_DAY_OFF
                 elif _is_working_day(day):
                     cell["status"] = STATUS_ABSENT
                     totals["absent_days"] += 1
@@ -609,6 +645,12 @@ def export_xlsx(matrix: Dict[str, Any]) -> bytes:
                 cell.fill = PatternFill("solid", fgColor="FEE2E2")
                 cell.font = Font(bold=True, color="991B1B")
                 ws.merge_cells(start_row=row_idx, start_column=c, end_row=row_idx, end_column=c + per_day - 1)
+            elif status == "day_off":
+                cell = ws.cell(row=row_idx, column=c, value="Día Libre")
+                cell.alignment = Alignment(horizontal="center")
+                cell.fill = PatternFill("solid", fgColor="F1F5F9")
+                cell.font = Font(italic=True, color="475569")
+                ws.merge_cells(start_row=row_idx, start_column=c, end_row=row_idx, end_column=c + per_day - 1)
             else:
                 blocks = cd.get("blocks", [])
                 offset = 0
@@ -748,6 +790,15 @@ def export_pdf(matrix: Dict[str, Any], company_name: str = "Mega Soft", logo_bas
                 row_style_extras.append(("TEXTCOLOR", (col0, row_i), (col0 + per_day - 1, row_i),
                                          colors.HexColor("#991B1B")))
                 row_style_extras.append(("FONTNAME", (col0, row_i), (col0 + per_day - 1, row_i), "Helvetica-Bold"))
+            elif status == "day_off":
+                row.append("Día Libre"); row.extend([""] * (per_day - 1))
+                col0 = day_start_col + d_idx * per_day
+                row_style_extras.append(("SPAN", (col0, row_i), (col0 + per_day - 1, row_i)))
+                row_style_extras.append(("BACKGROUND", (col0, row_i), (col0 + per_day - 1, row_i),
+                                         colors.HexColor("#F1F5F9")))
+                row_style_extras.append(("TEXTCOLOR", (col0, row_i), (col0 + per_day - 1, row_i),
+                                         colors.HexColor("#475569")))
+                row_style_extras.append(("FONTNAME", (col0, row_i), (col0 + per_day - 1, row_i), "Helvetica-Oblique"))
             else:
                 blocks = cd.get("blocks", [])
                 for i in range(bpd):

@@ -172,14 +172,24 @@ def _plan_public(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _find_overlapping_plans(from_date: str, to_date: str,
-                                  exclude_plan_id: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Planes cuyo rango intersecta con [from_date, to_date] (inclusive)."""
+                                  exclude_plan_id: Optional[str] = None,
+                                  user_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """Planes cuyo rango intersecta con [from_date, to_date] (inclusive).
+
+    Si se pasa `user_ids`, sólo se retornan planes que **compartan al menos un
+    empleado** con el conjunto dado. Regla de negocio (feb-2026): las
+    planificaciones pueden coexistir en el mismo rango siempre que involucren
+    equipos disjuntos — sólo se marca conflicto cuando un mismo empleado queda
+    asignado dos veces.
+    """
     q: Dict[str, Any] = {
         "from_date": {"$lte": to_date},
         "to_date": {"$gte": from_date},
     }
     if exclude_plan_id:
         q["plan_id"] = {"$ne": exclude_plan_id}
+    if user_ids:
+        q["user_ids"] = {"$in": list(user_ids)}
     docs = await db.assignment_plans.find(q).sort("from_date", 1).to_list(50)
     return [_plan_public(d) for d in docs]
 
@@ -293,12 +303,16 @@ async def create_assignment_plan(payload: AssignmentPlanIn,
     if await db.assignment_plans.find_one({"name": name}):
         raise HTTPException(status_code=409, detail="Ya existe una planificación con ese nombre")
 
-    # Validación: detectar planes previos cuyo rango se cruce con el nuevo.
-    overlapping = await _find_overlapping_plans(payload.from_date, payload.to_date)
+    # Validación: detectar planes previos cuyo rango se cruce con el nuevo
+    # Y COMPARTAN AL MENOS UN EMPLEADO (regla feb-2026 — se permite coexistencia
+    # de planes simultáneos con equipos disjuntos).
+    overlapping = await _find_overlapping_plans(
+        payload.from_date, payload.to_date, user_ids=payload.user_ids,
+    )
     if overlapping and not payload.overwrite:
         raise HTTPException(status_code=409, detail={
             "code": "plan_range_overlap",
-            "message": "Ya existen planificaciones cuyo rango de fechas se solapa con el nuevo.",
+            "message": "Ya existen planificaciones que solapan fechas y comparten empleados con el nuevo.",
             "conflicts": overlapping,
         })
     if overlapping and payload.overwrite:
@@ -337,12 +351,15 @@ async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
     if dup:
         raise HTTPException(status_code=409, detail="Ya existe otra planificación con ese nombre")
 
-    # Validación de solape con OTROS planes (excluyendo el actual).
-    overlapping = await _find_overlapping_plans(payload.from_date, payload.to_date, exclude_plan_id=plan_id)
+    # Validación de solape con OTROS planes (excluyendo el actual) que compartan empleados.
+    overlapping = await _find_overlapping_plans(
+        payload.from_date, payload.to_date,
+        exclude_plan_id=plan_id, user_ids=payload.user_ids,
+    )
     if overlapping and not payload.overwrite:
         raise HTTPException(status_code=409, detail={
             "code": "plan_range_overlap",
-            "message": "El nuevo rango se solapa con otras planificaciones existentes.",
+            "message": "El nuevo rango solapa a otras planificaciones que comparten empleados.",
             "conflicts": overlapping,
         })
     if overlapping and payload.overwrite:

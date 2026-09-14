@@ -331,6 +331,15 @@ export default function ReporteMatricialPage() {
                               </td>
                             );
                           }
+                          if (c.status === "day_off") {
+                            return (
+                              <td key={day} colSpan={perDay}
+                                className="px-2 py-2 text-center bg-slate-100 text-slate-600 italic whitespace-nowrap border-r border-border/40"
+                                title="Sin asignación en la planificación — Día Libre">
+                                Día Libre
+                              </td>
+                            );
+                          }
                           if (c.status === "non_working") {
                             return (
                               <td key={day} colSpan={perDay} className="px-2 py-1 text-center bg-slate-50 text-slate-300 border-r border-border/40">—</td>

@@ -88,6 +88,9 @@ export default function KioskScanPage() {
   const [pendingVisits, setPendingVisits] = useState([]);
   const [activeVisit, setActiveVisit] = useState(null);
   const [visitVisitorIdx, setVisitVisitorIdx] = useState(0);
+  // Anti-doble-clic: bloquea el botón "Sí, soy yo" apenas se dispara la marca
+  // hasta que el backend responde. Evita duplicados por doble tap o red lenta.
+  const [confirming, setConfirming] = useState(false);
   // Nuevo flujo: acceso directo a las visitas del día desde el Kiosco (independiente
   // del marcaje del anfitrión). Se navega listado → PIN → selfies → cierre.
   const [visitsBrowserOpen, setVisitsBrowserOpen] = useState(false);
@@ -316,6 +319,8 @@ export default function KioskScanPage() {
   }, []);
 
   async function confirmMark(user, expectedType) {
+    if (confirming) return;   // guardia anti-doble-clic
+    setConfirming(true);
     try {
       const { data } = await api.post("/kiosk/attendance/check", {
         user_id: user.user_id,
@@ -342,6 +347,8 @@ export default function KioskScanPage() {
       }
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -645,15 +652,20 @@ export default function KioskScanPage() {
             </Button>
             <Button
               onClick={() => confirmMark(current, current?.nextType)}
+              disabled={confirming}
               className={
-                "flex-1 h-16 rounded-full text-lg font-bold text-white shadow-lg " +
+                "flex-1 h-16 rounded-full text-lg font-bold text-white shadow-lg disabled:opacity-70 disabled:cursor-wait " +
                 (current?.nextType === "in"
                   ? "bg-emerald-600 hover:bg-emerald-700 focus-visible:ring-2 focus-visible:ring-emerald-400"
                   : "bg-blue-600 hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-400")
               }
               data-testid="kiosk-match-confirm"
             >
-              Sí, soy yo <ArrowRight className="h-5 w-5 ml-2" />
+              {confirming ? (
+                <><Loader2 className="h-5 w-5 mr-2 animate-spin" /> Registrando…</>
+              ) : (
+                <>Sí, soy yo <ArrowRight className="h-5 w-5 ml-2" /></>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -962,11 +974,15 @@ function PinEnterDialog({ target, onCancel, onSuccess }) {
           </Button>
           <Button onClick={verify} disabled={busy}
             className={
-              "h-14 rounded-full flex-1 text-base font-semibold " +
+              "h-14 rounded-full flex-1 text-base font-semibold disabled:opacity-70 disabled:cursor-wait " +
               (isIn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-primary hover:bg-primary/90")
             }
             data-testid="kiosk-pin-confirm">
-            Marcar <ArrowRight className="h-4 w-4 ml-1.5" />
+            {busy ? (
+              <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> Marcando…</>
+            ) : (
+              <>Marcar <ArrowRight className="h-4 w-4 ml-1.5" /></>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

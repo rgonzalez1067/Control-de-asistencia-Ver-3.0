@@ -42,6 +42,13 @@ def _validate_laboral_visit(payload: VisitIn) -> None:
     if payload.purpose == "otra" and not (payload.purpose_other or "").strip():
         raise HTTPException(status_code=400, detail="Debes especificar el motivo cuando eliges “Otra”")
     for v in payload.visitors:
+        # Visitantes internos (empleados de la empresa) no se validan estrictamente
+        # — sus datos vienen autocompletados desde el catálogo de usuarios y algunos
+        # campos (teléfono) pueden no estar registrados en la BD.
+        if v.kind == "internal":
+            if not v.internal_user_id:
+                raise HTTPException(status_code=400, detail="Falta identificar al empleado interno")
+            continue
         if not v.phone:
             raise HTTPException(status_code=400, detail="Cada visitante laboral requiere teléfono")
         if not v.cedula:
@@ -50,6 +57,10 @@ def _validate_laboral_visit(payload: VisitIn) -> None:
 
 def _validate_personal_visit(payload: VisitIn) -> None:
     for v in payload.visitors:
+        if v.kind == "internal":
+            if not v.internal_user_id:
+                raise HTTPException(status_code=400, detail="Falta identificar al empleado interno")
+            continue
         if not v.cedula and not v.is_minor:
             raise HTTPException(status_code=400, detail="Cédula requerida (o marcar como menor de edad)")
 

@@ -45,9 +45,46 @@ async def novelties_list(user: Dict[str, Any] = Depends(get_current_user)) -> Li
 
 @api.post("/novelties")
 async def novelties_create(payload: NoveltyIn,
-                           user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+                           user: Dict[str, Any] = Depends(get_current_user)) -> Any:
     target = payload.user_id or user["user_id"]
     await _validate_novelty_target(target, user)
+
+    # ── Modo multi-fecha ──────────────────────────────────────────────
+    # Aplica sólo a remote/permission/leave. Cada fecha genera una novedad
+    # independiente (start_date=end_date=fecha), reutilizando el resto del
+    # payload. Preserva la validación de rango horario para no-vacation.
+    multi = payload.dates or []
+    if multi:
+        if payload.type not in {"remote", "permission", "leave"}:
+            raise HTTPException(status_code=400,
+                                detail="Sólo Trabajo remoto, Permiso y Reposo admiten fechas múltiples")
+        if payload.type != "vacation":
+            if not payload.start_time or not payload.end_time:
+                raise HTTPException(status_code=400, detail="Debes indicar rango horario (hora inicio y hora fin)")
+            if payload.start_time >= payload.end_time:
+                raise HTTPException(status_code=400, detail="La hora fin debe ser mayor a la hora inicio")
+        unique_sorted = sorted({d for d in multi if d})
+        docs = [{
+            "novelty_id": new_id("nv", 12),
+            "user_id": target,
+            "type": payload.type,
+            "start_date": d,
+            "end_date": d,
+            "start_time": payload.start_time,
+            "end_time": payload.end_time,
+            "reason": payload.reason,
+            "status": "pending",
+            "created_by": user["user_id"],
+            "created_at": now_utc(),
+            "decided_at": None,
+            "decided_by": None,
+            "decision_comment": None,
+        } for d in unique_sorted]
+        if docs:
+            await db.novelties.insert_many(docs)
+        return {"created": len(docs), "novelty_ids": [d["novelty_id"] for d in docs]}
+
+    # ── Modo rango clásico ────────────────────────────────────────────
     _validate_novelty_range(payload)
 
     doc = {

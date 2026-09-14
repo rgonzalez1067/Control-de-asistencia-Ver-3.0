@@ -16,6 +16,10 @@ import {
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Popover, PopoverContent, PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar as CalendarWidget } from "@/components/ui/calendar";
+import {
   Tabs, TabsList, TabsTrigger, TabsContent,
 } from "@/components/ui/tabs";
 import { toast } from "sonner";
@@ -39,7 +43,10 @@ const STATUS_META = {
   rejected: { label: "Rechazada",  icon: XCircle,      cls: "bg-destructive text-white" },
 };
 
-const EMPTY_FORM = { type: "permission", start_date: "", end_date: "", start_time: "08:00", end_time: "17:00", reason: "", user_id: "" };
+const EMPTY_FORM = { type: "permission", start_date: "", end_date: "", start_time: "08:00", end_time: "17:00", reason: "", user_id: "", dates: [], mode: "range" };
+
+// Tipos de novedad que admiten selección multi-fecha no consecutiva
+const MULTIDATE_TYPES = new Set(["remote", "permission", "leave"]);
 
 export default function NoveltiesPage() {
   const { user } = useAuth();
@@ -80,20 +87,36 @@ export default function NoveltiesPage() {
   }, [items, tab, isManager, user]);
 
   async function createNovelty() {
-    if (!form.start_date || !form.end_date) { toast.error("Selecciona las fechas"); return; }
-    if (form.type !== "vacation" && (!form.start_time || !form.end_time)) {
-      toast.error("Indica el rango horario"); return;
+    // Modo multi-fecha (remote/permission/leave)
+    const useMulti = MULTIDATE_TYPES.has(form.type) && form.mode === "multi";
+    if (useMulti) {
+      if (!form.dates || form.dates.length === 0) { toast.error("Selecciona al menos una fecha"); return; }
+      if (!form.start_time || !form.end_time) { toast.error("Indica el rango horario"); return; }
+    } else {
+      if (!form.start_date || !form.end_date) { toast.error("Selecciona las fechas"); return; }
+      if (form.type !== "vacation" && (!form.start_time || !form.end_time)) {
+        toast.error("Indica el rango horario"); return;
+      }
     }
     try {
       const payload = { ...form };
+      delete payload.mode;
+      if (useMulti) {
+        payload.start_date = form.dates[0];
+        payload.end_date = form.dates[form.dates.length - 1];
+      } else {
+        delete payload.dates;
+      }
       if (payload.type === "vacation") {
         delete payload.start_time;
         delete payload.end_time;
+        delete payload.dates;
       }
       if (!isManager) delete payload.user_id;
       else if (!payload.user_id) delete payload.user_id;
-      await api.post("/novelties", payload);
-      toast.success("Novedad enviada");
+      const { data } = await api.post("/novelties", payload);
+      const n = data?.created;
+      toast.success(useMulti && n > 1 ? `${n} novedades enviadas` : "Novedad enviada");
       setCreating(false); setForm(EMPTY_FORM); load();
     } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message); }
   }
@@ -321,7 +344,11 @@ export default function NoveltiesPage() {
             )}
             <div className="space-y-1.5">
               <Label>Tipo</Label>
-              <Select value={form.type} onValueChange={(v) => setForm((f) => ({ ...f, type: v }))}>
+              <Select value={form.type} onValueChange={(v) => setForm((f) => ({
+                ...f, type: v,
+                // reinicia modo si el nuevo tipo no admite multi-fecha
+                mode: MULTIDATE_TYPES.has(v) ? f.mode : "range",
+              }))}>
                 <SelectTrigger data-testid="novelties-form-type"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {Object.entries(TYPE_META).map(([k, m]) => (
@@ -330,16 +357,71 @@ export default function NoveltiesPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Desde</Label>
-                <Input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} data-testid="novelties-form-from" />
+            {MULTIDATE_TYPES.has(form.type) && (
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, mode: "range", dates: [] }))}
+                  className={`px-3 py-1.5 rounded-full border ${form.mode === "range" ? "bg-primary text-primary-foreground border-primary" : "bg-transparent"}`}
+                  data-testid="novelties-mode-range"
+                >Rango continuo</button>
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, mode: "multi", start_date: "", end_date: "" }))}
+                  className={`px-3 py-1.5 rounded-full border ${form.mode === "multi" ? "bg-primary text-primary-foreground border-primary" : "bg-transparent"}`}
+                  data-testid="novelties-mode-multi"
+                >Días alternos</button>
               </div>
+            )}
+            {form.mode === "multi" && MULTIDATE_TYPES.has(form.type) ? (
               <div className="space-y-1.5">
-                <Label>Hasta</Label>
-                <Input type="date" value={form.end_date} onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))} data-testid="novelties-form-to" />
+                <Label>Fechas seleccionadas</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full justify-start gap-2"
+                      data-testid="novelties-multi-open"
+                    >
+                      <Calendar className="h-4 w-4" />
+                      {form.dates.length === 0
+                        ? "Selecciona los días…"
+                        : `${form.dates.length} día(s) seleccionado(s)`}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <CalendarWidget
+                      mode="multiple"
+                      selected={form.dates.map((d) => new Date(`${d}T12:00`))}
+                      onSelect={(days) => {
+                        const arr = (days || []).map((d) => d.toISOString().slice(0, 10)).sort();
+                        setForm((f) => ({ ...f, dates: arr }));
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                {form.dates.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1" data-testid="novelties-multi-chips">
+                    {form.dates.map((d) => (
+                      <Badge key={d} variant="outline" className="text-[10px]">{d}</Badge>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Desde</Label>
+                  <Input type="date" value={form.start_date} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} data-testid="novelties-form-from" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Hasta</Label>
+                  <Input type="date" value={form.end_date} onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))} data-testid="novelties-form-to" />
+                </div>
+              </div>
+            )}
             {form.type !== "vacation" && (
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
@@ -372,8 +454,10 @@ export default function NoveltiesPage() {
             <Button
               onClick={createNovelty}
               disabled={
-                !form.start_date || !form.end_date ||
-                (form.type !== "vacation" && (!form.start_time || !form.end_time))
+                (form.mode === "multi" && MULTIDATE_TYPES.has(form.type)
+                  ? (form.dates.length === 0 || !form.start_time || !form.end_time)
+                  : (!form.start_date || !form.end_date ||
+                     (form.type !== "vacation" && (!form.start_time || !form.end_time))))
               }
               className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground"
               data-testid="novelties-form-submit"

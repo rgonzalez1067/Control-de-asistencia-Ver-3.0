@@ -1,0 +1,41 @@
+{
+  "summary": "Iteración 17: Validación e2e de 12 features (horarios+color, planes con superposición inteligente, visitas con motivos data-center TBP/LCH y visitante interno, novedades multi-fecha, matriz con proyección de novedades futuras + Día Libre). Backend: 12/12 tests pytest PASS en test_iter17_features.py. Frontend: verificación de data-testids en /horarios (paleta 10+1), /asignar-horarios (16 filas con flechas ↑↓), /agendar-visita (visit-type-laboral, visitor-0-kind-external/internal, visit-purpose-opt-visita_data_center_tbp/lch, ausencia del legacy visita_data_center, visitor-0-internal-picker al togglear), /novedades (novelties-mode-range/multi + novelties-multi-open al elegir Trabajo remoto).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/schedules", "issue": "Backend no valida la lista blanca de colores (persiste 'notacolor' tal cual). Frontend limita mediante paleta, pero un cliente externo podría enviar cualquier string. Sugerido: validar contra {'','sky','indigo','violet','emerald','amber','rose','cyan','lime','fuchsia','slate'} en ScheduleIn."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SchedulesPage - card TEST Color invalid", "issue": "La card de horario renderiza un '0' pequeño junto al nombre cuando color='notacolor' (fallback probablemente a length/index). Reproducible sólo si un color no-whitelisted se persiste (ver issue backend correspondiente). Cosmético; se limpia al normalizar backend.", "selector": "SchedulesPage card color chip", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter17_features.py",
+    "/app/test_reports/pytest/iter17.xml"
+  ],
+  "action_items": [
+    "(Opcional/baja) Validar `color` contra whitelist en backend ScheduleIn para evitar persistencia de valores no soportados por la UI.",
+    "(Opcional) Considerar refactor de server.py — sigue creciendo (>3600 líneas); extraer routers de attendance/reports/stats/visits."
+  ],
+  "critical_code_review_comments": [
+    "Buena separación por dominios: /routes/schedules.py, /routes/novelties.py, /routes/visits.py — el modo multi-fecha en novelties está bien encapsulado con validaciones explícitas (tipo permitido + rango horario obligatorio).",
+    "_find_overlapping_plans con user_ids disjuntos es la abstracción correcta para 'superposición inteligente'. Confirmado por tests: A(ADMIN)+B(COORD) mismos días → 200; C(ADMIN,COORD)+C2(ADMIN) mismos días → 409 code=plan_range_overlap.",
+    "matrix_report.py: la reorganización de la evaluación de novedades ANTES del corte STATUS_FUTURE (líneas 317-341) es la clave. STATUS_DAY_OFF requiere que el usuario esté en planned_days para el día — bien.",
+    "server.py sigue >3600 líneas; el pilotaje de extracción avanza pero el archivo raíz mantiene modelos y catálogos (VISIT_PURPOSE_CATALOG, NoveltyIn). Considerar mover VisitorIn/VisitIn a routes/visits.py.",
+    "En schedules ScheduleIn.color no restringe con Literal — se persiste cualquier string. Frontend está bien acotado por SCHEDULE_COLOR_PALETTE, pero validación server-side robustecería la API."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter17_features.py"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% (4/4 flujos verificados por data-testid)"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / Sol*1401*1010 (ENV-autoritativa). NOTA: /app/backend/tests/backend_test.py aún hardcodea ADMIN_PASSWORD='admin123' — está desactualizado desde el rotacion 2026-02-19. Actualizar a Sol*1401*1010 para futuras runs.",
+  "seed_data_creation": "Todos los objetos TEST_* (schedules, plans, visits, novelties) fueron eliminados por los fixtures/try-finally al final de cada test. Cleanup adicional del 'TEST Color invalid 1789418761191' remanente ejecutado al inicio del Playwright run.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Autenticación por Playwright: usar page.add_init_script(f\"localStorage.setItem('megasoft.token','{token}');\") ANTES de page.goto, ya que la primera navegación a rutas protegidas puede redirigir a login si el token no está pre-sembrado. La ruta /agendar-visita expone /visitas/agendar (rewrite) — no existe href='/agendar-visita' en el DOM del sidebar; navegar por texto 'Agendar visita' o directo por URL. IMPORTANTE: /app/backend/tests/backend_test.py tiene ADMIN_PASSWORD='admin123' desactualizado — falla desde la rotación 2026-02-19; actualizar a 'Sol*1401*1010'.",
+  "rca_of_the_issue": "N/A — 12 features del requerimiento implementados correctamente y verificados. Cero regresiones detectadas en los flujos existentes."
+}

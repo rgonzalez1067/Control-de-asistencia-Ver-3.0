@@ -16,7 +16,8 @@ import { UserPlus, Users, Building2, Trash2, Save, X, User as UserIcon, IdCard, 
 const PURPOSE_OPTIONS = [
   { value: "reunion", label: "Reunión" },
   { value: "capacitacion", label: "Capacitación" },
-  { value: "visita_data_center", label: "Visita al Data Center" },
+  { value: "visita_data_center_tbp", label: "Visita al Data Center de Torre Banco Plaza" },
+  { value: "visita_data_center_lch", label: "Visita al Data Center de Los Chaguaramos" },
   { value: "visita_centro_cableado", label: "Visita al Centro de Cableado" },
   { value: "otra", label: "Otra (especificar)" },
 ];
@@ -31,7 +32,7 @@ export default function AgendarVisitaPage() {
   const [purpose, setPurpose] = useState("");
   const [purposeOther, setPurposeOther] = useState("");
   const [observations, setObservations] = useState("");
-  const [visitors, setVisitors] = useState([{ name: "", cedula: "", phone: "", is_minor: false }]);
+  const [visitors, setVisitors] = useState([{ name: "", cedula: "", phone: "", is_minor: false, kind: "external", internal_user_id: "" }]);
   const [employees, setEmployees] = useState([]);
   const [saving, setSaving] = useState(false);
   const [confirmation, setConfirmation] = useState(null);  // { visit_id, host_name, company_name, visitors:[{name, cedula, is_minor}] }
@@ -45,29 +46,35 @@ export default function AgendarVisitaPage() {
   function updateVisitor(i, field, val) {
     setVisitors((prev) => prev.map((v, idx) => idx === i ? { ...v, [field]: val } : v));
   }
-  function addVisitor() { setVisitors((v) => [...v, { name: "", cedula: "", phone: "", is_minor: false }]); }
+  function addVisitor() { setVisitors((v) => [...v, { name: "", cedula: "", phone: "", is_minor: false, kind: "external", internal_user_id: "" }]); }
   function removeVisitor(i) { setVisitors((v) => v.length > 1 ? v.filter((_, idx) => idx !== i) : v); }
 
   function reset() {
     setHostUserId(""); setScheduledAt(""); setCompanyName("");
     setPurpose(""); setPurposeOther(""); setObservations("");
-    setVisitors([{ name: "", cedula: "", phone: "", is_minor: false }]);
+    setVisitors([{ name: "", cedula: "", phone: "", is_minor: false, kind: "external", internal_user_id: "" }]);
   }
 
   async function submit() {
     if (!hostUserId) { toast.error("Selecciona el empleado anfitrión"); return; }
+    // Los visitantes internos (empleados) se auto-completan desde el catálogo — no se les valida por campo.
+    const externals = visitors.filter((v) => v.kind !== "internal");
+    const internals = visitors.filter((v) => v.kind === "internal");
+    if (internals.some((v) => !v.internal_user_id)) {
+      toast.error("Selecciona un empleado para cada visitante interno"); return;
+    }
     if (type === "personal") {
-      if (visitors.some((v) => !v.name.trim())) { toast.error("Cada visitante requiere nombre"); return; }
-      if (visitors.some((v) => !v.is_minor && !v.cedula.trim())) {
+      if (externals.some((v) => !v.name.trim())) { toast.error("Cada visitante externo requiere nombre"); return; }
+      if (externals.some((v) => !v.is_minor && !v.cedula.trim())) {
         toast.error("Cédula requerida (o marcar visitante como menor de edad)"); return;
       }
     } else {
-      if (visitors.some((v) => !v.name.trim() || !v.cedula.trim())) {
-        toast.error("Cada visitante requiere nombre y cédula"); return;
+      if (externals.some((v) => !v.name.trim() || !v.cedula.trim())) {
+        toast.error("Cada visitante externo requiere nombre y cédula"); return;
       }
       if (!companyName.trim()) { toast.error("Nombre de empresa requerido"); return; }
-      if (visitors.some((v) => !v.phone?.trim())) {
-        toast.error("Cada visitante laboral requiere teléfono"); return;
+      if (externals.some((v) => !v.phone?.trim())) {
+        toast.error("Cada visitante externo laboral requiere teléfono"); return;
       }
       if (!purpose) { toast.error("Selecciona un motivo del catálogo"); return; }
       if (purpose === "otra" && !purposeOther.trim()) {
@@ -91,7 +98,9 @@ export default function AgendarVisitaPage() {
           name: v.name.trim(),
           cedula: v.cedula?.trim() || null,
           phone: v.phone?.trim() || null,
-          is_minor: type === "personal" ? !!v.is_minor : false,
+          is_minor: type === "personal" && v.kind !== "internal" ? !!v.is_minor : false,
+          kind: v.kind || "external",
+          internal_user_id: v.kind === "internal" ? v.internal_user_id : null,
         })),
       };
       const { data } = await api.post("/visits", payload);
@@ -139,7 +148,7 @@ export default function AgendarVisitaPage() {
 
             <TabsContent value="personal" className="pt-4 space-y-4">
               <HostAndDate hostUserId={hostUserId} setHostUserId={setHostUserId} employees={employees} scheduledAt={scheduledAt} setScheduledAt={setScheduledAt} />
-              <VisitorsList visitors={visitors} updateVisitor={updateVisitor} removeVisitor={removeVisitor} addVisitor={addVisitor} withPhone={false} withMinor={true} />
+              <VisitorsList visitors={visitors} updateVisitor={updateVisitor} removeVisitor={removeVisitor} addVisitor={addVisitor} withPhone={false} withMinor={true} employees={employees} />
             </TabsContent>
 
             <TabsContent value="laboral" className="pt-4 space-y-4">
@@ -179,7 +188,7 @@ export default function AgendarVisitaPage() {
                   />
                 </div>
               )}
-              <VisitorsList visitors={visitors} updateVisitor={updateVisitor} removeVisitor={removeVisitor} addVisitor={addVisitor} withPhone={true} withMinor={false} />
+              <VisitorsList visitors={visitors} updateVisitor={updateVisitor} removeVisitor={removeVisitor} addVisitor={addVisitor} withPhone={true} withMinor={false} employees={employees} />
             </TabsContent>
           </Tabs>
 
@@ -247,7 +256,17 @@ function HostAndDate({ hostUserId, setHostUserId, employees, scheduledAt, setSch
   );
 }
 
-function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, withPhone, withMinor }) {
+function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, withPhone, withMinor, employees }) {
+  // Cuando el usuario cambia el kind a "internal" y selecciona un empleado,
+  // autocompletamos name/cedula/phone a partir del catálogo de empleados.
+  function pickInternal(i, userId) {
+    const emp = employees.find((u) => u.user_id === userId);
+    if (!emp) return;
+    updateVisitor(i, "internal_user_id", emp.user_id);
+    updateVisitor(i, "name", emp.name || "");
+    updateVisitor(i, "cedula", emp.cedula || "");
+    updateVisitor(i, "phone", emp.phone || emp.mobile || "");
+  }
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -259,10 +278,28 @@ function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, with
       {visitors.map((v, i) => (
         <div key={i} className={"rounded-xl border p-3 space-y-2 " + (i % 2 ? "bg-muted/30" : "")}
              data-testid={`visitor-row-${i}`}>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs text-muted-foreground">Visitante {i + 1}</span>
-            <div className="flex items-center gap-3">
-              {withMinor && (
+            <div className="flex items-center gap-2">
+              {/* Toggle Interno / Externo */}
+              <div className="inline-flex rounded-full border p-0.5 text-[10px] bg-background">
+                <button
+                  type="button"
+                  className={"px-2.5 py-1 rounded-full transition " + ((v.kind || "external") === "external" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                  onClick={() => {
+                    updateVisitor(i, "kind", "external");
+                    updateVisitor(i, "internal_user_id", "");
+                  }}
+                  data-testid={`visitor-${i}-kind-external`}
+                >Externo</button>
+                <button
+                  type="button"
+                  className={"px-2.5 py-1 rounded-full transition " + (v.kind === "internal" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}
+                  onClick={() => updateVisitor(i, "kind", "internal")}
+                  data-testid={`visitor-${i}-kind-internal`}
+                >Interno</button>
+              </div>
+              {withMinor && v.kind !== "internal" && (
                 <label className="flex items-center gap-1.5 text-xs cursor-pointer" data-testid={`visitor-${i}-minor-label`}>
                   <input
                     type="checkbox"
@@ -282,28 +319,57 @@ function VisitorsList({ visitors, updateVisitor, removeVisitor, addVisitor, with
               )}
             </div>
           </div>
-          <div className={"grid gap-2 " + (withPhone ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
-            <div>
-              <Label className="text-[10px] flex items-center gap-1"><UserIcon className="h-3 w-3" /> Nombre y apellido</Label>
-              <Input value={v.name} onChange={(e) => updateVisitor(i, "name", e.target.value)}
-                     placeholder="Ej. Juan Pérez" className="h-10" data-testid={`visitor-${i}-name`} />
+
+          {v.kind === "internal" ? (
+            <div className="space-y-2">
+              <Label className="text-[10px] flex items-center gap-1"><UserIcon className="h-3 w-3" /> Empleado</Label>
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={v.internal_user_id || ""}
+                onChange={(e) => pickInternal(i, e.target.value)}
+                data-testid={`visitor-${i}-internal-picker`}
+              >
+                <option value="">— Selecciona un empleado —</option>
+                {[...employees]
+                  .sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }))
+                  .map((u) => (
+                    <option key={u.user_id} value={u.user_id}>
+                      {u.name}{u.cedula ? ` · ${u.cedula}` : ""}
+                    </option>
+                  ))}
+              </select>
+              {v.internal_user_id && (
+                <div className="text-[10px] text-muted-foreground grid gap-0.5 pl-1">
+                  <span><b>Nombre:</b> {v.name || "—"}</span>
+                  <span><b>Cédula:</b> {v.cedula || "—"}</span>
+                  {withPhone && <span><b>Teléfono:</b> {v.phone || "—"}</span>}
+                </div>
+              )}
             </div>
-            <div>
-              <Label className="text-[10px] flex items-center gap-1">
-                <IdCard className="h-3 w-3" /> Cédula {v.is_minor && withMinor ? "(opcional para menores)" : ""}
-              </Label>
-              <Input value={v.cedula} onChange={(e) => updateVisitor(i, "cedula", e.target.value)}
-                     placeholder={v.is_minor && withMinor ? "Cédula escolar o del representante (opcional)" : "V-12345678"}
-                     className="h-10" data-testid={`visitor-${i}-cedula`} />
-            </div>
-            {withPhone && (
+          ) : (
+            <div className={"grid gap-2 " + (withPhone ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
               <div>
-                <Label className="text-[10px] flex items-center gap-1"><Phone className="h-3 w-3" /> Teléfono</Label>
-                <Input value={v.phone} onChange={(e) => updateVisitor(i, "phone", e.target.value)}
-                       placeholder="+58 412…" className="h-10" data-testid={`visitor-${i}-phone`} />
+                <Label className="text-[10px] flex items-center gap-1"><UserIcon className="h-3 w-3" /> Nombre y apellido</Label>
+                <Input value={v.name} onChange={(e) => updateVisitor(i, "name", e.target.value)}
+                       placeholder="Ej. Juan Pérez" className="h-10" data-testid={`visitor-${i}-name`} />
               </div>
-            )}
-          </div>
+              <div>
+                <Label className="text-[10px] flex items-center gap-1">
+                  <IdCard className="h-3 w-3" /> Cédula {v.is_minor && withMinor ? "(opcional para menores)" : ""}
+                </Label>
+                <Input value={v.cedula} onChange={(e) => updateVisitor(i, "cedula", e.target.value)}
+                       placeholder={v.is_minor && withMinor ? "Cédula escolar o del representante (opcional)" : "V-12345678"}
+                       className="h-10" data-testid={`visitor-${i}-cedula`} />
+              </div>
+              {withPhone && (
+                <div>
+                  <Label className="text-[10px] flex items-center gap-1"><Phone className="h-3 w-3" /> Teléfono</Label>
+                  <Input value={v.phone} onChange={(e) => updateVisitor(i, "phone", e.target.value)}
+                         placeholder="+58 412…" className="h-10" data-testid={`visitor-${i}-phone`} />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       ))}
     </div>

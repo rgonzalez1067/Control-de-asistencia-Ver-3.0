@@ -444,3 +444,33 @@ Se fusionó el ZIP del repo externo GitLab (`control-de-asistencia-main`, v1.2, 
 - `GET /reports/matrix?sort_by=entry_asc` → 200 ✅ (Adenda intacta)
 - RBAC schedules (`_has_rbac_perm`) presente en versión ZIP ✅
 - Frontend compila (webpack OK) ✅
+
+---
+
+## 2026-09-14 — Requerimiento formal: 12 mejoras en 5 módulos
+
+Especificación técnica unificada implementada por bloques:
+
+### Módulo 1 · Asignación de Horarios
+- **[1.A]** Reordenamiento manual de filas con flechas ↑↓ (elección del usuario: no drag-and-drop). Estado `rowOrder` en `AsignarHorariosPage`, se reinicia al reconstruir matriz. data-testids: `asg-row-up-{userId}` / `asg-row-down-{userId}`.
+- **[1.B]** Superposición inteligente: `_find_overlapping_plans(user_ids=...)` en `routes/schedules.py`. Se permite coexistencia de planes simultáneos con equipos disjuntos. Sólo dispara 409 `plan_range_overlap` si comparten ≥1 empleado.
+- **[1.C]** Código de colores dinámico: paleta cerrada de 10 colores + "Sin color" (`SCHEDULE_COLOR_PALETTE` en SchedulesPage). Whitelist validada en backend con `Literal[...]` en `ScheduleIn.color`. Celdas de turno en la matriz de asignación adoptan el color del horario.
+- **[1.D]** Día Libre implícito: nuevo status `STATUS_DAY_OFF` en `matrix_report.py`. Se calcula `planned_days` desde `assignment_plans`; si el usuario está incluido en un plan y la celda queda sin asignación de turno ni novedad → "Día Libre" (gris, no cuenta como falta).
+
+### Módulo 2 · Matriz de Asistencia
+- **[2]** Proyección de novedades futuras: en `matrix_report.py` la evaluación de novedades aprobadas (`novs`) se movió ANTES del corte `STATUS_FUTURE`. Ahora vacaciones/reposo/remoto planificados en fechas futuras se visualizan.
+
+### Módulo 3 · Control de Visitas
+- **[3.A]** Motivos actualizados en `VISIT_PURPOSE_CATALOG` (backend) y `PURPOSE_OPTIONS` (frontend): reemplazo de "Visita al Data Center" por dos opciones específicas: `visita_data_center_tbp` y `visita_data_center_lch`.
+- **[3.B]** Visitante Interno vs Externo: `VisitorIn` acepta `kind: "external"|"internal"` + `internal_user_id`. Validaciones (`phone`/`cedula` requeridos) sólo aplican a externos. Frontend `VisitorsList` muestra toggle + dropdown de empleados con autocompletado.
+
+### Módulo 4 · Kiosco
+- **[4]** Debounce anti-doble-clic: nuevo state `confirming` en `KioskScanPage`. Botón "Sí, soy yo" pasa a disabled + spinner "Registrando…" apenas se dispara. `confirmMark()` con guardia + `finally { setConfirming(false) }`. Idem PIN dialog.
+
+### Módulo 5 · Novedades
+- **[5]** Multi-fecha no consecutiva: `NoveltyIn.dates: Optional[List[str]]`. Sólo aplica a `remote`, `permission`, `leave` (por decisión del usuario). Endpoint POST /novelties itera `dates` y crea N documentos con start_date=end_date=fecha. Respuesta: `{created:N, novelty_ids:[...]}`. Frontend NoveltiesPage con toggle "Rango continuo / Días alternos" y calendario `mode="multiple"` de shadcn.
+
+### Verificación
+- **Backend**: 12/12 tests pytest PASS (test_iter17_features.py). Whitelist de color validada con 422.
+- **Frontend**: compila (webpack OK), data-testids verificados por testing agent.
+- **Regresiones**: Ninguna detectada.

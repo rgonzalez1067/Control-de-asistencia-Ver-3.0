@@ -440,6 +440,12 @@ class VisitorIn(BaseModel):
     cedula: Optional[str] = None
     phone: Optional[str] = None
     is_minor: Optional[bool] = False
+    # Clasificación Interno/Externo (feb-2026). Si `kind == "internal"` el
+    # visitante es un empleado de la empresa referenciado por `internal_user_id`.
+    # Los datos (cedula/phone) se autocompletan en frontend desde el catálogo
+    # de usuarios; backend acepta y persiste tal cual (no re-valida el enlace).
+    kind: Optional[Literal["external", "internal"]] = "external"
+    internal_user_id: Optional[str] = None
 
 
 class VisitIn(BaseModel):
@@ -466,7 +472,8 @@ class VisitorPinIn(BaseModel):
 VISIT_PURPOSE_CATALOG = {
     "reunion": "Reunión",
     "capacitacion": "Capacitación",
-    "visita_data_center": "Visita al Data Center",
+    "visita_data_center_tbp": "Visita al Data Center de Torre Banco Plaza",
+    "visita_data_center_lch": "Visita al Data Center de Los Chaguaramos",
     "visita_centro_cableado": "Visita al Centro de Cableado",
     "otra": "Otra",
 }
@@ -520,6 +527,12 @@ class ScheduleIn(BaseModel):
     tolerance_minutes: int = 10
     justification_tolerance_minutes: int = 20
     site_id: Optional[str] = None
+    # Color identificador (whitelist cerrada — sincronizado con SCHEDULE_COLOR_PALETTE
+    # del frontend). None y "" son válidos y equivalen a "sin color".
+    color: Optional[Literal[
+        "", "sky", "indigo", "violet", "emerald", "amber",
+        "rose", "cyan", "lime", "fuchsia", "slate",
+    ]] = None
 
 
 class SettingsIn(BaseModel):
@@ -582,6 +595,11 @@ class NoveltyIn(BaseModel):
     end_time: Optional[str] = None    # HH:MM (no aplica a "vacation")
     reason: Optional[str] = None
     user_id: Optional[str] = None  # admin/supervisor can create for others
+    # Multi-fecha no consecutiva (feb-2026). Si viene poblado, crea una
+    # novedad por cada fecha (start_date=end_date=dates[i]). Solo aplica a
+    # types: remote, permission, leave. `start_date`/`end_date` del payload
+    # se ignoran cuando `dates` está presente.
+    dates: Optional[List[str]] = None
 
 
 class NoveltyDecideIn(BaseModel):

@@ -19,7 +19,26 @@ import {
 import { toast } from "sonner";
 import { CalendarClock, Plus, Pencil, Trash2, Timer, MapPin } from "lucide-react";
 
-const EMPTY = { name: "", blocks: [{ start: "09:00", end: "17:00" }], tolerance_minutes: 10, justification_tolerance_minutes: 20, site_id: "" };
+const EMPTY = { name: "", blocks: [{ start: "09:00", end: "17:00" }], tolerance_minutes: 10, justification_tolerance_minutes: 20, site_id: "", color: "" };
+
+// Paleta cerrada de 10 colores — evita elecciones flúor/ilegibles y mantiene
+// consistencia visual en la matriz de asignación.
+export const SCHEDULE_COLOR_PALETTE = [
+  { value: "",         label: "Sin color",    bg: "#e2e8f0", fg: "#0f172a" },
+  { value: "sky",      label: "Cielo",        bg: "#bae6fd", fg: "#0c4a6e" },
+  { value: "indigo",   label: "Índigo",       bg: "#c7d2fe", fg: "#312e81" },
+  { value: "violet",   label: "Violeta",      bg: "#ddd6fe", fg: "#4c1d95" },
+  { value: "emerald",  label: "Esmeralda",    bg: "#a7f3d0", fg: "#064e3b" },
+  { value: "amber",    label: "Ámbar",        bg: "#fde68a", fg: "#78350f" },
+  { value: "rose",     label: "Rosa",         bg: "#fecdd3", fg: "#881337" },
+  { value: "cyan",     label: "Cian",         bg: "#a5f3fc", fg: "#155e75" },
+  { value: "lime",     label: "Lima",         bg: "#d9f99d", fg: "#365314" },
+  { value: "fuchsia",  label: "Fucsia",       bg: "#f5d0fe", fg: "#701a75" },
+  { value: "slate",    label: "Pizarra",      bg: "#cbd5e1", fg: "#0f172a" },
+];
+export const SCHEDULE_COLOR_MAP = Object.fromEntries(
+  SCHEDULE_COLOR_PALETTE.map((c) => [c.value, c])
+);
 
 export default function SchedulesPage() {
   const [items, setItems] = useState([]);
@@ -50,6 +69,7 @@ export default function SchedulesPage() {
       tolerance_minutes: Number(form.tolerance_minutes) || 0,
       justification_tolerance_minutes: Number(form.justification_tolerance_minutes) || 0,
       site_id: form.site_id || undefined,
+      color: form.color || null,
     };
     try {
       if (editing.mode === "create") { await api.post("/schedules", payload); toast.success("Horario creado"); }
@@ -88,23 +108,32 @@ export default function SchedulesPage() {
       {loading && <p className="text-sm text-muted-foreground">Cargando…</p>}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" data-testid="schedules-grid">
-        {items.map((s) => (
+        {items.map((s) => {
+          const color = SCHEDULE_COLOR_MAP[s.color || ""] || SCHEDULE_COLOR_MAP[""];
+          return (
           <Card key={s.schedule_id} className="border-border/70 bg-card/80 backdrop-blur">
             <CardContent className="p-5">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-2xl bg-primary/10 text-foreground grid place-items-center">
+                  <div
+                    className="h-10 w-10 rounded-2xl grid place-items-center"
+                    style={{ backgroundColor: color.bg, color: color.fg }}
+                    title={color.label}
+                  >
                     <CalendarClock className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="text-base font-semibold text-foreground">{s.name}</p>
+                    <p className="text-base font-semibold text-foreground flex items-center gap-2">
+                      {s.name}
+                      {s.color && <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: color.bg, boxShadow: `0 0 0 1.5px ${color.fg}` }} />}
+                    </p>
                     <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
                       <MapPin className="h-3 w-3" /> {siteName[s.site_id] || "Sin sede"}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => setEditing({ mode: "edit", form: { ...EMPTY, ...s, site_id: s.site_id || "" } })} data-testid={`schedules-edit-${s.schedule_id}`}>
+                  <Button variant="ghost" size="icon" onClick={() => setEditing({ mode: "edit", form: { ...EMPTY, ...s, site_id: s.site_id || "", color: s.color || "" } })} data-testid={`schedules-edit-${s.schedule_id}`}>
                     <Pencil className="h-4 w-4" />
                   </Button>
                   <Button variant="ghost" size="icon" onClick={() => setDeleting(s)} className="text-destructive hover:text-destructive" data-testid={`schedules-delete-${s.schedule_id}`}>
@@ -134,7 +163,8 @@ export default function SchedulesPage() {
               </div>
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
 
       <ScheduleDialog state={editing} sites={sites} onCancel={() => setEditing(null)} onSave={save} />
@@ -225,6 +255,29 @@ function ScheduleDialog({ state, sites, onCancel, onSave }) {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Color identificador</Label>
+            <div className="flex flex-wrap gap-1.5" data-testid="schedules-form-color-palette">
+              {SCHEDULE_COLOR_PALETTE.map((c) => {
+                const active = (form.color || "") === c.value;
+                return (
+                  <button
+                    key={c.value || "none"}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, color: c.value }))}
+                    className={`h-8 w-8 rounded-full border-2 transition ${active ? "border-foreground scale-110" : "border-transparent hover:scale-105"}`}
+                    style={{ backgroundColor: c.bg }}
+                    title={c.label}
+                    data-testid={`schedules-form-color-${c.value || "none"}`}
+                  >
+                    {!c.value && <span className="text-[10px] text-slate-500">×</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-tight">Se usa como fondo de las celdas de este turno en la matriz de asignación.</p>
           </div>
         </div>
         <DialogFooter>
