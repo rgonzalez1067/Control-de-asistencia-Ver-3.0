@@ -167,6 +167,15 @@ class AssignmentClearIn(BaseModel):
     cells: Optional[List[AssignmentCell]] = None
 
 
+class AssignmentEntryIn(BaseModel):
+    """Celda asignada dentro de una planificación (turno o novedad)."""
+    user_id: str
+    date: str  # YYYY-MM-DD
+    kind: str  # "shift" | "novelty"
+    schedule_id: Optional[str] = None
+    novelty_type: Optional[str] = None
+
+
 class AssignmentPlanIn(BaseModel):
     name: str
     from_date: str
@@ -175,6 +184,11 @@ class AssignmentPlanIn(BaseModel):
     # Orden manual de las filas tal como las dejó el planificador (flechas ↑↓).
     row_order: List[str] = []
     overwrite: bool = False  # Si True, elimina planes previos con rango solapado.
+    # Adenda (sep-2026): matriz completa de asignaciones. El guardado es
+    # TRANSACCIONAL a nivel lógico: primero se valida el solapamiento (409 sin
+    # escribir nada) y sólo si pasa se persiste plan + asignaciones. Así un
+    # intento rechazado NUNCA corrompe la planificación original.
+    assignments: Optional[List[AssignmentEntryIn]] = None
 
 
 def _plan_public(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -204,6 +218,63 @@ async def _prune_out_of_range_assignments(user_ids: List[str], from_date: str, t
         "$or": [{"date": {"$lt": from_date}}, {"date": {"$gt": to_date}}],
     })
     return result.deleted_count
+
+
+async def _validate_plan_assignments(entries: List[AssignmentEntryIn]) -> None:
+    """Valida las celdas de la matriz enviada con el plan (mismas reglas que bulk)."""
+    sch_cache: Dict[str, bool] = {}
+    for e in entries:
+        if e.kind == "shift":
+            if not e.schedule_id:
+                raise HTTPException(status_code=400, detail="schedule_id es obligatorio para celdas de turno")
+            if e.schedule_id not in sch_cache:
+                sch_cache[e.schedule_id] = bool(await db.schedules.find_one({"schedule_id": e.schedule_id}))
+            if not sch_cache[e.schedule_id]:
+                raise HTTPException(status_code=404, detail=ERR_SCHEDULE_NOT_FOUND)
+        elif e.kind == "novelty":
+            if e.novelty_type not in _VALID_ASSIGN_NOVELTIES:
+                raise HTTPException(status_code=400, detail=f"novelty_type inválido: {e.novelty_type}")
+        else:
+            raise HTTPException(status_code=400, detail=f"kind inválido: {e.kind}")
+
+
+async def _replace_plan_assignments(user_ids: List[str], from_date: str, to_date: str,
+                                    entries: List[AssignmentEntryIn], actor_id: str,
+                                    extra_user_ids: Optional[List[str]] = None) -> int:
+    """Reemplazo exacto de las asignaciones del plan dentro de su rango.
+
+    Borra todas las asignaciones de los usuarios involucrados dentro de
+    [from_date, to_date] y luego inserta las enviadas. Garantiza que lo
+    guardado sea IDÉNTICO a lo maquetado en pantalla (Adenda sep-2026).
+
+    `extra_user_ids`: usuarios removidos del plan (PUT) — sus asignaciones en
+    el rango también se eliminan para no dejar líneas huérfanas.
+    """
+    universe = set(user_ids or []) | {e.user_id for e in entries} | set(extra_user_ids or [])
+    if not universe:
+        return 0
+    await _ensure_assignments_index()
+    await db.schedule_assignments.delete_many({
+        "user_id": {"$in": list(universe)},
+        "date": {"$gte": from_date, "$lte": to_date},
+    })
+    if not entries:
+        return 0
+    now = now_utc()
+    docs = [{
+        "assignment_id": new_id("asg", 10),
+        "user_id": e.user_id,
+        "date": e.date,
+        "kind": e.kind,
+        "schedule_id": e.schedule_id if e.kind == "shift" else None,
+        "novelty_type": e.novelty_type if e.kind == "novelty" else None,
+        "created_at": now,
+        "created_by": actor_id,
+        "updated_at": now,
+        "updated_by": actor_id,
+    } for e in entries]
+    await db.schedule_assignments.insert_many(docs)
+    return len(docs)
 
 
 async def _find_overlapping_plans(from_date: str, to_date: str,
@@ -367,6 +438,10 @@ async def create_assignment_plan(payload: AssignmentPlanIn,
             "plan_id": {"$in": [p["plan_id"] for p in overlapping]}
         })
 
+    # Validación de la matriz enviada (antes de escribir nada).
+    if payload.assignments:
+        await _validate_plan_assignments(payload.assignments)
+
     now = now_utc()
     doc = {
         "plan_id": new_id("plan", 10),
@@ -380,6 +455,11 @@ async def create_assignment_plan(payload: AssignmentPlanIn,
         "updated_at": now,
     }
     await db.assignment_plans.insert_one(doc)
+    if payload.assignments is not None:
+        await _replace_plan_assignments(
+            payload.user_ids, payload.from_date, payload.to_date,
+            payload.assignments, current["user_id"],
+        )
     await _prune_out_of_range_assignments(payload.user_ids, payload.from_date, payload.to_date)
     return strip_mongo_id(doc)
 
@@ -414,6 +494,15 @@ async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
             "plan_id": {"$in": [p["plan_id"] for p in overlapping]}
         })
 
+    # Validación de la matriz enviada (antes de escribir nada).
+    if payload.assignments:
+        await _validate_plan_assignments(payload.assignments)
+
+    # Usuarios previos del plan (para limpiar líneas de empleados removidos).
+    prev = await db.assignment_plans.find_one({"plan_id": plan_id})
+    if not prev:
+        raise HTTPException(status_code=404, detail="Planificación no encontrada")
+
     res = await db.assignment_plans.update_one(
         {"plan_id": plan_id},
         {"$set": {
@@ -428,6 +517,12 @@ async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Planificación no encontrada")
+    if payload.assignments is not None:
+        removed = [u for u in (prev.get("user_ids") or []) if u not in set(payload.user_ids)]
+        await _replace_plan_assignments(
+            payload.user_ids, payload.from_date, payload.to_date,
+            payload.assignments, current["user_id"], extra_user_ids=removed,
+        )
     await _prune_out_of_range_assignments(payload.user_ids, payload.from_date, payload.to_date)
     doc = await db.assignment_plans.find_one({"plan_id": plan_id})
     return strip_mongo_id(doc)

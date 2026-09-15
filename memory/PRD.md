@@ -497,3 +497,20 @@ Borrados a petición del usuario para probar desde cero:
 - `assignment_plans`: 3 → 0 (Planes de Octubre)
 - `schedule_assignments`: 421 → 0
 - Conservados: attendance (3544), novelties (58), visits (1), users, schedules, sites.
+
+---
+
+## 2026-09-15 — Adenda: Botón "Crear Planificación" + Guardado Transaccional
+
+### 1. Botón "Crear Planificación"
+- `AsignarHorariosPage.jsx`: botón junto a "Cargar planificación existente" (data-testid `asg-new-plan`). `resetToNewPlan()` limpia fechas/empleados/matriz/orden/plan actual y deja "Construir matriz" listo.
+
+### 2. Guardado TRANSACCIONAL (fix de corrupción por solapamiento)
+**Bug raíz**: `bulkApply`/`clearCells` persistían asignaciones INMEDIATAMENTE en `schedule_assignments` (colección global por user+date). Si luego el guardado del plan era rechazado por solapamiento (409), las líneas del plan original YA habían sido sobrescritas.
+
+**Solución — persistencia diferida + escritura atómica:**
+- Frontend: `bulkApply`/`clearCells`/`moveRow` sólo actualizan estado local + badge "Cambios sin guardar" (`dirty`). Nada se escribe hasta "Guardar planificación".
+- Backend: `AssignmentPlanIn.assignments` (matriz completa). POST/PUT validan solape ANTES de escribir → 409 = rollback natural (cero escrituras). Si pasa: `_replace_plan_assignments()` hace delete+insert exacto del rango (incluye limpieza de empleados removidos en PUT) + purga fuera de rango.
+
+### Verificación (testing agent iter 19)
+6/6 backend PASS: plan+assignments atómico, 409 no toca original (snapshot idéntico), overwrite reemplaza, PUT exacto, regresión bulk legacy OK, matriz especial refleja. 6/6 frontend UI PASS: botón limpia pantalla, persistencia diferida confirmada (sin guardar → nada persiste; guardar+cargar → idéntico).

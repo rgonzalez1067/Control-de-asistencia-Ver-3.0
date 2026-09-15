@@ -23,7 +23,7 @@ import {
 import {
   CalendarRange, Filter, Users, ChevronDown, RefreshCw,
   Clock, Palmtree, HeartPulse, Home, TicketCheck, Trash2, Sparkles,
-  Bookmark, Save, FolderOpen, X, Pencil, ArrowUp, ArrowDown,
+  Bookmark, Save, FolderOpen, X, Pencil, ArrowUp, ArrowDown, Plus,
 } from "lucide-react";
 import { SCHEDULE_COLOR_MAP } from "@/pages/SchedulesPage";
 
@@ -83,6 +83,11 @@ export default function AsignarHorariosPage() {
   const [assignments, setAssignments] = useState({});      // key `${uid}|${date}` → asg
   const [selectedCells, setSelectedCells] = useState(new Set());  // Set of `${uid}|${date}`
   const [saving, setSaving] = useState(false);
+  // Cambios locales aún no persistidos (persistencia diferida — Adenda sep-2026).
+  // Las celdas se aplican en pantalla y sólo se escriben en BD al "Guardar
+  // planificación": si el guardado es rechazado por solapamiento, la
+  // planificación original queda INTACTA (rollback natural).
+  const [dirty, setDirty] = useState(false);
 
   // Planificaciones guardadas
   const [plans, setPlans] = useState([]);
@@ -113,6 +118,22 @@ export default function AsignarHorariosPage() {
       const { data } = await api.get("/schedule-assignment-plans");
       setPlans(data || []);
     } catch (_) { /* silencioso */ }
+  }
+
+  /** Botón "Crear Planificación" (Adenda sep-2026): reinicia por completo la
+   *  pantalla — rango de fechas, selector de empleados y matriz renderizada —
+   *  dejando "Construir matriz" listo para iniciar desde cero. */
+  function resetToNewPlan() {
+    setFromDate(todayISO(0));
+    setToDate(todayISO(13));
+    setSelectedUsers([]);
+    setAssignments({});
+    setSelectedCells(new Set());
+    setRowOrder([]);
+    setCurrentPlan(null);
+    setDirty(false);
+    setBuilt(false);
+    toast.info("Pantalla limpia — configura el rango y construye la matriz");
   }
 
   const days = useMemo(
@@ -152,6 +173,7 @@ export default function AsignarHorariosPage() {
       [base[i], base[j]] = [base[j], base[i]];
       return base;
     });
+    setDirty(true);
   }
 
   async function buildMatrix() {
@@ -170,6 +192,7 @@ export default function AsignarHorariosPage() {
       setSelectedCells(new Set());
       setCurrentPlan(null);
       setRowOrder([]);
+      setDirty(false);
       setBuilt(true);
     } finally { setLoading(false); }
   }
@@ -200,6 +223,7 @@ export default function AsignarHorariosPage() {
       // Filtramos ids que ya no forman parte del plan para no arrastrar basura.
       const validIds = new Set(plan.user_ids || []);
       setRowOrder((plan.row_order || []).filter((id) => validIds.has(id)));
+      setDirty(false);
       setBuilt(true);
       toast.success(`Planificación "${plan.name}" cargada`);
     } catch (e) {
@@ -207,16 +231,28 @@ export default function AsignarHorariosPage() {
     } finally { setLoading(false); }
   }
 
-  /** Guarda la vista actual (rango + empleados + orden de filas) como planificación. */
+  /** Guarda la vista actual (rango + empleados + orden + TODAS las celdas) como planificación. */
   async function savePlan(name, planId = null, overwrite = false) {
     const trimmed = (name || "").trim();
     if (!trimmed) { toast.error("Escribe un nombre"); return false; }
+    // Serializamos la matriz COMPLETA tal como está en pantalla. El backend la
+    // persiste de forma transaccional: primero valida solapamiento (409 sin
+    // escribir nada) y sólo si pasa reemplaza las asignaciones del rango.
+    const daySet = new Set(days);
+    const rowIds = new Set(rows.map((u) => u.user_id));
+    const entries = Object.entries(assignments)
+      .map(([k, v]) => {
+        const [uid, d] = k.split("|");
+        return { user_id: uid, date: d, kind: v.kind, schedule_id: v.schedule_id || null, novelty_type: v.novelty_type || null };
+      })
+      .filter((e) => daySet.has(e.date) && rowIds.has(e.user_id) && e.kind);
     const body = {
       name: trimmed, from_date: fromDate, to_date: toDate,
       user_ids: selectedUsers,
       // Persistimos el orden manual de filas para que "Cargar planificación"
       // recupere la matriz exactamente como la dejó el planificador.
       row_order: rows.map((u) => u.user_id),
+      assignments: entries,
       overwrite,
     };
     try {
@@ -224,6 +260,7 @@ export default function AsignarHorariosPage() {
         ? await api.put(`/schedule-assignment-plans/${planId}`, body)
         : await api.post("/schedule-assignment-plans", body);
       setCurrentPlan(data.plan_id);
+      setDirty(false);
       await refreshPlans();
       toast.success(planId ? "Planificación actualizada" : `Planificación "${data.name}" guardada`);
       return true;
@@ -299,47 +336,28 @@ export default function AsignarHorariosPage() {
   }
   async function clearCells() {
     if (selectedCells.size === 0) { toast.error("Selecciona al menos una celda"); return; }
-    setSaving(true);
-    try {
-      // Enviamos los pares EXACTOS seleccionados (no el producto cartesiano) —
-      // corrige los borrados fantasma en selecciones no rectangulares.
-      const cells = [...selectedCells].map((k) => {
-        const [user_id, date] = k.split("|");
-        return { user_id, date };
-      });
-      await api.post("/schedule-assignments/clear", { user_ids: [], dates: [], cells });
-      const next = { ...assignments };
-      selectedCells.forEach((k) => delete next[k]);
-      setAssignments(next);
-      setSelectedCells(new Set());
-      toast.success("Asignaciones eliminadas");
-    } catch (e) {
-      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
-    } finally { setSaving(false); }
+    // Persistencia diferida: sólo se limpia el estado local. El borrado real
+    // ocurre al "Guardar planificación" (guardado transaccional).
+    const next = { ...assignments };
+    selectedCells.forEach((k) => delete next[k]);
+    setAssignments(next);
+    setSelectedCells(new Set());
+    setDirty(true);
+    toast.success("Celdas vaciadas — pendiente de guardar");
   }
 
   async function bulkApply(body) {
-    setSaving(true);
-    try {
-      // Enviamos los pares EXACTOS seleccionados — el backend persiste sólo
-      // esos (sin producto cartesiano), evitando asignaciones fantasma que
-      // aparecían al recargar la planificación.
-      const cells = [...selectedCells].map((k) => {
-        const [user_id, date] = k.split("|");
-        return { user_id, date };
-      });
-      await api.post("/schedule-assignments/bulk", { ...body, user_ids: [], dates: [], cells });
-      // Actualiza estado local sólo para las celdas realmente seleccionadas.
-      const now = new Date().toISOString();
-      const next = { ...assignments };
-      selectedCells.forEach((k) => {
-        next[k] = { ...body, updated_at: now };
-      });
-      setAssignments(next);
-      toast.success(`${body.kind === "shift" ? "Turno" : "Novedad"} aplicad${body.kind === "shift" ? "o" : "a"} a ${selectedCells.size} celda(s)`);
-    } catch (e) {
-      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
-    } finally { setSaving(false); }
+    // Persistencia diferida: se actualiza sólo el estado local. La escritura en
+    // BD ocurre al "Guardar planificación" — si el guardado es rechazado por
+    // solapamiento, la planificación original queda intacta.
+    const now = new Date().toISOString();
+    const next = { ...assignments };
+    selectedCells.forEach((k) => {
+      next[k] = { ...body, updated_at: now };
+    });
+    setAssignments(next);
+    setDirty(true);
+    toast.success(`${body.kind === "shift" ? "Turno" : "Novedad"} aplicad${body.kind === "shift" ? "o" : "a"} a ${selectedCells.size} celda(s) — pendiente de guardar`);
   }
 
   if (!canAccess) {
@@ -363,14 +381,23 @@ export default function AsignarHorariosPage() {
             alimenta el <b>Reporte Matricial</b> y define la tolerancia con la que se evalúan sus marcajes.
           </p>
         </div>
-        {/* Cargar planificación existente — disponible desde el primer momento */}
-        <PlansMenu
-          plans={plans}
-          onLoad={loadPlan}
-          onRename={(p) => setSaveDialog({ mode: "rename", name: p.name, plan_id: p.plan_id })}
-          onDelete={deletePlan}
-          testid="asg-plans-menu-header"
-        />
+        {/* Crear nueva + Cargar existente — disponibles desde el primer momento */}
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={resetToNewPlan}
+            className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground"
+            data-testid="asg-new-plan"
+          >
+            <Plus className="h-4 w-4 mr-1.5" /> Crear Planificación
+          </Button>
+          <PlansMenu
+            plans={plans}
+            onLoad={loadPlan}
+            onRename={(p) => setSaveDialog({ mode: "rename", name: p.name, plan_id: p.plan_id })}
+            onDelete={deletePlan}
+            testid="asg-plans-menu-header"
+          />
+        </div>
       </div>
 
       {/* Filtros */}
@@ -445,6 +472,12 @@ export default function AsignarHorariosPage() {
             <Badge variant="outline" className="rounded-full" data-testid="asg-selection-count">
               {selectedCells.size} celda(s) seleccionada(s)
             </Badge>
+            {dirty && (
+              <Badge className="rounded-full bg-amber-100 text-amber-800 border-amber-300" variant="outline"
+                     data-testid="asg-dirty-badge">
+                Cambios sin guardar
+              </Badge>
+            )}
             <Button size="sm" variant="outline" onClick={selectAll} className="rounded-full h-8" data-testid="asg-select-all">
               Seleccionar todo
             </Button>

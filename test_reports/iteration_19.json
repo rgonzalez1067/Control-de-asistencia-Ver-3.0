@@ -1,0 +1,35 @@
+{
+  "summary": "Iteración 19 — Persistencia TRANSACCIONAL de planificaciones. Backend: 6/6 tests PASS en /app/backend/tests/test_iter19_transactional.py cubriendo: (1) POST plan con `assignments` inline crea plan+asignaciones en una operación; (2) Solape (409 plan_range_overlap) NO modifica el plan A original ni sus asignaciones — snapshot antes/después idéntico y plan_id sigue existiendo; (3) overwrite=true elimina Plan A y deja sólo asignaciones de B; (4) PUT plan con `assignments` reemplaza EXACTO: quitar una celda del payload → la celda no reaparece al GET; (5) Regresión bulk/clear con `cells` legacy sigue OK (no producto cartesiano); (6) Matriz especial (schedule_id=__special) refleja la asignación shift del plan como status='future'. Frontend E2E: /asignar-horarios: (S1) botón 'Crear Planificación' (asg-new-plan) visible junto a 'Cargar planificación existente' (asg-plans-menu-header) desde el primer momento; (S2/S3) Construir matriz→click asg-new-plan LIMPIA la pantalla (matriz removida, fechas a defaults); (S4) Rebuild con 5 días × 16 empleados = 80 celdas asg-cell-{uid}-{date}; (S5) Selección de 2 celdas no-rectangulares + Asignar turno → badge 'Cambios sin guardar' (asg-dirty-badge) aparece; (S6) reload sin guardar + rebuild → NO hay dirty badge y 0 celdas con contenido (nada se persistió — persistencia diferida confirmada). Toda la contrapartida transaccional está verificada end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter19_transactional.py",
+    "/app/test_reports/pytest/iter19.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AssignmentPlanIn.assignments es opcional (Optional[List[AssignmentEntryIn]]=None) — buena señal para retro-compatibilidad: planes viejos sin matriz aún funcionan y sólo cuando `assignments is not None` se ejecuta _replace_plan_assignments (línea 458/520). Coherente.",
+    "_validate_plan_assignments corre ANTES de _replace_plan_assignments y ANTES de escribir el plan (para POST); pero en POST sí se ejecuta db.assignment_plans.insert_one BEFORE _replace_plan_assignments — si la validación de celdas pasa pero luego el delete+insert falla por I/O, el plan quedaría sin sus asignaciones. Riesgo bajo porque validación es exhaustiva, pero podría documentarse.",
+    "En POST create_assignment_plan el orden es: validar solape → borrar planes solapados si overwrite → validar assignments → insert plan → _replace_plan_assignments (delete_many+insert_many) → prune. La afirmación 'transaccional a nivel lógico: primero se valida el solapamiento (409 sin escribir nada)' en el comentario del código es correcta y validada en test_2.",
+    "_replace_plan_assignments extra_user_ids en PUT (línea 521): removed = user_ids previos - user_ids nuevos → sus asignaciones en el rango se eliminan. Correcto para no dejar huérfanos.",
+    "Rate limit /api/auth/login (5/min) puede dificultar E2E consecutivo: se recomienda que testing agents usen fixture module-scoped o esperen 60s entre iteraciones. Recomendable exponer bypass en preview via ENV para tests.",
+    "Frontend AsignarHorariosPage.jsx bulkApply/clearCells ahora sólo mutan estado local + setDirty(true) — coincide con contrato backend. savePlan serializa assignments filtrando por days×rows (líneas 241-248) evitando arrastrar celdas fuera del rango actual."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter19_transactional.py"
+  ],
+  "success_rate": {"backend": "100% (6/6)", "frontend": "100% (6/6 UI steps PASS)"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / Sol*1401*1010",
+  "seed_data_creation": "Planes 'ZZ Plan A iter19', 'ZZ Plan B iter19', 'ZZ Tx Test iter19' y asignaciones en 2027-03-* para los 2 primeros empleados elegibles. Cleanup automático via autouse fixture (delete planes por nombre + clear cells de todo marzo/2027 para los uids de test).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Modelo transaccional validado. Backend rechaza 409 sin escribir (rollback natural) y overwrite=true reemplaza correctamente. Frontend con persistencia diferida (dirty badge + reload sin guardar no persiste) confirmado. Nada de la planificación 'Turno AM segunda quincena de septiembre' fue tocado.",
+  "rca_of_the_issue": "N/A — cambio funcional verificado. El nuevo pipeline es: (a) UI acumula cambios en estado local con badge dirty, (b) al Guardar se envía plan+assignments en un único request POST/PUT, (c) backend valida solape ANTES de escribir (409 sin efectos secundarios) y sólo si pasa reemplaza asignaciones del rango con delete_many+insert_many. Esto satisface las 7 verificaciones solicitadas."
+}
