@@ -340,6 +340,15 @@ export default function ReporteMatricialPage() {
                               </td>
                             );
                           }
+                          if (c.status === "holiday") {
+                            return (
+                              <td key={day} colSpan={perDay}
+                                className="px-2 py-2 text-center bg-amber-100 text-amber-800 font-semibold whitespace-nowrap border-r border-border/40"
+                                title={c.holiday_name || "Día festivo"}>
+                                Día Festivo
+                              </td>
+                            );
+                          }
                           if (c.status === "non_working") {
                             return (
                               <td key={day} colSpan={perDay} className="px-2 py-1 text-center bg-slate-50 text-slate-300 border-r border-border/40">—</td>

@@ -151,3 +151,98 @@ async def admin_reset_all_passwords(
     await audit_log("admin_reset_all_passwords", request, user_id=user["user_id"],
                     email=user.get("email"), extra={"affected": res.modified_count})
     return {"ok": True, "affected": res.modified_count}
+
+
+
+# --------------------------------------------------------------------------
+# Recuperación de contraseña (feb-2026) — flujo público de auto-servicio
+# --------------------------------------------------------------------------
+import os
+import secrets
+from datetime import timedelta
+from email_service import send_email, render_reset_email, is_configured as smtp_configured
+
+RESET_TOKEN_TTL_MIN = 30
+
+
+@api.post("/auth/forgot-password")
+@limiter.limit("5/minute")
+async def auth_forgot_password(request: Request, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Solicita un enlace de recuperación. Respuesta idempotente: siempre
+    devuelve `{ok: True}` — nunca revela si el email/cédula existe (evita
+    enumeración). El envío real del correo ocurre en background si SMTP está
+    configurado."""
+    identifier = ((payload or {}).get("identifier") or "").strip().lower()
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Debes indicar tu correo o cédula")
+    user = await db.users.find_one({"$or": [
+        {"email": identifier},
+        {"cedula": identifier},
+    ]})
+    if user and user.get("active") is not False:
+        token = secrets.token_urlsafe(48)
+        await db.password_reset_tokens.insert_one({
+            "token": token,
+            "user_id": user["user_id"],
+            "email": user.get("email"),
+            "created_at": now_utc(),
+            "expires_at": now_utc() + timedelta(minutes=RESET_TOKEN_TTL_MIN),
+            "used_at": None,
+            "ip": request.client.host if request.client else None,
+        })
+        base = os.environ.get("APP_PUBLIC_URL") or str(request.base_url).rstrip("/")
+        link = f"{base}/reset-password?token={token}"
+        body = render_reset_email(
+            name=user.get("name") or user.get("first_name") or "Colaborador",
+            link=link,
+            minutes_valid=RESET_TOKEN_TTL_MIN,
+        )
+        await send_email(user["email"], "Restablece tu contraseña · Megasoft Asistencia",
+                         body["text"], body["html"])
+        await audit_log("password_reset_requested", request, user_id=user["user_id"],
+                        email=user.get("email"))
+    return {"ok": True, "smtp_configured": smtp_configured()}
+
+
+@api.post("/auth/reset-password-with-token")
+@limiter.limit("10/minute")
+async def auth_reset_password_with_token(request: Request, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Consume un token de recuperación y establece la nueva contraseña."""
+    token = ((payload or {}).get("token") or "").strip()
+    new_password = (payload or {}).get("new_password") or ""
+    if not token or not new_password:
+        raise HTTPException(status_code=400, detail="Faltan datos (token y contraseña nueva)")
+    validate_password_policy(new_password)
+    doc = await db.password_reset_tokens.find_one({"token": token})
+    if not doc:
+        raise HTTPException(status_code=400, detail="Enlace inválido")
+    if doc.get("used_at"):
+        raise HTTPException(status_code=400, detail="Este enlace ya fue utilizado")
+    exp = doc.get("expires_at")
+    if exp and exp < now_utc():
+        raise HTTPException(status_code=400, detail="El enlace expiró — solicita uno nuevo")
+    user = await db.users.find_one({"user_id": doc["user_id"]})
+    if not user or user.get("active") is False:
+        raise HTTPException(status_code=400, detail="Usuario no válido")
+    await db.users.update_one(
+        {"user_id": doc["user_id"]},
+        {"$set": {
+            "password_hash": hash_password(new_password),
+            "password_updated_at": now_utc(),
+            "password_updated_by_user": True,
+            "must_change_password": False,
+            "failed_login_attempts": 0,
+            "locked_until": None,
+        }},
+    )
+    await db.password_reset_tokens.update_one(
+        {"token": token}, {"$set": {"used_at": now_utc()}},
+    )
+    # Invalida cualquier otro token pendiente del mismo usuario.
+    await db.password_reset_tokens.update_many(
+        {"user_id": doc["user_id"], "used_at": None, "token": {"$ne": token}},
+        {"$set": {"used_at": now_utc()}},
+    )
+    await audit_log("password_reset_completed", request, user_id=user["user_id"],
+                    email=user.get("email"))
+    return {"ok": True}

@@ -39,6 +39,38 @@ STATUS_NON_WORKING = "non_working"
 STATUS_FULL_NOVELTY = "novelty_full"  # cubre todo el día (vacation/leave/remote)
 STATUS_DAY_OFF = "day_off"  # Día libre implícito: usuario en una planificación
                              # cuya celda quedó sin asignación de turno ni novedad.
+STATUS_HOLIDAY = "holiday"   # Día festivo (calendario) — para turnos "día completo"
+                              # exime marcajes. En turnos especiales se sigue evaluando.
+
+
+async def _load_holiday_names(db_ref, days: List[str]) -> Dict[str, str]:
+    """Devuelve {'YYYY-MM-DD': 'Nombre del festivo'} para los días del rango.
+
+    Combina festivos fijos (por fecha exacta) y recurrentes (mismo mes-día
+    en cualquier año). Se ejecuta una sola vez por consulta de matriz.
+    """
+    if not days:
+        return {}
+    md_set = {d[5:] for d in days}  # 'MM-DD'
+    docs = await db_ref.holidays.find({
+        "$or": [
+            {"is_recurrent": False, "date": {"$in": days}},
+            {"is_recurrent": True},
+        ]
+    }).to_list(1000)
+    out: Dict[str, str] = {}
+    for h in docs:
+        if h.get("is_recurrent"):
+            md = (h.get("date") or "")[5:]
+            if md in md_set:
+                for d in days:
+                    if d[5:] == md:
+                        out.setdefault(d, h.get("name") or "Festivo")
+        else:
+            d = h.get("date")
+            if d in days:
+                out.setdefault(d, h.get("name") or "Festivo")
+    return out
 
 
 def _iter_dates(from_d: str, to_d: str) -> List[str]:
@@ -243,6 +275,9 @@ async def build_matrix(
                 if cov_from <= d <= cov_to:
                     planned_days[uid].add(d)
 
+    # ---- Cargar festivos que caen dentro del rango (feb-2026 Adenda) ----
+    holiday_map = await _load_holiday_names(db, days)
+
     # ---- Cache de todos los horarios (necesario en modo especial para
     # resolver el turno asignado por día en cada usuario) ----
     schedules_by_id: Dict[str, Dict[str, Any]] = {}
@@ -313,6 +348,22 @@ async def build_matrix(
                     totals[key] += 1
                 cells[day] = cell
                 continue
+
+            # Festivo: empleados con Turno Día Completo (jornada estándar /
+            # horario fijo) quedan EXENTOS de marcajes y la celda se etiqueta
+            # "Día Festivo". Sólo el modo Especial (rotativos/monitoreo) sigue
+            # evaluando marcajes — esas horas alimentan el reporte de horas
+            # festivas. Se evalúa antes que las novedades aprobadas para que la
+            # etiqueta prime (y así un feriado no consume días de vacaciones).
+            hol_name = holiday_map.get(day)
+            if hol_name and not is_special:
+                cell["status"] = STATUS_HOLIDAY
+                cell["holiday_name"] = hol_name
+                cells[day] = cell
+                continue
+            if hol_name:
+                # Modo especial: registrar la etiqueta aunque se sigan evaluando marcajes.
+                cell["holiday_name"] = hol_name
 
             # Novedades aprobadas del catálogo (incluye día actual y futuras).
             # Se evalúan ANTES del corte STATUS_FUTURE para poder proyectar novedades
@@ -653,6 +704,14 @@ def export_xlsx(matrix: Dict[str, Any]) -> bytes:
                 cell.fill = PatternFill("solid", fgColor="F1F5F9")
                 cell.font = Font(italic=True, color="475569")
                 ws.merge_cells(start_row=row_idx, start_column=c, end_row=row_idx, end_column=c + per_day - 1)
+            elif status == "holiday":
+                cell = ws.cell(row=row_idx, column=c, value="Día Festivo")
+                cell.alignment = Alignment(horizontal="center")
+                cell.fill = PatternFill("solid", fgColor="FEF3C7")
+                cell.font = Font(bold=True, color="92400E")
+                if cd.get("holiday_name"):
+                    cell.comment = None
+                ws.merge_cells(start_row=row_idx, start_column=c, end_row=row_idx, end_column=c + per_day - 1)
             else:
                 blocks = cd.get("blocks", [])
                 offset = 0
@@ -801,6 +860,15 @@ def export_pdf(matrix: Dict[str, Any], company_name: str = "Mega Soft", logo_bas
                 row_style_extras.append(("TEXTCOLOR", (col0, row_i), (col0 + per_day - 1, row_i),
                                          colors.HexColor("#475569")))
                 row_style_extras.append(("FONTNAME", (col0, row_i), (col0 + per_day - 1, row_i), "Helvetica-Oblique"))
+            elif status == "holiday":
+                row.append("Día Festivo"); row.extend([""] * (per_day - 1))
+                col0 = day_start_col + d_idx * per_day
+                row_style_extras.append(("SPAN", (col0, row_i), (col0 + per_day - 1, row_i)))
+                row_style_extras.append(("BACKGROUND", (col0, row_i), (col0 + per_day - 1, row_i),
+                                         colors.HexColor("#FEF3C7")))
+                row_style_extras.append(("TEXTCOLOR", (col0, row_i), (col0 + per_day - 1, row_i),
+                                         colors.HexColor("#92400E")))
+                row_style_extras.append(("FONTNAME", (col0, row_i), (col0 + per_day - 1, row_i), "Helvetica-Bold"))
             else:
                 blocks = cd.get("blocks", [])
                 for i in range(bpd):

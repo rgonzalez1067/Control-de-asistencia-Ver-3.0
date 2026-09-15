@@ -214,6 +214,16 @@ export default function LoginPage() {
                     {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                <div className="text-right">
+                  <button
+                    type="button"
+                    onClick={() => nav("/forgot-password")}
+                    className="text-xs text-primary hover:underline"
+                    data-testid="login-forgot-link"
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </button>
+                </div>
               </div>
 
               <Button

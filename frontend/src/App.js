@@ -5,6 +5,9 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import AppLayout from "@/components/AppLayout";
 import InstallPWAPrompt from "@/components/InstallPWAPrompt";
+import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
+import ResetPasswordPage from "@/pages/ResetPasswordPage";
+import HolidaysPage from "@/pages/HolidaysPage";
 import LoginPage from "@/pages/LoginPage";
 import HomeRedirect from "@/pages/HomeRedirect";
 import UsersPage from "@/pages/UsersPage";
@@ -39,6 +42,8 @@ function App() {
         <Routes>
           {/* Public / kiosk */}
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/kiosk" element={<KioskUnlockPage />} />
           <Route path="/kiosk/scan" element={<KioskScanPage />} />
           <Route path="/kiosk/auto" element={<KioskAutoStart />} />
@@ -81,6 +86,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="ajustes" element={<ProtectedRoute roles={ADMIN} permKey="ajustes"><SettingsPage /></ProtectedRoute>} />
+            <Route path="festivos" element={<ProtectedRoute roles={ADMIN}><HolidaysPage /></ProtectedRoute>} />
 
             {/* Seguridad · RBAC — sólo admin */}
             <Route path="seguridad/perfiles" element={<ProtectedRoute roles={ADMIN} permKey="seguridad_perfiles"><SecurityProfilesPage /></ProtectedRoute>} />

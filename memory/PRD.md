@@ -539,3 +539,32 @@ Reordenamiento dual implementado (opción c del requerimiento):
 - Flechas ↑↓ (`moveRow`) se conservan como alternativa accesible/tablet.
 - Ambos manipulan el mismo `rowOrder` → persistencia `row_order` del plan compartida (sin lógica duplicada).
 - Verificado e2e con Playwright: drag real reordena filas y activa badge "Cambios sin guardar".
+
+---
+
+## 2026-09-15 (4) — Calendario de Festivos + Recuperación de Contraseña
+
+### Calendario de Festivos (`/festivos`)
+- **Backend**: `routes/holidays.py` — CRUD admin. Modelo `HolidayIn(date, name, is_recurrent)`. Anti-duplicados: recurrente `MM-DD` único; fijo `YYYY-MM-DD` único.
+- **Matriz**: `_load_holiday_names()` en `matrix_report.py` — resuelve por (mes, día) para recurrentes y por fecha exacta para fijos. Nuevo `STATUS_HOLIDAY` con celda ámbar "Día Festivo".
+- **Reglas**: turnos "día completo" (sin `is_special`) → exhiben "Día Festivo" y eximen marcajes. Turnos especiales/rotativos siguen registrando marcajes (para reporte futuro de horas festivas).
+- **Frontend**: `HolidaysPage` con cards, dialog crear/editar (con Switch "Siempre festivo"), delete con confirm. Ítem sidebar "Días festivos" en Configuración. `ReporteMatricialPage` renderiza `holiday` en ámbar; renderers XLSX/PDF también.
+
+### Motor de Correos + Recuperación (auto-servicio)
+- **`email_service.py`**: `send_email()` con `aiosmtplib`. Modo NO-OP si SMTP no configurado (devuelve `sent:false`, no rompe el flujo).
+- **Vars .env** (esperan datos del usuario): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TLS`, `APP_PUBLIC_URL`.
+- **Endpoints públicos** (`routes/auth.py`):
+  - `POST /auth/forgot-password` — idempotente (nunca revela existencia), rate-limit 5/min. Genera token urlsafe(48), TTL 30 min, envía correo con enlace `/reset-password?token=...`. Auditado.
+  - `POST /auth/reset-password-with-token` — consume token (single-use), rate-limit 10/min. Valida política, actualiza password, marca `password_updated_by_user=true`, invalida otros tokens pendientes del usuario.
+- **Frontend**:
+  - Login: link "¿Olvidaste tu contraseña?" (`login-forgot-link`).
+  - `/forgot-password` — pide email/cédula, muestra confirmación siempre (con aviso admin si SMTP no está configurado).
+  - `/reset-password?token=` — pide nueva contraseña + confirmación, redirige a login al finalizar.
+
+### Verificado
+- Backend: crear/editar/borrar feriado, anti-duplicado 409, matriz aplica recurrentes en 2027 ✅
+- Recuperación: forgot idempotente (200 aun con email inexistente), token urlsafe consumido, doble consumo → 400 "ya utilizado", login con nueva pwd OK ✅
+- UI: link forgot en login, página forgot muestra "Revisa tu correo" con aviso SMTP no configurado, /festivos crea con recurrente y toast ✅
+
+## 2026-09-15 (5) — FIX: Día Festivo no se mostraba en turnos completos
+Bug: condición invertida en matrix_report.py (`not eff_has_schedule` excluía justo a los empleados con horario fijo). Corregida a `hol_name and not is_special` — todo horario estándar queda exento con etiqueta "Día Festivo"; el modo Especial sigue evaluando marcajes. Verificado en UI: 236 celdas "Día Festivo" en ámbar, FALTAS=0. La etiqueta de feriado prima sobre novedades aprobadas (un feriado no consume vacaciones).

@@ -1110,7 +1110,7 @@ async def _load_import_lookups() -> tuple:
 from routes import (  # noqa: F401,E402
     attendance, novelties, visits, reports, matrix,
     auth, catalogs, access_profiles, schedules, kiosk, admin,
-    users,
+    users, holidays,
 )
 
 app.include_router(api)
