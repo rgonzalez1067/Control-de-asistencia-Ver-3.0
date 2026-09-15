@@ -23,9 +23,18 @@ import {
 import {
   CalendarRange, Filter, Users, ChevronDown, RefreshCw,
   Clock, Palmtree, HeartPulse, Home, TicketCheck, Trash2, Sparkles,
-  Bookmark, Save, FolderOpen, X, Pencil, ArrowUp, ArrowDown, Plus,
+  Bookmark, Save, FolderOpen, X, Pencil, ArrowUp, ArrowDown, Plus, GripVertical,
 } from "lucide-react";
 import { SCHEDULE_COLOR_MAP } from "@/pages/SchedulesPage";
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor,
+  useSensor, useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext, verticalListSortingStrategy, useSortable,
+  sortableKeyboardCoordinates, arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const NOVELTY_OPTIONS = [
   { value: "remote",     label: "Trabajo Remoto",   icon: Home,        color: "bg-emerald-100 text-emerald-800 border-emerald-300" },
@@ -173,6 +182,26 @@ export default function AsignarHorariosPage() {
       [base[i], base[j]] = [base[j], base[i]];
       return base;
     });
+    setDirty(true);
+  }
+
+  // Drag-and-drop (@dnd-kit) — convive con las flechas ↑↓: ambos manipulan el
+  // mismo `rowOrder`, así que la persistencia y el guardado son compartidos.
+  const dndSensors = useSensors(
+    // 6px de movimiento antes de iniciar el drag: evita interferir con el clic
+    // de selección de celdas y funciona en touch (tablets/kioscos).
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const base = rowOrder.length > 0 ? [...rowOrder] : rows.map((u) => u.user_id);
+    const oldIndex = base.indexOf(active.id);
+    const newIndex = base.indexOf(over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    setRowOrder(arrayMove(base, oldIndex, newIndex));
     setDirty(true);
   }
 
@@ -600,6 +629,15 @@ export default function AsignarHorariosPage() {
                     })}
                   </tr>
                 </thead>
+                <DndContext
+                  sensors={dndSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={rows.map((u) => u.user_id)}
+                    strategy={verticalListSortingStrategy}
+                  >
                 <tbody>
                   {rows.length === 0 && (
                     <tr><td colSpan={days.length + 1} className="text-center text-muted-foreground py-8">
@@ -607,90 +645,27 @@ export default function AsignarHorariosPage() {
                     </td></tr>
                   )}
                   {rows.map((u, idx) => (
-                    <tr key={u.user_id} className="border-b hover:bg-muted/20">
-                      <td className="sticky left-0 z-10 bg-card px-2 py-2 border-r whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          <div className="flex flex-col gap-0.5">
-                            <button
-                              type="button"
-                              onClick={() => moveRow(u.user_id, -1)}
-                              disabled={idx === 0}
-                              className="h-4 w-4 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed grid place-items-center"
-                              title="Mover arriba"
-                              data-testid={`asg-row-up-${u.user_id}`}
-                            >
-                              <ArrowUp className="h-3 w-3" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => moveRow(u.user_id, 1)}
-                              disabled={idx === rows.length - 1}
-                              className="h-4 w-4 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed grid place-items-center"
-                              title="Mover abajo"
-                              data-testid={`asg-row-down-${u.user_id}`}
-                            >
-                              <ArrowDown className="h-3 w-3" />
-                            </button>
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground text-sm">{u.name}</p>
-                            <p className="text-[10px] text-muted-foreground">{u.position || u.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      {days.map((d) => {
-                        const key = `${u.user_id}|${d}`;
-                        const asg = assignments[key];
-                        const isSel = selectedCells.has(key);
-                        const we = isWeekend(d);
-                        let cellCls = "border-r px-1 py-1 cursor-pointer transition-colors text-center align-middle ";
-                        let content = null;
-                        if (asg) {
-                          if (asg.kind === "shift") {
-                            const sched = scheduleMap[asg.schedule_id];
-                            const sname = sched?.name || "Turno";
-                            const cdef = SCHEDULE_COLOR_MAP[sched?.color || ""] || SCHEDULE_COLOR_MAP[""];
-                            const styled = !!sched?.color;
-                            content = (
-                              <div
-                                className={"px-1.5 py-1 rounded-md border font-medium truncate " + (styled ? "" : "border-primary/30 bg-primary/10 text-primary dark:text-foreground")}
-                                style={styled ? { backgroundColor: cdef.bg, color: cdef.fg, borderColor: cdef.fg + "55" } : undefined}
-                              >
-                                <Clock className="h-3 w-3 inline mr-1 -mt-0.5" />
-                                {sname}
-                              </div>
-                            );
-                          } else {
-                            const nv = NOVELTY_MAP[asg.novelty_type];
-                            const Icon = nv?.icon || Sparkles;
-                            content = (
-                              <div className={"px-1.5 py-1 rounded-md border font-medium truncate " + (nv?.color || "bg-slate-100 text-slate-800 border-slate-300")}>
-                                <Icon className="h-3 w-3 inline mr-1 -mt-0.5" />
-                                {nv?.label || "Novedad"}
-                              </div>
-                            );
-                          }
-                        } else {
-                          content = <span className="text-slate-300">—</span>;
-                        }
-                        cellCls += isSel
-                          ? "bg-accent/25 outline outline-2 outline-accent -outline-offset-2 "
-                          : (we ? "bg-slate-100/70 hover:bg-slate-200/70 " : "hover:bg-muted/40 ");
-                        return (
-                          <td key={key} className={cellCls} onClick={(e) => toggleCell(u.user_id, d, e)}
-                              data-testid={`asg-cell-${u.user_id}-${d}`}>
-                            {content}
-                          </td>
-                        );
-                      })}
-                    </tr>
+                    <SortableRow
+                      key={u.user_id}
+                      u={u}
+                      idx={idx}
+                      rowCount={rows.length}
+                      days={days}
+                      assignments={assignments}
+                      selectedCells={selectedCells}
+                      scheduleMap={scheduleMap}
+                      moveRow={moveRow}
+                      toggleCell={toggleCell}
+                    />
                   ))}
                 </tbody>
+                  </SortableContext>
+                </DndContext>
               </table>
             </div>
           </Card>
           <p className="text-[11px] text-muted-foreground text-center">
-            Clic sobre las celdas para seleccionar · Shift+clic para rangos dentro de una fila
+            Clic sobre las celdas para seleccionar · Shift+clic para rangos · Arrastra el grip ⋮⋮ o usa las flechas ↑↓ para reordenar filas
           </p>
         </>
       )}
@@ -719,8 +694,122 @@ export default function AsignarHorariosPage() {
   );
 }
 
-function PlansMenu({ plans, onLoad, onRename, onDelete, compact = false, testid }) {
+/** Fila de empleado arrastrable (drag-and-drop) que mantiene las flechas ↑↓
+ *  como alternativa. El drag se inicia SOLO desde el grip (⋮⋮) para no
+ *  interferir con la selección de celdas. */
+function SortableRow({ u, idx, rowCount, days, assignments, selectedCells, scheduleMap, moveRow, toggleCell }) {
+  const {
+    attributes, listeners, setNodeRef, transform, transition, isDragging,
+  } = useSortable({ id: u.user_id });
+
+  const style = {
+    transform: transform ? CSS.Translate.toString({ x: 0, y: transform.y }) : undefined,
+    transition,
+    position: "relative",
+    zIndex: isDragging ? 40 : undefined,
+  };
+
   return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={
+        "border-b hover:bg-muted/20 " +
+        (isDragging ? "opacity-80 shadow-xl bg-card" : "")
+      }
+      data-testid={`asg-row-${u.user_id}`}
+    >
+      <td className="sticky left-0 z-10 bg-card px-2 py-2 border-r whitespace-nowrap">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className="h-8 w-5 rounded hover:bg-muted grid place-items-center cursor-grab active:cursor-grabbing text-muted-foreground/70 hover:text-foreground touch-none"
+            title="Arrastrar para reordenar"
+            data-testid={`asg-row-drag-${u.user_id}`}
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+          <div className="flex flex-col gap-0.5">
+            <button
+              type="button"
+              onClick={() => moveRow(u.user_id, -1)}
+              disabled={idx === 0}
+              className="h-4 w-4 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed grid place-items-center"
+              title="Mover arriba"
+              data-testid={`asg-row-up-${u.user_id}`}
+            >
+              <ArrowUp className="h-3 w-3" />
+            </button>
+            <button
+              type="button"
+              onClick={() => moveRow(u.user_id, 1)}
+              disabled={idx === rowCount - 1}
+              className="h-4 w-4 rounded hover:bg-muted disabled:opacity-30 disabled:cursor-not-allowed grid place-items-center"
+              title="Mover abajo"
+              data-testid={`asg-row-down-${u.user_id}`}
+            >
+              <ArrowDown className="h-3 w-3" />
+            </button>
+          </div>
+          <div>
+            <p className="font-medium text-foreground text-sm">{u.name}</p>
+            <p className="text-[10px] text-muted-foreground">{u.position || u.email}</p>
+          </div>
+        </div>
+      </td>
+      {days.map((d) => {
+        const key = `${u.user_id}|${d}`;
+        const asg = assignments[key];
+        const isSel = selectedCells.has(key);
+        const we = isWeekend(d);
+        let cellCls = "border-r px-1 py-1 cursor-pointer transition-colors text-center align-middle ";
+        let content = null;
+        if (asg) {
+          if (asg.kind === "shift") {
+            const sched = scheduleMap[asg.schedule_id];
+            const sname = sched?.name || "Turno";
+            const cdef = SCHEDULE_COLOR_MAP[sched?.color || ""] || SCHEDULE_COLOR_MAP[""];
+            const styled = !!sched?.color;
+            content = (
+              <div
+                className={"px-1.5 py-1 rounded-md border font-medium truncate " + (styled ? "" : "border-primary/30 bg-primary/10 text-primary dark:text-foreground")}
+                style={styled ? { backgroundColor: cdef.bg, color: cdef.fg, borderColor: cdef.fg + "55" } : undefined}
+              >
+                <Clock className="h-3 w-3 inline mr-1 -mt-0.5" />
+                {sname}
+              </div>
+            );
+          } else {
+            const nv = NOVELTY_MAP[asg.novelty_type];
+            const Icon = nv?.icon || Sparkles;
+            content = (
+              <div className={"px-1.5 py-1 rounded-md border font-medium truncate " + (nv?.color || "bg-slate-100 text-slate-800 border-slate-300")}>
+                <Icon className="h-3 w-3 inline mr-1 -mt-0.5" />
+                {nv?.label || "Novedad"}
+              </div>
+            );
+          }
+        } else {
+          content = <span className="text-slate-300">—</span>;
+        }
+        cellCls += isSel
+          ? "bg-accent/25 outline outline-2 outline-accent -outline-offset-2 "
+          : (we ? "bg-slate-100/70 hover:bg-slate-200/70 " : "hover:bg-muted/40 ");
+        return (
+          <td key={key} className={cellCls} onClick={(e) => toggleCell(u.user_id, d, e)}
+              data-testid={`asg-cell-${u.user_id}-${d}`}>
+            {content}
+          </td>
+        );
+      })}
+    </tr>
+  );
+}
+
+
+function PlansMenu({ plans, onLoad, onRename, onDelete, compact = false, testid }) {  return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button

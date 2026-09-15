@@ -528,3 +528,14 @@ Borrados a petición del usuario para probar desde cero:
 - Diálogo de solapamiento actualizado para explicar el comportamiento.
 
 **Verificado e2e**: Plan A (3 empleados) + Plan B (solapa 1, overwrite) → A conserva 2 filas intactas, fila en conflicto migrada a B. Caso límite: plan que queda vacío se elimina.
+
+---
+
+## 2026-09-15 (3) — Drag-and-drop + flechas ↑↓ en Asignación de Horarios
+
+Reordenamiento dual implementado (opción c del requerimiento):
+- `@dnd-kit/core` + `@dnd-kit/sortable` + `@dnd-kit/utilities` instalados.
+- Componente `SortableRow` (fila de tabla con useSortable). El drag inicia SÓLO desde el grip ⋮⋮ (`asg-row-drag-{userId}`) para no interferir con la selección de celdas. PointerSensor con 6px de activationConstraint (touch-friendly).
+- Flechas ↑↓ (`moveRow`) se conservan como alternativa accesible/tablet.
+- Ambos manipulan el mismo `rowOrder` → persistencia `row_order` del plan compartida (sin lógica duplicada).
+- Verificado e2e con Playwright: drag real reordena filas y activa badge "Cambios sin guardar".
