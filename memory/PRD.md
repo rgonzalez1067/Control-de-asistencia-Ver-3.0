@@ -489,3 +489,11 @@ Especificación técnica unificada implementada por bloques:
 
 ### Verificación (testing agent iter 18)
 Backend 6/6 PASS: cells exactos (2 docs, no 4), clear exacto, regresión legacy OK, row_order persiste, purga de rango funciona, matriz especial con 3 estados correctos. Frontend: smoke sin errores. Cero issues reportados.
+
+---
+
+## 2026-09-15 — Limpieza operativa solicitada por el usuario
+Borrados a petición del usuario para probar desde cero:
+- `assignment_plans`: 3 → 0 (Planes de Octubre)
+- `schedule_assignments`: 421 → 0
+- Conservados: attendance (3544), novelties (58), visits (1), users, schedules, sites.
