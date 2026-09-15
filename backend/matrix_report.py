@@ -334,8 +334,9 @@ async def build_matrix(
 
             if day > today_iso:
                 # Sin asignación ni novedad. Si el usuario está incluido en una
-                # planificación que cubre este día → "Día Libre" (Adenda [1.D]).
-                if day in planned_days.get(uid, set()):
+                # planificación que cubre este día Y la celda quedó vacía →
+                # "Día Libre" (Adenda [1.D]). Un turno asignado NO es día libre.
+                if not day_asg and day in planned_days.get(uid, set()):
                     cell["status"] = STATUS_DAY_OFF
                 else:
                     cell["status"] = STATUS_FUTURE
@@ -444,9 +445,10 @@ async def build_matrix(
                 # el empleado NO tiene obligación de marcar → no cuenta como falta.
                 if is_special and not eff_has_schedule:
                     cell["status"] = STATUS_NON_WORKING
-                elif day in planned_days.get(uid, set()):
-                    # Adenda [1.D]: usuario incluido en planificación pero celda vacía.
-                    # No cuenta como ausencia — se considera Día Libre explícito.
+                elif day in planned_days.get(uid, set()) and not day_asg:
+                    # Adenda [1.D]: usuario incluido en planificación pero celda
+                    # realmente vacía (sin turno ni novedad). No cuenta como
+                    # ausencia — se considera Día Libre explícito.
                     cell["status"] = STATUS_DAY_OFF
                 elif _is_working_day(day):
                     cell["status"] = STATUS_ABSENT

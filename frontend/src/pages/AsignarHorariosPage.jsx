@@ -196,6 +196,10 @@ export default function AsignarHorariosPage() {
       (data || []).forEach((a) => { map[`${a.user_id}|${a.date}`] = a; });
       setAssignments(map);
       setSelectedCells(new Set());
+      // Restaura el orden de filas persistido con el plan (flechas ↑↓).
+      // Filtramos ids que ya no forman parte del plan para no arrastrar basura.
+      const validIds = new Set(plan.user_ids || []);
+      setRowOrder((plan.row_order || []).filter((id) => validIds.has(id)));
       setBuilt(true);
       toast.success(`Planificación "${plan.name}" cargada`);
     } catch (e) {
@@ -203,13 +207,17 @@ export default function AsignarHorariosPage() {
     } finally { setLoading(false); }
   }
 
-  /** Guarda la vista actual (rango + empleados) como planificación. */
+  /** Guarda la vista actual (rango + empleados + orden de filas) como planificación. */
   async function savePlan(name, planId = null, overwrite = false) {
     const trimmed = (name || "").trim();
     if (!trimmed) { toast.error("Escribe un nombre"); return false; }
     const body = {
       name: trimmed, from_date: fromDate, to_date: toDate,
-      user_ids: selectedUsers, overwrite,
+      user_ids: selectedUsers,
+      // Persistimos el orden manual de filas para que "Cargar planificación"
+      // recupere la matriz exactamente como la dejó el planificador.
+      row_order: rows.map((u) => u.user_id),
+      overwrite,
     };
     try {
       const { data } = planId
@@ -293,8 +301,13 @@ export default function AsignarHorariosPage() {
     if (selectedCells.size === 0) { toast.error("Selecciona al menos una celda"); return; }
     setSaving(true);
     try {
-      const { user_ids, dates } = groupSelection();
-      await api.post("/schedule-assignments/clear", { user_ids, dates });
+      // Enviamos los pares EXACTOS seleccionados (no el producto cartesiano) —
+      // corrige los borrados fantasma en selecciones no rectangulares.
+      const cells = [...selectedCells].map((k) => {
+        const [user_id, date] = k.split("|");
+        return { user_id, date };
+      });
+      await api.post("/schedule-assignments/clear", { user_ids: [], dates: [], cells });
       const next = { ...assignments };
       selectedCells.forEach((k) => delete next[k]);
       setAssignments(next);
@@ -305,23 +318,17 @@ export default function AsignarHorariosPage() {
     } finally { setSaving(false); }
   }
 
-  function groupSelection() {
-    const uids = new Set();
-    const dts = new Set();
-    selectedCells.forEach((k) => {
-      const [uid, d] = k.split("|");
-      uids.add(uid); dts.add(d);
-    });
-    return { user_ids: [...uids], dates: [...dts] };
-  }
-
   async function bulkApply(body) {
     setSaving(true);
     try {
-      const { user_ids, dates } = groupSelection();
-      // Enviamos sólo la cartesiana explícita — pero como el backend hace el cruce,
-      // filtramos localmente para actualizar el estado con los pares reales.
-      await api.post("/schedule-assignments/bulk", { ...body, user_ids, dates });
+      // Enviamos los pares EXACTOS seleccionados — el backend persiste sólo
+      // esos (sin producto cartesiano), evitando asignaciones fantasma que
+      // aparecían al recargar la planificación.
+      const cells = [...selectedCells].map((k) => {
+        const [user_id, date] = k.split("|");
+        return { user_id, date };
+      });
+      await api.post("/schedule-assignments/bulk", { ...body, user_ids: [], dates: [], cells });
       // Actualiza estado local sólo para las celdas realmente seleccionadas.
       const now = new Date().toISOString();
       const next = { ...assignments };

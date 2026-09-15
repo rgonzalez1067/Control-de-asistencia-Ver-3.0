@@ -474,3 +474,18 @@ Especificación técnica unificada implementada por bloques:
 - **Backend**: 12/12 tests pytest PASS (test_iter17_features.py). Whitelist de color validada con 422.
 - **Frontend**: compila (webpack OK), data-testids verificados por testing agent.
 - **Regresiones**: Ninguna detectada.
+
+---
+
+## 2026-09-15 — Adenda: Integridad de Datos Asignación↔Matriz (PRIORITARIO)
+
+### Bug raíz corregido
+**Producto cartesiano fantasma**: `bulkApply`/`clearCells` enviaban `user_ids` y `dates` por separado y el backend hacía el cruce cartesiano completo. En selecciones NO rectangulares se persistían asignaciones fantasma (invisibles en pantalla pero presentes al recargar). Era la causa del reporte "la matriz presenta datos alterados al recargar".
+
+### Correcciones aplicadas
+- **`routes/schedules.py`**: nuevos modelos `AssignmentCell` ({user_id, date}), `AssignmentBulkIn.cells`, `AssignmentClearIn.cells`, `AssignmentPlanIn.row_order`. Bulk y clear aceptan celdas exactas (modo legacy cartesiano preservado por compatibilidad). `_prune_out_of_range_assignments()` purga asignaciones fuera del rango al guardar/actualizar un plan (sincronización con Matriz de Asistencia). `row_order` persiste el orden manual de filas (flechas ↑↓).
+- **`AsignarHorariosPage.jsx`**: bulk/clear envían `cells` exactos; `savePlan` incluye `row_order`; `loadPlan` lo restaura (filtrado por user_ids del plan).
+- **`matrix_report.py`**: refinado `STATUS_DAY_OFF` — sólo aplica a celdas realmente vacías (`not day_asg`). Turno asignado futuro → `future`; novedad asignada → `novelty_full`; vacía en plan → `day_off`.
+
+### Verificación (testing agent iter 18)
+Backend 6/6 PASS: cells exactos (2 docs, no 4), clear exacto, regresión legacy OK, row_order persiste, purga de rango funciona, matriz especial con 3 estados correctos. Frontend: smoke sin errores. Cero issues reportados.

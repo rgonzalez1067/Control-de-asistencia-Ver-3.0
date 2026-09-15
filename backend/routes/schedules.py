@@ -140,17 +140,31 @@ async def _ensure_assignments_index() -> None:
         pass
 
 
+class AssignmentCell(BaseModel):
+    """Par exacto (usuario, fecha). Permite persistir selecciones no
+    rectangulares sin inflar el conjunto con el producto cartesiano."""
+    user_id: str
+    date: str  # YYYY-MM-DD
+
+
 class AssignmentBulkIn(BaseModel):
     user_ids: List[str]
     dates: List[str]                        # ["YYYY-MM-DD", ...]
     kind: str                               # "shift" | "novelty"
     schedule_id: Optional[str] = None       # required if kind='shift'
     novelty_type: Optional[str] = None      # required if kind='novelty'
+    # Adenda (sep-2026): si viene poblado, se persiste EXACTAMENTE ese conjunto
+    # de celdas (modo "selección exacta") en lugar del producto cartesiano
+    # user_ids × dates. Corrige los marcajes fantasma al guardar planificaciones
+    # con selecciones no rectangulares.
+    cells: Optional[List[AssignmentCell]] = None
 
 
 class AssignmentClearIn(BaseModel):
     user_ids: List[str]
     dates: List[str]
+    # Igual que en bulk: lista de pares exactos a eliminar.
+    cells: Optional[List[AssignmentCell]] = None
 
 
 class AssignmentPlanIn(BaseModel):
@@ -158,6 +172,8 @@ class AssignmentPlanIn(BaseModel):
     from_date: str
     to_date: str
     user_ids: List[str] = []
+    # Orden manual de las filas tal como las dejó el planificador (flechas ↑↓).
+    row_order: List[str] = []
     overwrite: bool = False  # Si True, elimina planes previos con rango solapado.
 
 
@@ -168,7 +184,26 @@ def _plan_public(doc: Dict[str, Any]) -> Dict[str, Any]:
         "from_date": doc.get("from_date"),
         "to_date": doc.get("to_date"),
         "user_ids": doc.get("user_ids") or [],
+        "row_order": doc.get("row_order") or [],
     }
+
+
+async def _prune_out_of_range_assignments(user_ids: List[str], from_date: str, to_date: str) -> int:
+    """Elimina asignaciones de los usuarios del plan que queden FUERA del rango
+    [from_date, to_date] tras guardar/actualizar la planificación.
+
+    Regla de negocio (Adenda sep-2026): la planificación es la fuente de verdad.
+    Si el usuario edita el plan y acorta el rango, los días eliminados deben
+    desaparecer también de la Matriz de Asistencia — de lo contrario quedan
+    datos huérfanos desfasados.
+    """
+    if not user_ids:
+        return 0
+    result = await db.schedule_assignments.delete_many({
+        "user_id": {"$in": user_ids},
+        "$or": [{"date": {"$lt": from_date}}, {"date": {"$gt": to_date}}],
+    })
+    return result.deleted_count
 
 
 async def _find_overlapping_plans(from_date: str, to_date: str,
@@ -225,7 +260,8 @@ async def list_schedule_assignments(
 
 
 async def _validate_bulk_payload(payload: AssignmentBulkIn) -> None:
-    if not payload.user_ids or not payload.dates:
+    has_cells = bool(payload.cells)
+    if not has_cells and (not payload.user_ids or not payload.dates):
         raise HTTPException(status_code=400, detail="Debes indicar user_ids y dates")
     if payload.kind == "shift":
         if not payload.schedule_id:
@@ -246,33 +282,42 @@ async def _validate_bulk_payload(payload: AssignmentBulkIn) -> None:
 @api.post("/schedule-assignments/bulk")
 async def bulk_assign(payload: AssignmentBulkIn,
                       current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
-    """Upsert masivo: asigna un turno o una novedad al conjunto de (user_id × date)."""
+    """Upsert masivo: asigna un turno o una novedad al conjunto de (user_id × date).
+
+    Si el payload trae `cells`, se persiste EXACTAMENTE ese conjunto de pares
+    (modo selección exacta — evita los marcajes fantasma del producto
+    cartesiano cuando la selección no es rectangular)."""
     await _validate_bulk_payload(payload)
     await _ensure_assignments_index()
 
+    # Pares (user_id, date) a escribir — exactos si vienen `cells`.
+    if payload.cells:
+        pairs = {(c.user_id, c.date) for c in payload.cells}
+    else:
+        pairs = {(uid, d) for uid in payload.user_ids for d in payload.dates}
+
     now = now_utc()
     ops = []
-    for uid in payload.user_ids:
-        for d in payload.dates:
-            doc: Dict[str, Any] = {
-                "user_id": uid,
-                "date": d,
-                "kind": payload.kind,
-                "schedule_id": payload.schedule_id if payload.kind == "shift" else None,
-                "novelty_type": payload.novelty_type if payload.kind == "novelty" else None,
-                "updated_at": now,
-                "updated_by": current["user_id"],
-            }
-            ops.append(UpdateOne(
-                {"user_id": uid, "date": d},
-                {"$set": doc,
-                 "$setOnInsert": {
-                     "assignment_id": new_id("asg", 10),
-                     "created_at": now,
-                     "created_by": current["user_id"],
-                 }},
-                upsert=True,
-            ))
+    for uid, d in pairs:
+        doc: Dict[str, Any] = {
+            "user_id": uid,
+            "date": d,
+            "kind": payload.kind,
+            "schedule_id": payload.schedule_id if payload.kind == "shift" else None,
+            "novelty_type": payload.novelty_type if payload.kind == "novelty" else None,
+            "updated_at": now,
+            "updated_by": current["user_id"],
+        }
+        ops.append(UpdateOne(
+            {"user_id": uid, "date": d},
+            {"$set": doc,
+             "$setOnInsert": {
+                 "assignment_id": new_id("asg", 10),
+                 "created_at": now,
+                 "created_by": current["user_id"],
+             }},
+            upsert=True,
+        ))
     if not ops:
         return {"ok": True, "affected": 0}
     result = await db.schedule_assignments.bulk_write(ops, ordered=False)
@@ -329,11 +374,13 @@ async def create_assignment_plan(payload: AssignmentPlanIn,
         "from_date": payload.from_date,
         "to_date": payload.to_date,
         "user_ids": payload.user_ids,
+        "row_order": payload.row_order or [],
         "created_by": current["user_id"],
         "created_at": now,
         "updated_at": now,
     }
     await db.assignment_plans.insert_one(doc)
+    await _prune_out_of_range_assignments(payload.user_ids, payload.from_date, payload.to_date)
     return strip_mongo_id(doc)
 
 
@@ -374,12 +421,14 @@ async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
             "from_date": payload.from_date,
             "to_date": payload.to_date,
             "user_ids": payload.user_ids,
+            "row_order": payload.row_order or [],
             "updated_at": now_utc(),
             "updated_by": current["user_id"],
         }},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Planificación no encontrada")
+    await _prune_out_of_range_assignments(payload.user_ids, payload.from_date, payload.to_date)
     doc = await db.assignment_plans.find_one({"plan_id": plan_id})
     return strip_mongo_id(doc)
 
@@ -396,7 +445,16 @@ async def delete_assignment_plan(plan_id: str,
 @api.post("/schedule-assignments/clear")
 async def bulk_clear(payload: AssignmentClearIn,
                      _: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
-    """Elimina asignaciones para el conjunto de (user_id × date)."""
+    """Elimina asignaciones para el conjunto de (user_id × date).
+
+    Si el payload trae `cells`, se borran EXACTAMENTE esos pares (modo
+    selección exacta — evita eliminar celdas no seleccionadas cuando la
+    selección no es rectangular)."""
+    if payload.cells:
+        result = await db.schedule_assignments.delete_many({
+            "$or": [{"user_id": c.user_id, "date": c.date} for c in payload.cells],
+        })
+        return {"ok": True, "deleted": result.deleted_count}
     if not payload.user_ids or not payload.dates:
         raise HTTPException(status_code=400, detail="Debes indicar user_ids y dates")
     result = await db.schedule_assignments.delete_many({
