@@ -514,3 +514,17 @@ Borrados a petición del usuario para probar desde cero:
 
 ### Verificación (testing agent iter 19)
 6/6 backend PASS: plan+assignments atómico, 409 no toca original (snapshot idéntico), overwrite reemplaza, PUT exacto, regresión bulk legacy OK, matriz especial refleja. 6/6 frontend UI PASS: botón limpia pantalla, persistencia diferida confirmada (sin guardar → nada persiste; guardar+cargar → idéntico).
+
+---
+
+## 2026-09-15 (2) — Adenda: Resolución QUIRÚRGICA de solapamientos
+
+**Regla anterior**: con `overwrite=true` se eliminaba el plan completo aunque el conflicto fuera de un solo empleado.
+
+**Regla nueva** (`_resolve_overlaps_surgical` en `routes/schedules.py`, usada por POST y PUT de planes):
+- Del plan original se retiran SÓLO las filas de los empleados en conflicto: sus asignaciones dentro del rango del plan original se eliminan y se quitan de `user_ids`/`row_order`.
+- Las filas sin conflicto quedan intactas.
+- Si el plan original queda sin empleados → se elimina.
+- Diálogo de solapamiento actualizado para explicar el comportamiento.
+
+**Verificado e2e**: Plan A (3 empleados) + Plan B (solapa 1, overwrite) → A conserva 2 filas intactas, fila en conflicto migrada a B. Caso límite: plan que queda vacío se elimina.

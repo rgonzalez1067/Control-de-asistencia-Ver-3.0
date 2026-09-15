@@ -904,10 +904,11 @@ function OverlapPlanDialog({ state, onCancel, onOverwrite }) {
         </div>
 
         <p className="text-[11px] text-muted-foreground">
-          Puedes <b>rechazar</b> para volver a editar el rango o los empleados,
-          o <b>reescribir</b>: la(s) planificación(es) anterior(es) se eliminarán
-          y esta pasará a ocupar el rango. Las asignaciones diarias ya cargadas
-          en <i>schedule_assignments</i> permanecen intactas.
+          Puedes <b>rechazar</b> para volver a editar el rango o los empleados
+          (la planificación original quedará intacta), o <b>reescribir</b>: de
+          la(s) planificación(es) anterior(es) se retirarán <b>sólo las filas de
+          los empleados en conflicto</b> — las filas sin conflicto se conservan
+          sin modificación.
         </p>
 
         <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">

@@ -220,6 +220,49 @@ async def _prune_out_of_range_assignments(user_ids: List[str], from_date: str, t
     return result.deleted_count
 
 
+async def _resolve_overlaps_surgical(overlapping: List[Dict[str, Any]],
+                                     new_user_ids: List[str],
+                                     actor_id: str) -> None:
+    """Resolución QUIRÚRGICA de solapamientos al confirmar "reescribir"
+    (Adenda sep-2026).
+
+    Regla anterior: se eliminaba el plan completo aunque el conflicto fuera de
+    un solo empleado. Regla nueva: del plan original sólo se retiran las FILAS
+    en conflicto (los empleados compartidos con el nuevo plan):
+
+    - Se eliminan las asignaciones de esos empleados dentro del rango del plan
+      original (sus filas salen de la planificación previa).
+    - El plan original conserva intactas las filas SIN conflicto.
+    - Si el plan original queda sin empleados, entonces sí se elimina.
+    """
+    new_users = set(new_user_ids or [])
+    for p in overlapping:
+        pid = p["plan_id"]
+        old = await db.assignment_plans.find_one({"plan_id": pid})
+        if not old:
+            continue
+        old_users = old.get("user_ids") or []
+        conflicting = [u for u in old_users if u in new_users]
+        remaining = [u for u in old_users if u not in new_users]
+        if conflicting:
+            await db.schedule_assignments.delete_many({
+                "user_id": {"$in": conflicting},
+                "date": {"$gte": old.get("from_date"), "$lte": old.get("to_date")},
+            })
+        if not remaining:
+            await db.assignment_plans.delete_one({"plan_id": pid})
+        else:
+            await db.assignment_plans.update_one(
+                {"plan_id": pid},
+                {"$set": {
+                    "user_ids": remaining,
+                    "row_order": [u for u in (old.get("row_order") or []) if u not in new_users],
+                    "updated_at": now_utc(),
+                    "updated_by": actor_id,
+                }},
+            )
+
+
 async def _validate_plan_assignments(entries: List[AssignmentEntryIn]) -> None:
     """Valida las celdas de la matriz enviada con el plan (mismas reglas que bulk)."""
     sch_cache: Dict[str, bool] = {}
@@ -432,11 +475,10 @@ async def create_assignment_plan(payload: AssignmentPlanIn,
             "conflicts": overlapping,
         })
     if overlapping and payload.overwrite:
-        # El usuario confirmó "reescribir" → eliminamos los planes previos solapados.
-        # Las asignaciones diarias (schedule_assignments) NO se tocan; se conservan.
-        await db.assignment_plans.delete_many({
-            "plan_id": {"$in": [p["plan_id"] for p in overlapping]}
-        })
+        # Reescritura QUIRÚRGICA (Adenda sep-2026): de los planes solapados sólo
+        # se retiran las filas de los empleados en conflicto; las filas sin
+        # conflicto quedan intactas. El plan sólo se elimina si queda vacío.
+        await _resolve_overlaps_surgical(overlapping, payload.user_ids, current["user_id"])
 
     # Validación de la matriz enviada (antes de escribir nada).
     if payload.assignments:
@@ -490,9 +532,9 @@ async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
             "conflicts": overlapping,
         })
     if overlapping and payload.overwrite:
-        await db.assignment_plans.delete_many({
-            "plan_id": {"$in": [p["plan_id"] for p in overlapping]}
-        })
+        # Reescritura quirúrgica: sólo las filas en conflicto salen del plan
+        # original (ver _resolve_overlaps_surgical).
+        await _resolve_overlaps_surgical(overlapping, payload.user_ids, current["user_id"])
 
     # Validación de la matriz enviada (antes de escribir nada).
     if payload.assignments:
