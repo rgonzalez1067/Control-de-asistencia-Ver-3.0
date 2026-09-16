@@ -156,50 +156,66 @@ async def stats_dashboard(user: Dict[str, Any] = Depends(require_roles("admin", 
         "onboarded_users": onboarded_users,
     }
 
-@api.get("/reports/export-csv")
-async def reports_export_csv(start_date: Optional[str] = Query(None),
-                             end_date: Optional[str] = Query(None),
-                             user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> StreamingResponse:
-    start_dt, end_dt = _parse_date_range(start_date, end_date)
-    q: Dict[str, Any] = {"timestamp": {"$gte": start_dt, "$lte": end_dt}}
-
-    if user["role"] in LEADER_ROLES:
+@api.get("/reports")
+async def reports_list(from_date: Optional[str] = Query(None),
+                       to_date: Optional[str] = Query(None),
+                       user_id: Optional[str] = Query(None),
+                       site_id: Optional[str] = Query(None),
+                       user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
+    q: Dict[str, Any] = {}
+    if user_id:
+        q["user_id"] = user_id
+    if site_id:
+        q["site_id"] = site_id
+    rng = _parse_date_range(from_date, to_date)
+    if rng:
+        q["timestamp"] = rng
+    if user["role"] == "employee":
+        q["user_id"] = user["user_id"]
+    elif user["role"] in LEADER_ROLES:
         team_ids = await supervisor_scope_ids(user)
-        q["user_id"] = {"$in": team_ids}
+        if user_id and user_id not in team_ids:
+            return []
+        q["user_id"] = {"$in": team_ids} if not user_id else user_id
+    docs = await db.attendance.find(q, {"selfie_base64": 0}).sort("timestamp", -1).limit(5000).to_list(5000)
+    return [strip_mongo_id(d) for d in docs]
 
-    docs = await db.attendance.find(q).sort("timestamp", -1).to_list(50000)
-    u_ids = list({d["user_id"] for d in docs if "user_id" in d})
-    users_map = {u["user_id"]: u async for u in db.users.find({"user_id": {"$in": u_ids}}, {
-        "user_id": 1, "name": 1, "cedula": 1, "email": 1,
-        "department_id": 1, "site_id": 1, "position": 1, "_id": 0,
-    })}
-    depts_map = {d["department_id"]: d["name"] async for d in db.departments.find({}, {"department_id": 1, "name": 1, "_id": 0})}
-    sites_map = {s["site_id"]: s["name"] async for s in db.sites.find({}, {"site_id": 1, "name": 1, "_id": 0})}
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow([
-        "Fecha/Hora", "ID Usuario", "Nombre", "Cédula", "Email",
-        "Departamento", "Sede", "Cargo", "Tipo", "Método",
-        "Tardanza", "Minutos Tarde", "Gravedad", "Estado Justificación", "Justificación",
-    ])
-
-    for d in docs:
-        u_info = users_map.get(d.get("user_id"), {})
-        ts = d.get("timestamp")
-        local_ts = ts.astimezone(APP_TZ).strftime("%Y-%m-%d %H:%M:%S") if ts else ""
-        writer.writerow([
-            local_ts, d.get("user_id"), u_info.get("name"), u_info.get("cedula"), u_info.get("email"),
-            depts_map.get(u_info.get("department_id"), ""), sites_map.get(u_info.get("site_id"), ""),
-            u_info.get("position"), d.get("type"), d.get("method"),
-            "Sí" if d.get("is_late") else "No", d.get("late_minutes") or 0,
-            d.get("late_severity") or "", d.get("justification_status") or "", d.get("justification") or "",
-        ])
-
-    output.seek(0)
-    filename = f"asistencia_{start_date or 'inicio'}_a_{end_date or 'fin'}.csv"
-    return StreamingResponse(
-        io.BytesIO(output.getvalue().encode("utf-8-sig")),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )
+@api.get("/reports/export")
+async def reports_export(from_date: Optional[str] = Query(None),
+                         to_date: Optional[str] = Query(None),
+                         user: Dict[str, Any] = Depends(get_current_user)) -> StreamingResponse:
+    q: Dict[str, Any] = {}
+    rng = _parse_date_range(from_date, to_date)
+    if rng:
+        q["timestamp"] = rng
+    if user["role"] == "employee":
+        q["user_id"] = user["user_id"]
+    elif user["role"] in LEADER_ROLES:
+        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
+    users = {u["user_id"]: u async for u in db.users.find({}, {"user_id": 1, "name": 1, "email": 1, "cedula": 1})}
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["record_id", "user_id", "name", "cedula", "type", "timestamp_utc",
+                "timestamp_local", "site_id", "within_geofence", "is_late", "late_minutes",
+                "late_severity", "requires_justification", "justification",
+                "justification_status", "rejection_reason"])
+    async for r in db.attendance.find(q).sort("timestamp", -1):
+        u = users.get(r.get("user_id"), {})
+        ts = r.get("timestamp")
+        if isinstance(ts, datetime):
+            ts_local = ts.astimezone(APP_TZ).strftime("%Y-%m-%d %H:%M:%S")
+            ts_utc = ts.astimezone(timezone.utc).isoformat()
+        else:
+            ts_local = str(ts)
+            ts_utc = str(ts)
+        w.writerow([r.get("record_id"), r.get("user_id"), u.get("name"), u.get("cedula"),
+                    r.get("type"), ts_utc, ts_local, r.get("site_id"),
+                    r.get("within_geofence"), r.get("is_late"), r.get("late_minutes"),
+                    r.get("late_severity") or "", r.get("requires_justification") or False,
+                    r.get("justification") or "",
+                    r.get("justification_status") or "none",
+                    r.get("rejection_reason") or ""])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": "attachment; filename=asistencia_report.csv"})

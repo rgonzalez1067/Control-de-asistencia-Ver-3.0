@@ -590,3 +590,8 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - Credenciales reales inyectadas en `backend/.env` (Gmail, puerto 587, STARTTLS, remitente `gestor@megasoft.com.ve`).
 - Verificado end-to-end: forgot-password → correo enviado OK (log `Email enviado a ...`) → token consumido vía `reset-password-with-token` → login con nueva clave OK → contraseña admin restaurada y login confirmado ✅.
 - El motor SMTP queda habilitado para futuras notificaciones (reportes programados P1, alertas de novedades P1).
+
+## 2026-09-16 (2) — FIX: "Not Found" en Reportes de asistencia
+- **Causa raíz**: la homologación con el ZIP de GitLab eliminó los endpoints `GET /api/reports` (lista) y `GET /api/reports/export` (CSV) que el frontend (`ReportsPage.jsx`) consume. Además, el endpoint `/reports/export-csv` traído de GitLab estaba roto (desempaquetaba `_parse_date_range` como tupla cuando devuelve un dict) y nadie lo llamaba.
+- **Fix**: restaurados ambos endpoints en `routes/reports.py` desde el historial git (lógica con scope por rol: employee→solo sus marcas, líderes→equipo), y eliminado el `export-csv` defectuoso y sin uso.
+- **Verificado**: curl /reports → 3544 registros; /reports/export → CSV válido; UI /reportes → 500 filas renderizadas, stats OK, sin toast de error ✅
