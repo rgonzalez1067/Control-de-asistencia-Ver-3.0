@@ -268,12 +268,14 @@ async def close_visit(visit_id: str,
 @api.delete("/visits/{visit_id}")
 async def delete_visit(visit_id: str,
                        user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
-    if not user.get("can_view_visit_logs") and user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="No tienes permiso para eliminar visitas")
+    """Eliminar visita: EXCLUSIVO del Administrador del Sistema (Adenda sep-2026).
+
+    Ningún otro rol puede borrar visitas — la traza queda intacta para auditoría.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Sólo el Administrador puede eliminar registros de visita")
     doc = await db.visits.find_one({"visit_id": visit_id})
     if not doc:
         raise HTTPException(status_code=404, detail=ERR_VISIT_NOT_FOUND)
-    if user.get("role") != "admin" and doc.get("created_by") != user["user_id"]:
-        raise HTTPException(status_code=403, detail="Solo puedes eliminar visitas que tú hayas programado")
     await db.visits.delete_one({"visit_id": visit_id})
     return {"ok": True}

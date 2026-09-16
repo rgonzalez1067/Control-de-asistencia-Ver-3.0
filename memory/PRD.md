@@ -568,3 +568,20 @@ Reordenamiento dual implementado (opción c del requerimiento):
 
 ## 2026-09-15 (5) — FIX: Día Festivo no se mostraba en turnos completos
 Bug: condición invertida en matrix_report.py (`not eff_has_schedule` excluía justo a los empleados con horario fijo). Corregida a `hol_name and not is_special` — todo horario estándar queda exento con etiqueta "Día Festivo"; el modo Especial sigue evaluando marcajes. Verificado en UI: 236 celdas "Día Festivo" en ámbar, FALTAS=0. La etiqueta de feriado prima sobre novedades aprobadas (un feriado no consume vacaciones).
+
+## 2026-09-15 (6) — Adenda: Permisos de eliminación (Novedades + Visitas)
+
+### Novedades — Eliminación por Supervisor (con scope)
+- **Backend** `routes/novelties.py`:
+  - `DELETE /novelties/{id}` — soft delete (`status='deleted'`, `deleted_at`, `deleted_by`). Permisos: admin siempre; creador de la novedad; roles de liderazgo sólo si el `user_id` de la novedad está en su `supervisor_scope_ids()` (equipo directo + él mismo).
+  - `GET /novelties` — filtra `status != deleted`. Matrix ya filtraba `status=='approved'`, así que las eliminadas liberan automáticamente los días para re-evaluación.
+- **Frontend** `NoveltiesPage.jsx`:
+  - `teamIds` set = él mismo + `users.supervisor_id == user.user_id`.
+  - Nuevo prop `canSupervisorDelete` en `NoveltyRow` → botón `novelty-team-delete-{id}` visible sólo para líderes no-admin, y sólo cuando el `user_id` está en `teamIds`.
+
+### Visitas — Eliminación exclusiva de Admin
+- **Backend** `routes/visits.py`: `DELETE /visits/{id}` responde 403 para todo rol ≠ admin.
+- **Frontend** `HistoricoVisitasPage.jsx`: botón `visit-delete-{id}` renderiza sólo si `isAdmin`.
+
+### Verificado
+Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅. Frontend: compila ✅.

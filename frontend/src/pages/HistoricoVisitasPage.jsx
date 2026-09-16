@@ -200,15 +200,17 @@ export default function HistoricoVisitasPage() {
                                 <DoorClosed className="h-3 w-3 mr-1" /> Cerrar
                               </Button>
                             )}
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => deleteVisit(v)}
-                              className="ml-1 h-8 text-xs border-red-300 text-red-700 hover:bg-red-50"
-                              data-testid={`visit-delete-${v.visit_id}`}
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" /> Eliminar
-                            </Button>
+                            {isAdmin && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => deleteVisit(v)}
+                                className="ml-1 h-8 text-xs border-red-300 text-red-700 hover:bg-red-50"
+                                data-testid={`visit-delete-${v.visit_id}`}
+                              >
+                                <Trash2 className="h-3 w-3 mr-1" /> Eliminar
+                              </Button>
+                            )}
                           </>
                         )}
                       </TableCell>

@@ -78,6 +78,16 @@ export default function NoveltiesPage() {
   useEffect(() => { load(); }, []);
 
   const userMap = useMemo(() => Object.fromEntries(users.map((u) => [u.user_id, u])), [users]);
+  // IDs del equipo directo del líder actual — se usa para mostrar "Eliminar"
+  // sólo en novedades de miembros del equipo (Adenda sep-2026).
+  const teamIds = useMemo(() => {
+    if (!user?.user_id) return new Set();
+    const set = new Set([user.user_id]);
+    users.forEach((u) => {
+      if (u.supervisor_id === user.user_id) set.add(u.user_id);
+    });
+    return set;
+  }, [users, user]);
 
   const filtered = useMemo(() => {
     if (!isManager) return items.filter((n) => n.user_id === user?.user_id);
@@ -303,6 +313,7 @@ export default function NoveltiesPage() {
                     isManager={isManager}
                     isAdmin={isAdmin}
                     isMine={n.user_id === user?.user_id}
+                    canSupervisorDelete={isManager && !isAdmin && teamIds.has(n.user_id)}
                     isSelected={selected.has(n.novelty_id)}
                     onToggle={() => toggleOne(n.novelty_id)}
                     onDelete={() => deleteMine(n)}
@@ -576,7 +587,7 @@ export default function NoveltiesPage() {
   );
 }
 
-function NoveltyRow({ n, user, isManager, isAdmin, isMine, isSelected, onToggle, onDelete, onEdit, onAdminDelete, onApprove, onReject }) {
+function NoveltyRow({ n, user, isManager, isAdmin, isMine, canSupervisorDelete, isSelected, onToggle, onDelete, onEdit, onAdminDelete, onApprove, onReject }) {
   const t = TYPE_META[n.type] || TYPE_META.other;
   const st = STATUS_META[n.status] || STATUS_META.pending;
   const TypeIcon = t.icon;
@@ -654,6 +665,18 @@ function NoveltyRow({ n, user, isManager, isAdmin, isMine, isSelected, onToggle,
         )}
         {!isAdmin && isMine && n.status === "pending" && (
           <Button size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={onDelete} data-testid={`novelty-delete-${n.novelty_id}`}>
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        )}
+        {canSupervisorDelete && !isMine && (
+          <Button
+            size="icon"
+            variant="ghost"
+            title="Eliminar (supervisor · miembro del equipo)"
+            className="text-destructive hover:bg-destructive/10"
+            onClick={onAdminDelete}
+            data-testid={`novelty-team-delete-${n.novelty_id}`}
+          >
             <Trash2 className="h-4 w-4" />
           </Button>
         )}

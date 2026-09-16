@@ -32,7 +32,8 @@ def _validate_novelty_range(payload: NoveltyIn) -> None:
 
 @api.get("/novelties")
 async def novelties_list(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
-    q: Dict[str, Any] = {}
+    # Nunca listar novedades borradas (soft-delete)
+    q: Dict[str, Any] = {"status": {"$ne": "deleted"}}
     if user["role"] == "employee":
         q["user_id"] = user["user_id"]
     elif user["role"] in LEADER_ROLES:
@@ -110,12 +111,38 @@ async def novelties_create(payload: NoveltyIn,
 @api.delete("/novelties/{novelty_id}")
 async def novelties_delete(novelty_id: str,
                            user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
+    """Elimina una novedad con SOFT DELETE (Adenda sep-2026).
+
+    Permisos:
+      - Admin: siempre puede.
+      - Rol de liderazgo (supervisor/coordinador/gerente/director): sólo sobre
+        empleados de su equipo directo (`users.supervisor_id == user_id` o él mismo).
+      - Cualquier usuario: sobre las novedades creadas por él mismo.
+    """
     doc = await db.novelties.find_one({"novelty_id": novelty_id})
-    if not doc:
+    if not doc or doc.get("deleted_at"):
         raise HTTPException(status_code=404, detail="Novedad no encontrada")
-    if doc.get("created_by") != user["user_id"] and user["role"] not in LEADER_OR_ADMIN_ROLES:
+    role = user.get("role")
+    target_uid = doc.get("user_id")
+    is_creator = doc.get("created_by") == user["user_id"]
+    is_admin = role == "admin"
+    is_leader = role in LEADER_OR_ADMIN_ROLES
+    allowed = is_admin or is_creator
+    if not allowed and is_leader:
+        scope = await supervisor_scope_ids(user)
+        allowed = target_uid in scope
+    if not allowed:
         raise HTTPException(status_code=403, detail="No autorizado para eliminar esta novedad")
-    await db.novelties.delete_one({"novelty_id": novelty_id})
+    # Soft delete: liberamos la novedad de la matriz sin perder el histórico.
+    # Los generadores de matriz filtran por status ∈ {approved, pending}.
+    await db.novelties.update_one(
+        {"novelty_id": novelty_id},
+        {"$set": {
+            "status": "deleted",
+            "deleted_at": now_utc(),
+            "deleted_by": user["user_id"],
+        }},
+    )
     return {"ok": True}
 
 
