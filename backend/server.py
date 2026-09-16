@@ -528,6 +528,10 @@ class ScheduleIn(BaseModel):
     tolerance_minutes: int = 10
     justification_tolerance_minutes: int = 20
     site_id: Optional[str] = None
+    # Clasificación de horas del turno para el reporte de turnos especiales
+    # (sep-2026). La suma debe igualar la duración total de los bloques.
+    daytime_hours: float = Field(default=0, ge=0)
+    nighttime_hours: float = Field(default=0, ge=0)
     # Color identificador (whitelist cerrada — sincronizado con SCHEDULE_COLOR_PALETTE
     # del frontend). None y "" son válidos y equivalen a "sin color".
     color: Optional[Literal[

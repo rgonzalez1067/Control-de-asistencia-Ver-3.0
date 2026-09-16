@@ -17,9 +17,28 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { CalendarClock, Plus, Pencil, Trash2, Timer, MapPin } from "lucide-react";
+import { CalendarClock, Plus, Pencil, Trash2, Timer, MapPin, Sun, Moon, AlertTriangle, CheckCircle2 } from "lucide-react";
 
-const EMPTY = { name: "", blocks: [{ start: "09:00", end: "17:00" }], tolerance_minutes: 10, justification_tolerance_minutes: 20, site_id: "", color: "" };
+const EMPTY = {
+  name: "", blocks: [{ start: "09:00", end: "17:00" }],
+  tolerance_minutes: 10, justification_tolerance_minutes: 20, site_id: "", color: "",
+  daytime_hours: 0, nighttime_hours: 0,
+};
+
+// Duración total de la jornada (horas) a partir de los bloques. Un bloque con
+// fin <= inicio cruza medianoche (+24h). Espejo de `_blocks_total_hours` (backend).
+export function blocksTotalHours(blocks) {
+  const totalMin = (blocks || []).reduce((acc, b) => {
+    const [sh, sm] = (b.start || "0:0").split(":").map(Number);
+    const [eh, em] = (b.end || "0:0").split(":").map(Number);
+    let mins = (eh * 60 + em) - (sh * 60 + sm);
+    if (mins <= 0) mins += 1440;
+    return acc + mins;
+  }, 0);
+  return totalMin / 60;
+}
+
+const fmtH = (n) => `${Number(n || 0).toFixed(1).replace(/\.0$/, "")} h`;
 
 // Paleta cerrada de 10 colores — evita elecciones flúor/ilegibles y mantiene
 // consistencia visual en la matriz de asignación.
@@ -63,6 +82,12 @@ export default function SchedulesPage() {
     () => Object.fromEntries(sites.map((s) => [s.site_id, s.name])), [sites]);
 
   async function save(form) {
+    const total = blocksTotalHours(form.blocks);
+    const declared = (Number(form.daytime_hours) || 0) + (Number(form.nighttime_hours) || 0);
+    if (Math.abs(declared - total) > 0.01) {
+      toast.error(`Horas diurnas + nocturnas (${fmtH(declared)}) deben igualar la duración total del turno (${fmtH(total)}).`);
+      return;
+    }
     const payload = {
       name: form.name,
       blocks: form.blocks,
@@ -70,6 +95,8 @@ export default function SchedulesPage() {
       justification_tolerance_minutes: Number(form.justification_tolerance_minutes) || 0,
       site_id: form.site_id || undefined,
       color: form.color || null,
+      daytime_hours: Number(form.daytime_hours) || 0,
+      nighttime_hours: Number(form.nighttime_hours) || 0,
     };
     try {
       if (editing.mode === "create") { await api.post("/schedules", payload); toast.success("Horario creado"); }
@@ -95,7 +122,7 @@ export default function SchedulesPage() {
             Horarios <span className="text-xl font-normal text-muted-foreground">· {items.length}</span>
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Turnos con uno o varios bloques y tolerancia para calcular tardanzas.
+            Turnos con uno o varios bloques, tolerancia para tardanzas y horas diurnas/nocturnas.
           </p>
         </div>
         <Button className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20"
@@ -160,6 +187,12 @@ export default function SchedulesPage() {
                   <Timer className="h-3.5 w-3.5" />
                   Ventana justificación: <b className="text-foreground">{s.justification_tolerance_minutes ?? 20} min</b>
                 </div>
+                <div className="flex items-center gap-1.5" data-testid={`schedules-hours-${s.schedule_id}`}>
+                  <Sun className="h-3.5 w-3.5" />
+                  Diurnas: <b className="text-foreground">{fmtH(s.daytime_hours)}</b>
+                  <Moon className="h-3.5 w-3.5 ml-2" />
+                  Nocturnas: <b className="text-foreground">{fmtH(s.nighttime_hours)}</b>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -191,6 +224,11 @@ function ScheduleDialog({ state, sites, onCancel, onSave }) {
   const open = !!state;
   const isEdit = state?.mode === "edit";
 
+  const totalHours = blocksTotalHours(form.blocks);
+  const dayH = Number(form.daytime_hours) || 0;
+  const nightH = Number(form.nighttime_hours) || 0;
+  const hoursMatch = Math.abs(dayH + nightH - totalHours) <= 0.01;
+
   function updateBlock(i, k, v) {
     setForm((f) => {
       const blocks = f.blocks.map((b, idx) => idx === i ? { ...b, [k]: v } : b);
@@ -205,7 +243,7 @@ function ScheduleDialog({ state, sites, onCancel, onSave }) {
       <DialogContent className="max-w-lg" data-testid="schedules-dialog">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Editar" : "Nuevo"} horario</DialogTitle>
-          <DialogDescription>Define bloques (ej. mañana y tarde) y la tolerancia en minutos.</DialogDescription>
+          <DialogDescription>Define bloques (ej. mañana y tarde), la tolerancia en minutos y las horas diurnas/nocturnas del turno.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-1.5">
@@ -234,19 +272,19 @@ function ScheduleDialog({ state, sites, onCancel, onSave }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-3 items-start">
             <div className="space-y-1.5">
-              <Label>Tolerancia general (min)</Label>
+              <Label className="min-h-8 leading-tight flex items-end">Tolerancia general (min)</Label>
               <Input type="number" min="0" max="120" value={form.tolerance_minutes ?? 10} onChange={(e) => setForm((f) => ({ ...f, tolerance_minutes: e.target.value }))} data-testid="schedules-form-tol" />
               <p className="text-[10px] text-muted-foreground leading-tight">Margen antes de marcar tardanza.</p>
             </div>
             <div className="space-y-1.5">
-              <Label>Justif. (min)</Label>
+              <Label className="min-h-8 leading-tight flex items-end">Justif. (min)</Label>
               <Input type="number" min="0" max="240" value={form.justification_tolerance_minutes ?? 20} onChange={(e) => setForm((f) => ({ ...f, justification_tolerance_minutes: e.target.value }))} data-testid="schedules-form-tol-justif" />
               <p className="text-[10px] text-muted-foreground leading-tight">Al superarla, el supervisor debe justificar.</p>
             </div>
             <div className="space-y-1.5">
-              <Label>Sede</Label>
+              <Label className="min-h-8 leading-tight flex items-end">Sede</Label>
               <Select value={form.site_id || "__none"} onValueChange={(v) => setForm((f) => ({ ...f, site_id: v === "__none" ? "" : v }))}>
                 <SelectTrigger data-testid="schedules-form-site"><SelectValue placeholder="—" /></SelectTrigger>
                 <SelectContent>
@@ -255,6 +293,30 @@ function ScheduleDialog({ state, sites, onCancel, onSave }) {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div className="space-y-3 rounded-xl border border-border/70 bg-muted/30 p-3">
+            <Label className="text-[11px] uppercase tracking-wider text-muted-foreground">Parámetros operacionales del turno</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1"><Sun className="h-3.5 w-3.5 text-amber-500" /> Horas diurnas *</Label>
+                <Input type="number" min="0" step="0.5" value={form.daytime_hours ?? 0}
+                       onChange={(e) => setForm((f) => ({ ...f, daytime_hours: e.target.value }))}
+                       data-testid="schedules-form-day-hours" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-1"><Moon className="h-3.5 w-3.5 text-indigo-500" /> Horas nocturnas *</Label>
+                <Input type="number" min="0" step="0.5" value={form.nighttime_hours ?? 0}
+                       onChange={(e) => setForm((f) => ({ ...f, nighttime_hours: e.target.value }))}
+                       data-testid="schedules-form-night-hours" />
+              </div>
+            </div>
+            <p className={`text-[11px] leading-tight flex items-center gap-1.5 ${hoursMatch ? "text-emerald-700" : "text-amber-700"}`}
+               data-testid="schedules-form-hours-check">
+              {hoursMatch ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
+              Jornada total por bloques: <b>{fmtH(totalHours)}</b> · Diurnas + Nocturnas = <b>{fmtH(dayH + nightH)}</b>
+              {!hoursMatch && " — deben coincidir para guardar"}
+            </p>
           </div>
 
           <div className="space-y-1.5">
@@ -282,7 +344,7 @@ function ScheduleDialog({ state, sites, onCancel, onSave }) {
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onCancel}>Cancelar</Button>
-          <Button onClick={() => onSave(form)} disabled={!form.name || form.blocks.length === 0} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground" data-testid="schedules-form-save">
+          <Button onClick={() => onSave(form)} disabled={!form.name || form.blocks.length === 0 || !hoursMatch} className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground" data-testid="schedules-form-save">
             Guardar
           </Button>
         </DialogFooter>

@@ -55,9 +55,40 @@ async def schedules_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[
 ERR_SCHEDULE_NOT_FOUND = "Horario no encontrado"
 
 
+def _blocks_total_hours(blocks: List[Dict[str, Any]]) -> float:
+    """Duración total de la jornada (horas). Un bloque con fin <= inicio cruza medianoche (+24h)."""
+    total_min = 0
+    for b in blocks or []:
+        try:
+            sh, sm = (b.get("start") or "0:0").split(":")
+            eh, em = (b.get("end") or "0:0").split(":")
+            mins = (int(eh) * 60 + int(em)) - (int(sh) * 60 + int(sm))
+            if mins <= 0:
+                mins += 1440
+            total_min += mins
+        except (ValueError, AttributeError):
+            continue
+    return total_min / 60
+
+
+def _validate_shift_hours(payload: ScheduleIn) -> None:
+    """Regla sep-2026: Horas Diurnas + Horas Nocturnas deben coincidir con la
+    duración total de la jornada definida por los bloques del turno."""
+    total = _blocks_total_hours([b.model_dump() for b in payload.blocks])
+    declared = float(payload.daytime_hours or 0) + float(payload.nighttime_hours or 0)
+    if abs(declared - total) > 0.01:
+        raise HTTPException(
+            status_code=400,
+            detail=(f"La suma de horas diurnas ({payload.daytime_hours}) y nocturnas "
+                    f"({payload.nighttime_hours}) debe ser igual a la duración total del "
+                    f"turno ({total:g} h según los bloques)."),
+        )
+
+
 @api.post("/schedules")
 async def schedules_create(payload: ScheduleIn,
                            _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
+    _validate_shift_hours(payload)
     doc = payload.model_dump()
     doc["schedule_id"] = new_id("sch", 10)
     doc["created_at"] = now_utc()
@@ -68,6 +99,7 @@ async def schedules_create(payload: ScheduleIn,
 @api.put("/schedules/{schedule_id}")
 async def schedules_update(schedule_id: str, payload: ScheduleIn,
                            _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
+    _validate_shift_hours(payload)
     updates = payload.model_dump(exclude_unset=True)
     res = await db.schedules.update_one({"schedule_id": schedule_id}, {"$set": updates})
     if res.matched_count == 0:

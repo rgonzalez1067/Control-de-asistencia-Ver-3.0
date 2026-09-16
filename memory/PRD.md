@@ -616,3 +616,10 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 ## 2026-09-16 (6) — Adenda: Toggle "Fotos en reporte" (Incluir fotos / Sin fotos)
 - Nuevo filtro en Reporte de Visitas Realizadas: `include_photos` (default: incluir). Aplica a las 4 salidas: grilla en pantalla (oculta columna Foto), PDF (omite columna y añade leyenda "Evidencia fotográfica: no incluida"), XLSX (13 columnas, sin imágenes) e impresión.
 - Verificado: JSON sin `selfie_thumb` ✅ · PDF sin columna Foto y solo logo embebido ✅ · XLSX sin columna ✅ · UI oculta columna al seleccionar "Sin fotos" ✅
+
+## 2026-09-16 (7) — Horas Diurnas/Nocturnas por Turno + fix alineación formulario Horarios
+- **Modelo**: `ScheduleIn` ahora tiene `daytime_hours` y `nighttime_hours` (float ≥ 0, default 0). Migración puntual: los 4 horarios existentes quedaron en 0/0 y luego se parametrizaron (AM 7/0, PM 6/1, Nocturno 0/10 —bloque overnight 21:00-07:00—, Día Completo 8/0).
+- **Validación (frontend + backend)**: diurnas + nocturnas DEBEN igualar la duración total de los bloques (bloques con fin ≤ inicio cruzan medianoche +24h). Backend 400 con mensaje claro; frontend deshabilita Guardar y muestra check en vivo ("Jornada total: 8h · D+N = Xh").
+- **UI**: nueva sección "Parámetros operacionales del turno" en el dialog; tarjetas muestran línea Diurnas/Nocturnas (☀/🌙). Fix de alineación: labels de Tolerancia/Justif./Sede con altura uniforme (`min-h-8 flex items-end`).
+- Base lista para el próximo requerimiento: Reporte de Horas Trabajadas para Turnos Especiales (acumulará D/N de turnos con marcaje válido o justificado).
+- **Verificado**: PUT 200 con sumas correctas (incl. overnight), 400 con suma incorrecta, creación e2e desde UI, tarjetas actualizadas ✅
