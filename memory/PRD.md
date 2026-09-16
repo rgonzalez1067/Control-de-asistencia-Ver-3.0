@@ -585,3 +585,8 @@ Bug: condición invertida en matrix_report.py (`not eff_has_schedule` excluía j
 
 ### Verificado
 Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅. Frontend: compila ✅.
+
+## 2026-09-16 — SMTP configurado (Gmail) y flujo de recuperación verificado e2e
+- Credenciales reales inyectadas en `backend/.env` (Gmail, puerto 587, STARTTLS, remitente `gestor@megasoft.com.ve`).
+- Verificado end-to-end: forgot-password → correo enviado OK (log `Email enviado a ...`) → token consumido vía `reset-password-with-token` → login con nueva clave OK → contraseña admin restaurada y login confirmado ✅.
+- El motor SMTP queda habilitado para futuras notificaciones (reportes programados P1, alertas de novedades P1).
