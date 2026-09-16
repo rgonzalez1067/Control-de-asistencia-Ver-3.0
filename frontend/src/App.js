@@ -27,6 +27,7 @@ import NoveltiesPage from "@/pages/NoveltiesPage";
 import TeamPage from "@/pages/TeamPage";
 import AgendarVisitaPage from "@/pages/AgendarVisitaPage";
 import HistoricoVisitasPage from "@/pages/HistoricoVisitasPage";
+import ReporteVisitasRegulatorioPage from "@/pages/ReporteVisitasRegulatorioPage";
 import KioskAutoStart from "@/pages/KioskAutoStart";
 import SecurityProfilesPage from "@/pages/SecurityProfilesPage";
 import UserPermissionsPage from "@/pages/UserPermissionsPage";
@@ -113,6 +114,11 @@ function App() {
               <ProtectedRoute permKey="visitas_historico"
                 check={(u) => u.role === "admin" || (u.effective_permissions||{}).visitas_historico || u.can_view_visit_logs}>
                 <HistoricoVisitasPage />
+              </ProtectedRoute>
+            } />
+            <Route path="reportes/visitas-realizadas" element={
+              <ProtectedRoute permKey="visitas_reporte_regulatorio">
+                <ReporteVisitasRegulatorioPage />
               </ProtectedRoute>
             } />
           </Route>
