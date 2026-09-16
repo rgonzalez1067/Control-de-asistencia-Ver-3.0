@@ -232,6 +232,9 @@ def export_visits_pdf(report: Dict[str, Any], company_name: str = "Mega Soft",
     styles = getSampleStyleSheet()
     h_title = ParagraphStyle("t", parent=styles["Title"], fontSize=14, textColor=colors.HexColor("#0F172A"))
     h_sub = ParagraphStyle("s", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#64748B"))
+    h_ger = ParagraphStyle("g", parent=styles["Normal"], fontSize=9, leading=11,
+                           textColor=colors.HexColor("#B45309"), fontName="Helvetica-Bold",
+                           spaceBefore=2)
     p_cell = ParagraphStyle("c", parent=styles["Normal"], fontSize=6.5, leading=8, textColor=colors.HexColor("#111827"))
     p_head = ParagraphStyle("h", parent=styles["Normal"], fontSize=6.5, leading=8,
                             textColor=colors.white, fontName="Helvetica-Bold")
@@ -243,6 +246,10 @@ def export_visits_pdf(report: Dict[str, Any], company_name: str = "Mega Soft",
             story.append(Image(BytesIO(base64.b64decode(b64)), width=30 * mm, height=11 * mm, hAlign="LEFT"))
         except Exception:
             pass
+    story.append(Paragraph("Gerencia de Seguridad de la Información", h_ger))
+    story.append(Paragraph("Unidad generadora del reporte", ParagraphStyle(
+        "g2", parent=styles["Normal"], fontSize=6.5, textColor=colors.HexColor("#94A3B8"))))
+    story.append(Spacer(1, 2 * mm))
     story.append(Paragraph(f"{company_name} · Reporte de Visitas Realizadas — Auditoría de Control de Acceso", h_title))
     story.append(Paragraph(
         f"Período: {report['from_date']} — {report['to_date']} · "

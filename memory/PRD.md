@@ -608,3 +608,7 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **Reglas confirmadas**: sede = sede del anfitrión · entrada real = timestamp de la 1ra selfie en Kiosco · salida = `exit_at` · una fila por visitante (incluye clasificación Interno/Externo, empresa/motivo laboral, motivo personal).
 - **Frontend**: `/reportes/visitas-realizadas` — filtros (rango obligatorio, tipo, sede, anfitrión), grilla con 11 columnas y miniaturas, botones PDF / Excel / Imprimir (ventana con membrete y print stylesheet; detecta popup blocker).
 - **Verificado**: testing agent iteración 20 → 11/11 UI PASS (exports reales descargan PDF/XLSX válidos, impresión limpia, filtros, validación de fechas, toggle visible en Perfiles sección Visitas, RBAC OFF en Gerente). Backend curl: 200 JSON/PDF/XLSX, 400 sin fechas, 403 sin permiso ✅
+
+## 2026-09-16 (5) — Adenda: Membrete institucional en Reporte de Visitas Realizadas
+- PDF oficial y vista de impresión ahora incluyen el logo corporativo (desde Ajustes) en el encabezado y debajo la línea "Gerencia de Seguridad de la Información · Unidad generadora del reporte".
+- Verificado: PDF extraído con texto "Gerencia de Seguridad…" + logo embebido ✅; popup de impresión con logo y gerencia ✅.

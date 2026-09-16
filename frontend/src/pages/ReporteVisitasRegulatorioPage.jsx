@@ -323,8 +323,11 @@ function buildPrintableHtml({ rows, meta, filters, sites, users, company, logo }
   return `<!doctype html><html><head><meta charset="utf-8"><title>Reporte de Visitas Realizadas</title>
   <style>
     *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;margin:24px;color:#0f172a;font-size:10px}
-    .head{display:flex;align-items:center;gap:14px;border-bottom:3px solid #0f172a;padding-bottom:10px;margin-bottom:10px}
-    .head img{height:38px} h1{font-size:16px;margin:0} .sub{color:#64748b;font-size:10px;margin-top:2px}
+    .head{display:flex;align-items:flex-start;gap:18px;border-bottom:3px solid #0f172a;padding-bottom:10px;margin-bottom:10px}
+    .head img{height:42px} h1{font-size:16px;margin:0} .sub{color:#64748b;font-size:10px;margin-top:2px}
+    .brand{display:flex;flex-direction:column;gap:3px}
+    .ger{color:#b45309;font-weight:700;font-size:10.5px;letter-spacing:.4px;text-transform:uppercase}
+    .gersub{color:#94a3b8;font-size:8.5px}
     table{width:100%;border-collapse:collapse} th{background:#0f172a;color:#fff;text-align:left;padding:5px 6px;font-size:9px}
     td{border:1px solid #cbd5e1;padding:5px 6px;vertical-align:middle} tr:nth-child(even) td{background:#f8fafc}
     td img{width:46px;height:46px;object-fit:cover;border-radius:6px} .noimg{width:46px;height:46px;background:#e2e8f0;border-radius:6px}
@@ -333,7 +336,11 @@ function buildPrintableHtml({ rows, meta, filters, sites, users, company, logo }
     @page{size:landscape;margin:10mm}
   </style></head><body>
   <div class="head">
-    ${logo ? `<img src="${logo}" alt="logo">` : ""}
+    <div class="brand">
+      ${logo ? `<img src="${logo}" alt="logo">` : ""}
+      <div class="ger">Gerencia de Seguridad de la Información</div>
+      <div class="gersub">Unidad generadora del reporte</div>
+    </div>
     <div>
       <h1>${company} · Reporte de Visitas Realizadas</h1>
       <div class="sub">Auditoría de Control de Acceso · Período: ${filters.from_date} — ${filters.to_date} · Tipo: ${typeName} · Sede: ${siteName} · Anfitrión: ${hostName}</div>
