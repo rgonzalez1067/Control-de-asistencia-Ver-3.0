@@ -37,11 +37,13 @@ async def reports_visits(from_date: Optional[str] = Query(None),
                          visit_type: Optional[str] = Query(None),
                          site_id: Optional[str] = Query(None),
                          host_user_id: Optional[str] = Query(None),
+                         include_photos: bool = Query(True),
                          user: Dict[str, Any] = Depends(_require_visits_report_perm)) -> Dict[str, Any]:
     _validate_range(from_date, to_date)
     return await build_visits_report(db, from_date, to_date,
                                      visit_type=visit_type, site_id=site_id,
-                                     host_user_id=host_user_id, selfies="thumb")
+                                     host_user_id=host_user_id, selfies="thumb",
+                                     include_photos=include_photos)
 
 
 @api.get("/reports/visits/export.pdf")
@@ -50,15 +52,18 @@ async def reports_visits_pdf(from_date: Optional[str] = Query(None),
                              visit_type: Optional[str] = Query(None),
                              site_id: Optional[str] = Query(None),
                              host_user_id: Optional[str] = Query(None),
+                             include_photos: bool = Query(True),
                              user: Dict[str, Any] = Depends(_require_visits_report_perm)) -> StreamingResponse:
     _validate_range(from_date, to_date)
     report = await build_visits_report(db, from_date, to_date,
                                        visit_type=visit_type, site_id=site_id,
-                                       host_user_id=host_user_id, selfies="full")
+                                       host_user_id=host_user_id, selfies="full",
+                                       include_photos=include_photos)
     settings = await db.settings.find_one({"_id": "company"}) or {}
     pdf_bytes = export_visits_pdf(report,
                                   company_name=settings.get("company_name") or "Mega Soft",
-                                  logo_base64=settings.get("logo_base64"))
+                                  logo_base64=settings.get("logo_base64"),
+                                  include_photos=include_photos)
     filename = f"reporte_visitas_{from_date}_a_{to_date}.pdf"
     return StreamingResponse(
         iter([pdf_bytes]), media_type="application/pdf",
@@ -72,12 +77,14 @@ async def reports_visits_xlsx(from_date: Optional[str] = Query(None),
                               visit_type: Optional[str] = Query(None),
                               site_id: Optional[str] = Query(None),
                               host_user_id: Optional[str] = Query(None),
+                              include_photos: bool = Query(True),
                               user: Dict[str, Any] = Depends(_require_visits_report_perm)) -> StreamingResponse:
     _validate_range(from_date, to_date)
     report = await build_visits_report(db, from_date, to_date,
                                        visit_type=visit_type, site_id=site_id,
-                                       host_user_id=host_user_id, selfies="full")
-    xlsx_bytes = export_visits_xlsx(report)
+                                       host_user_id=host_user_id, selfies="full",
+                                       include_photos=include_photos)
+    xlsx_bytes = export_visits_xlsx(report, include_photos=include_photos)
     filename = f"reporte_visitas_{from_date}_a_{to_date}.xlsx"
     return StreamingResponse(
         iter([xlsx_bytes]),

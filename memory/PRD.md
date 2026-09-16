@@ -612,3 +612,7 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 ## 2026-09-16 (5) — Adenda: Membrete institucional en Reporte de Visitas Realizadas
 - PDF oficial y vista de impresión ahora incluyen el logo corporativo (desde Ajustes) en el encabezado y debajo la línea "Gerencia de Seguridad de la Información · Unidad generadora del reporte".
 - Verificado: PDF extraído con texto "Gerencia de Seguridad…" + logo embebido ✅; popup de impresión con logo y gerencia ✅.
+
+## 2026-09-16 (6) — Adenda: Toggle "Fotos en reporte" (Incluir fotos / Sin fotos)
+- Nuevo filtro en Reporte de Visitas Realizadas: `include_photos` (default: incluir). Aplica a las 4 salidas: grilla en pantalla (oculta columna Foto), PDF (omite columna y añade leyenda "Evidencia fotográfica: no incluida"), XLSX (13 columnas, sin imágenes) e impresión.
+- Verificado: JSON sin `selfie_thumb` ✅ · PDF sin columna Foto y solo logo embebido ✅ · XLSX sin columna ✅ · UI oculta columna al seleccionar "Sin fotos" ✅

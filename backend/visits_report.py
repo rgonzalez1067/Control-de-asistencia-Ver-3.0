@@ -4,7 +4,8 @@ Consolida la trazabilidad completa de cada visita: datos generales, anfitrión,
 visitantes (internos/externos) y evidencia biométrica (selfie del Kiosco).
 
 Salidas: JSON (grilla), PDF oficial (reportlab, selfies embebidas) y
-XLSX (openpyxl, miniaturas por fila).
+XLSX (openpyxl, miniaturas por fila). `include_photos=False` omite la
+columna de evidencia fotográfica en todas las salidas.
 
 Reglas de negocio confirmadas con el cliente:
 - Sede de la visita = sede del empleado anfitrión (no se persiste en `visits`).
@@ -82,7 +83,8 @@ async def build_visits_report(db, from_date: str, to_date: str,
                               visit_type: Optional[str] = None,
                               site_id: Optional[str] = None,
                               host_user_id: Optional[str] = None,
-                              selfies: str = "thumb") -> Dict[str, Any]:
+                              selfies: str = "thumb",
+                              include_photos: bool = True) -> Dict[str, Any]:
     rng = _parse_date_range(from_date, to_date)
     q: Dict[str, Any] = {"scheduled_at": rng}
     if visit_type in ("laboral", "personal"):
@@ -141,9 +143,9 @@ async def build_visits_report(db, from_date: str, to_date: str,
                 "is_minor": bool(vis.get("is_minor")),
                 "has_selfie": bool(selfie_b64),
             }
-            if selfies == "thumb" and selfie_b64:
+            if include_photos and selfies == "thumb" and selfie_b64:
                 row["selfie_thumb"] = _thumb_data_url(selfie_b64)
-            elif selfies == "full" and selfie_b64:
+            elif include_photos and selfies == "full" and selfie_b64:
                 row["selfie"] = selfie_b64
             rows.append(row)
 
@@ -151,6 +153,7 @@ async def build_visits_report(db, from_date: str, to_date: str,
         "from_date": from_date,
         "to_date": to_date,
         "generated_at": now_utc().isoformat(),
+        "include_photos": include_photos,
         "visits_count": visits_included,
         "visitors_count": len(rows),
         "rows": rows,
@@ -160,7 +163,7 @@ async def build_visits_report(db, from_date: str, to_date: str,
 # ------------------------------------------------------------------
 # Exportación XLSX
 # ------------------------------------------------------------------
-def export_visits_xlsx(report: Dict[str, Any]) -> bytes:
+def export_visits_xlsx(report: Dict[str, Any], include_photos: bool = True) -> bytes:
     from openpyxl import Workbook
     from openpyxl.drawing.image import Image as XLImage
     from openpyxl.styles import Alignment, Font, PatternFill
@@ -172,7 +175,12 @@ def export_visits_xlsx(report: Dict[str, Any]) -> bytes:
 
     headers = ["Código", "Fecha/Hora Programada", "Entrada Real", "Salida Real",
                "Sede", "Tipo", "Anfitrión", "Cédula Anfitrión", "Departamento",
-               "Visitante", "Cédula Visitante", "Clasificación", "Empresa / Motivo", "Foto"]
+               "Visitante", "Cédula Visitante", "Clasificación", "Empresa / Motivo"]
+    widths = [16, 17, 17, 17, 20, 10, 28, 15, 20, 28, 15, 12, 30]
+    if include_photos:
+        headers.append("Foto")
+        widths.append(13)
+
     ws.append(headers)
     head_fill = PatternFill("solid", fgColor="0F172A")
     for c in range(1, len(headers) + 1):
@@ -182,25 +190,27 @@ def export_visits_xlsx(report: Dict[str, Any]) -> bytes:
         cell.alignment = Alignment(vertical="center", wrap_text=True)
     ws.row_dimensions[1].height = 28
 
-    widths = [16, 17, 17, 17, 20, 10, 28, 15, 20, 28, 15, 12, 30, 13]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
 
     for r_i, row in enumerate(report["rows"], start=2):
-        ws.append([
+        values = [
             row["visit_id"], _fmt_dt(row["scheduled_at"]), _fmt_dt(row["entry_at"]),
             _fmt_dt(row["exit_at"]), row["site_name"],
             "Laboral" if row["type"] == "laboral" else "Personal",
             row["host_name"], row["host_cedula"], row["host_department"],
             row["visitor_name"], row["visitor_cedula"], row["visitor_kind"],
             (row["company_name"] or "") + (f" · {row['motive']}" if row.get("motive") else "") or row.get("motive") or "—",
-            "",
-        ])
-        ws.row_dimensions[r_i].height = 62
+        ]
+        if include_photos:
+            values.append("")
+        ws.append(values)
+        if include_photos:
+            ws.row_dimensions[r_i].height = 62
         for c in range(1, len(headers) + 1):
             ws.cell(row=r_i, column=c).alignment = Alignment(vertical="center", wrap_text=True)
             ws.cell(row=r_i, column=c).font = Font(size=8)
-        if row.get("selfie"):
+        if include_photos and row.get("selfie"):
             buf = _img_buffer(row["selfie"], max_px=96)
             if buf:
                 img = XLImage(buf)
@@ -216,7 +226,7 @@ def export_visits_xlsx(report: Dict[str, Any]) -> bytes:
 # Exportación PDF (formato oficial de auditoría)
 # ------------------------------------------------------------------
 def export_visits_pdf(report: Dict[str, Any], company_name: str = "Mega Soft",
-                      logo_base64: Optional[str] = None) -> bytes:
+                      logo_base64: Optional[str] = None, include_photos: bool = True) -> bytes:
     from reportlab.lib.pagesizes import landscape, A4
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -254,11 +264,18 @@ def export_visits_pdf(report: Dict[str, Any], company_name: str = "Mega Soft",
     story.append(Paragraph(
         f"Período: {report['from_date']} — {report['to_date']} · "
         f"{report['visits_count']} visitas · {report['visitors_count']} visitantes · "
+        f"Evidencia fotográfica: {'incluida' if include_photos else 'no incluida'} · "
         f"Generado: {datetime.now(APP_TZ).strftime('%d/%m/%Y %H:%M')}", h_sub))
     story.append(Spacer(1, 3 * mm))
 
     headers = ["Código", "Programada", "Entrada Real", "Salida Real", "Sede", "Tipo",
-               "Anfitrión", "Departamento", "Visitante", "Clasif.", "Empresa / Motivo", "Foto"]
+               "Anfitrión", "Departamento", "Visitante", "Clasif.", "Empresa / Motivo"]
+    col_widths = [16 * mm, 21 * mm, 21 * mm, 21 * mm, 22 * mm, 13 * mm,
+                  34 * mm, 22 * mm, 34 * mm, 13 * mm, 32 * mm]
+    if include_photos:
+        headers.append("Foto")
+        col_widths.append(19 * mm)
+
     data = [[Paragraph(h, p_head) for h in headers]]
 
     for row in report["rows"]:
@@ -267,12 +284,7 @@ def export_visits_pdf(report: Dict[str, Any], company_name: str = "Mega Soft",
         emp_mot = row["company_name"] or ""
         if row.get("motive"):
             emp_mot = f"{emp_mot} · {row['motive']}" if emp_mot else row["motive"]
-        img_cell: Any = ""
-        if row.get("selfie"):
-            ibuf = _img_buffer(row["selfie"], max_px=300)
-            if ibuf:
-                img_cell = Image(ibuf, width=17 * mm, height=17 * mm)
-        data.append([
+        line = [
             Paragraph(str(row["visit_id"] or "").replace("visit_", ""), p_cell),
             Paragraph(_fmt_dt(row["scheduled_at"]), p_cell),
             Paragraph(_fmt_dt(row["entry_at"]), p_cell),
@@ -284,11 +296,16 @@ def export_visits_pdf(report: Dict[str, Any], company_name: str = "Mega Soft",
             Paragraph(vis, p_cell),
             Paragraph(row["visitor_kind"], p_cell),
             Paragraph(emp_mot or "—", p_cell),
-            img_cell,
-        ])
+        ]
+        if include_photos:
+            img_cell: Any = ""
+            if row.get("selfie"):
+                ibuf = _img_buffer(row["selfie"], max_px=300)
+                if ibuf:
+                    img_cell = Image(ibuf, width=17 * mm, height=17 * mm)
+            line.append(img_cell)
+        data.append(line)
 
-    col_widths = [16 * mm, 21 * mm, 21 * mm, 21 * mm, 22 * mm, 13 * mm,
-                  34 * mm, 22 * mm, 34 * mm, 13 * mm, 32 * mm, 19 * mm]
     table = Table(data, colWidths=col_widths, repeatRows=1)
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F172A")),

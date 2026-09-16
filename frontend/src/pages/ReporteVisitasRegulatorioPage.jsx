@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   ShieldCheck, Calendar, Filter, MapPin, User as UserIcon, RefreshCw,
-  FileDown, FileSpreadsheet, Printer, Camera, Building2, Users,
+  FileDown, FileSpreadsheet, Printer, Camera, Building2, Users, Image as ImageIcon,
 } from "lucide-react";
 
 const TZ = "America/Caracas";
@@ -46,7 +46,11 @@ export default function ReporteVisitasRegulatorioPage() {
     visit_type: "all",
     site_id: "__all",
     host_user_id: "__all",
+    include_photos: "yes",
   });
+
+  const withPhotos = filters.include_photos === "yes";
+  const COLS = withPhotos ? 11 : 10;
 
   useEffect(() => {
     async function loadRefs() {
@@ -68,8 +72,9 @@ export default function ReporteVisitasRegulatorioPage() {
     if (filters.visit_type !== "all") p.set("visit_type", filters.visit_type);
     if (filters.site_id !== "__all") p.set("site_id", filters.site_id);
     if (filters.host_user_id !== "__all") p.set("host_user_id", filters.host_user_id);
+    p.set("include_photos", withPhotos ? "true" : "false");
     return p;
-  }, [filters]);
+  }, [filters, withPhotos]);
 
   async function fetchReport() {
     if (!filters.from_date || !filters.to_date) {
@@ -125,7 +130,7 @@ export default function ReporteVisitasRegulatorioPage() {
       return;
     }
     win.document.write(buildPrintableHtml({
-      rows, meta, filters, sites, users,
+      rows, meta, filters, sites, users, withPhotos,
       company: branding?.company_name || "Mega Soft",
       logo: branding?.logo_base64,
     }));
@@ -200,8 +205,8 @@ export default function ReporteVisitasRegulatorioPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5 lg:col-span-2">
-              <Label className="text-[11px] text-muted-foreground flex items-center gap-1"><UserIcon className="h-3 w-3" /> Anfitrión / Empleado responsable</Label>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1"><UserIcon className="h-3 w-3" /> Anfitrión</Label>
               <Select value={filters.host_user_id} onValueChange={(v) => setFilters((f) => ({ ...f, host_user_id: v }))}>
                 <SelectTrigger className="h-10" data-testid="vr-host"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -210,10 +215,21 @@ export default function ReporteVisitasRegulatorioPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-[11px] text-muted-foreground flex items-center gap-1"><ImageIcon className="h-3 w-3" /> Fotos en reporte</Label>
+              <Select value={filters.include_photos} onValueChange={(v) => setFilters((f) => ({ ...f, include_photos: v }))}>
+                <SelectTrigger className="h-10" data-testid="vr-include-photos"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Incluir fotos</SelectItem>
+                  <SelectItem value="no">Sin fotos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <p className="text-xs text-muted-foreground" data-testid="vr-count">
               {meta.visits_count} visita{meta.visits_count !== 1 ? "s" : ""} · {meta.visitors_count} visitante{meta.visitors_count !== 1 ? "s" : ""}
+              {!withPhotos && " · sin evidencia fotográfica"}
             </p>
             <Button size="sm" onClick={fetchReport} disabled={loading}
                     className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground" data-testid="vr-apply">
@@ -228,7 +244,7 @@ export default function ReporteVisitasRegulatorioPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40">
-                <TableHead className="w-16">Foto</TableHead>
+                {withPhotos && <TableHead className="w-16">Foto</TableHead>}
                 <TableHead>Código</TableHead>
                 <TableHead>Programada</TableHead>
                 <TableHead>Entrada real</TableHead>
@@ -242,21 +258,23 @@ export default function ReporteVisitasRegulatorioPage() {
               </TableRow>
             </TableHeader>
             <TableBody data-testid="vr-table">
-              {loading && <TableRow><TableCell colSpan={11} className="text-center py-10 text-muted-foreground">Cargando…</TableCell></TableRow>}
+              {loading && <TableRow><TableCell colSpan={COLS} className="text-center py-10 text-muted-foreground">Cargando…</TableCell></TableRow>}
               {!loading && rows.length === 0 && (
-                <TableRow><TableCell colSpan={11} className="text-center py-10 text-muted-foreground">Sin visitas para los filtros aplicados</TableCell></TableRow>
+                <TableRow><TableCell colSpan={COLS} className="text-center py-10 text-muted-foreground">Sin visitas para los filtros aplicados</TableCell></TableRow>
               )}
               {!loading && rows.map((r, i) => (
                 <TableRow key={`${r.visit_id}-${i}`} data-testid={`vr-row-${r.visit_id}-${i}`}>
-                  <TableCell>
-                    {r.selfie_thumb ? (
-                      <img src={r.selfie_thumb} alt={r.visitor_name} className="h-12 w-12 rounded-lg object-cover border" />
-                    ) : (
-                      <div className="h-12 w-12 rounded-lg bg-muted grid place-items-center" title="Sin evidencia biométrica">
-                        <Camera className="h-5 w-5 text-muted-foreground opacity-40" />
-                      </div>
-                    )}
-                  </TableCell>
+                  {withPhotos && (
+                    <TableCell>
+                      {r.selfie_thumb ? (
+                        <img src={r.selfie_thumb} alt={r.visitor_name} className="h-12 w-12 rounded-lg object-cover border" />
+                      ) : (
+                        <div className="h-12 w-12 rounded-lg bg-muted grid place-items-center" title="Sin evidencia biométrica">
+                          <Camera className="h-5 w-5 text-muted-foreground opacity-40" />
+                        </div>
+                      )}
+                    </TableCell>
+                  )}
                   <TableCell className="text-[11px] font-mono text-muted-foreground">{(r.visit_id || "").replace("visit_", "")}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{fmtDT(r.scheduled_at)}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">
@@ -302,13 +320,13 @@ export default function ReporteVisitasRegulatorioPage() {
   );
 }
 
-function buildPrintableHtml({ rows, meta, filters, sites, users, company, logo }) {
+function buildPrintableHtml({ rows, meta, filters, sites, users, withPhotos, company, logo }) {
   const siteName = filters.site_id !== "__all" ? (sites.find((s) => s.site_id === filters.site_id)?.name || "") : "Todas";
   const hostName = filters.host_user_id !== "__all" ? (users.find((u) => u.user_id === filters.host_user_id)?.name || "") : "Todos";
   const typeName = filters.visit_type === "all" ? "Todos" : filters.visit_type === "laboral" ? "Laboral" : "Personal";
   const bodyRows = rows.map((r) => `
     <tr>
-      <td>${r.selfie_thumb ? `<img src="${r.selfie_thumb}" alt="">` : '<div class="noimg"></div>'}</td>
+      ${withPhotos ? `<td>${r.selfie_thumb ? `<img src="${r.selfie_thumb}" alt="">` : '<div class="noimg"></div>'}</td>` : ""}
       <td class="mono">${(r.visit_id || "").replace("visit_", "")}</td>
       <td>${fmtDT(r.scheduled_at)}</td>
       <td>${r.entry_at ? fmtDT(r.entry_at) : "Sin marcaje"}</td>
@@ -344,11 +362,11 @@ function buildPrintableHtml({ rows, meta, filters, sites, users, company, logo }
     <div>
       <h1>${company} · Reporte de Visitas Realizadas</h1>
       <div class="sub">Auditoría de Control de Acceso · Período: ${filters.from_date} — ${filters.to_date} · Tipo: ${typeName} · Sede: ${siteName} · Anfitrión: ${hostName}</div>
-      <div class="sub">${meta.visits_count} visitas · ${meta.visitors_count} visitantes · Generado: ${new Date().toLocaleString("es-VE", { timeZone: "America/Caracas" })}</div>
+      <div class="sub">${meta.visits_count} visitas · ${meta.visitors_count} visitantes · Evidencia fotográfica: ${withPhotos ? "incluida" : "no incluida"} · Generado: ${new Date().toLocaleString("es-VE", { timeZone: "America/Caracas" })}</div>
     </div>
   </div>
   <table>
-    <thead><tr><th>Foto</th><th>Código</th><th>Programada</th><th>Entrada real</th><th>Salida real</th><th>Sede</th><th>Tipo</th><th>Anfitrión</th><th>Visitante</th><th>Clasif.</th><th>Empresa / Motivo</th></tr></thead>
+    <thead><tr>${withPhotos ? "<th>Foto</th>" : ""}<th>Código</th><th>Programada</th><th>Entrada real</th><th>Salida real</th><th>Sede</th><th>Tipo</th><th>Anfitrión</th><th>Visitante</th><th>Clasif.</th><th>Empresa / Motivo</th></tr></thead>
     <tbody>${bodyRows}</tbody>
   </table>
   <div class="foot"><span>${company} · Sistema de Asistencia y Control de Visitas</span><span>Documento generado electrónicamente — válido para auditoría</span></div>
