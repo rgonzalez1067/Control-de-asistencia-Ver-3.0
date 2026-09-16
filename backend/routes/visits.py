@@ -15,6 +15,23 @@ from deps import (
 ERR_VISIT_NOT_FOUND = "Visita no encontrada"
 
 
+async def _has_rbac_perm(user: Dict[str, Any], key: str) -> bool:
+    from deps import enrich_user_with_permissions
+    enriched_user = await enrich_user_with_permissions(user)
+    perms = enriched_user.get("effective_permissions") or {}
+    return bool(perms.get(key))
+
+
+async def _can_view_visit_logs(user: Dict[str, Any]) -> bool:
+    return (user.get("role") == "admin" or bool(user.get("can_view_visit_logs"))
+            or await _has_rbac_perm(user, "visitas_historico"))
+
+
+async def _can_create_visits(user: Dict[str, Any]) -> bool:
+    return (user.get("role") == "admin" or bool(user.get("can_create_visits"))
+            or await _has_rbac_perm(user, "visitas_agendar"))
+
+
 # ==================================================================
 # VISITS (Control de Visitas) — 6 endpoints
 # ==================================================================
@@ -68,7 +85,7 @@ def _validate_personal_visit(payload: VisitIn) -> None:
 @api.post("/visits")
 async def create_visit(payload: VisitIn,
                        user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    if not user.get("can_create_visits") and user.get("role") != "admin":
+    if not await _can_create_visits(user):
         raise HTTPException(status_code=403, detail="No tienes permiso para crear visitas")
     if payload.type not in ("personal", "laboral"):
         raise HTTPException(status_code=400, detail="type debe ser 'personal' o 'laboral'")
@@ -112,13 +129,10 @@ async def create_visit(payload: VisitIn,
 
 @api.get("/visits")
 async def list_visits(user: Dict[str, Any] = Depends(get_current_user)) -> List[Dict[str, Any]]:
-    if not user.get("can_view_visit_logs") and user.get("role") != "admin":
+    if not await _can_view_visit_logs(user):
         raise HTTPException(status_code=403, detail="No tienes permiso para ver el registro de visitas")
-    q: Dict[str, Any] = {}
-    if user.get("role") != "admin":
-        q["created_by"] = user["user_id"]
     docs = []
-    for d in await db.visits.find(q).sort("created_at", -1).to_list(1000):
+    for d in await db.visits.find({}).sort("created_at", -1).to_list(1000):
         d.pop("_id", None)
         d.pop("selfies", None)
         docs.append(d)
@@ -128,7 +142,7 @@ async def list_visits(user: Dict[str, Any] = Depends(get_current_user)) -> List[
 @api.get("/visits/{visit_id}")
 async def get_visit(visit_id: str,
                     user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    if not user.get("can_view_visit_logs") and user.get("role") != "admin":
+    if not await _can_view_visit_logs(user):
         raise HTTPException(status_code=403, detail="No tienes permiso para ver visitas")
     d = await db.visits.find_one({"visit_id": visit_id})
     if not d:
@@ -236,7 +250,7 @@ async def capture_visit_selfie(visit_id: str, payload: VisitSelfieIn) -> Dict[st
 @api.post("/visits/{visit_id}/close")
 async def close_visit(visit_id: str,
                       user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    if not user.get("can_view_visit_logs") and user.get("role") != "admin":
+    if not await _can_view_visit_logs(user):
         raise HTTPException(status_code=403, detail="No tienes permiso para cerrar visitas")
     doc = await db.visits.find_one({"visit_id": visit_id})
     if not doc:

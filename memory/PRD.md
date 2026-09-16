@@ -595,3 +595,9 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **Causa raíz**: la homologación con el ZIP de GitLab eliminó los endpoints `GET /api/reports` (lista) y `GET /api/reports/export` (CSV) que el frontend (`ReportsPage.jsx`) consume. Además, el endpoint `/reports/export-csv` traído de GitLab estaba roto (desempaquetaba `_parse_date_range` como tupla cuando devuelve un dict) y nadie lo llamaba.
 - **Fix**: restaurados ambos endpoints en `routes/reports.py` desde el historial git (lógica con scope por rol: employee→solo sus marcas, líderes→equipo), y eliminado el `export-csv` defectuoso y sin uso.
 - **Verificado**: curl /reports → 3544 registros; /reports/export → CSV válido; UI /reportes → 500 filas renderizadas, stats OK, sin toast de error ✅
+
+## 2026-09-16 (3) — FIX: 403 "No tienes permiso" en Histórico de Visitas pese a tener permiso por perfil
+- **Causa raíz**: `routes/visits.py` solo validaba los flags directos `can_view_visit_logs` / `can_create_visits` (o rol admin), ignorando los permisos del perfil de acceso (`visitas_historico` / `visitas_agendar`) que el frontend sí respeta en sus guards. Usuarios con permiso vía perfil (ej. Anna Tata, perfil Gerente) recibían 403.
+- **Fix**: helpers `_can_view_visit_logs` / `_can_create_visits` en visits.py que combinan flag directo + permiso RBAC del perfil (mismo patrón que schedules.py). Aplicado a list/get/close/create de visitas.
+- **Adicional**: eliminado el scope `created_by` del listado — la página es de auditoría ("Consulta y auditoría de todas las visitas") y era su único consumidor; los no-admin veían lista vacía.
+- **Verificado**: Anna (perfil Gerente, historico=true) → 200 con la visita "Mega Soft" en UI ✅; admin → 200 (regresión) ✅; coordinador con perfil sin el permiso → 403 ✅.
