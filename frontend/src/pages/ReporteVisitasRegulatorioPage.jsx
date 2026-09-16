@@ -120,6 +120,10 @@ export default function ReporteVisitasRegulatorioPage() {
       return;
     }
     const win = window.open("", "_blank");
+    if (!win) {
+      toast.error("El navegador bloqueó la ventana de impresión — habilita ventanas emergentes");
+      return;
+    }
     win.document.write(buildPrintableHtml({
       rows, meta, filters, sites, users,
       company: branding?.company_name || "Mega Soft",

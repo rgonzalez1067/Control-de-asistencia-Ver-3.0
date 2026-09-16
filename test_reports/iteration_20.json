@@ -1,0 +1,26 @@
+{
+  "summary": "Iteración 20 — Módulo Reporte Regulatorio de Visitas (Auditoría de Control de Acceso). Testing E2E UI completo como admin (rgonzalez@megasoft.com.ve) inyectando JWT en localStorage 'megasoft.token'. Verificaciones PASS: (1) Sidebar muestra 'Reporte de Visitas Realizadas' bajo sección Reportes/Seguridad y la ruta /reportes/visitas-realizadas carga la página con [data-testid=visits-report-page]; (2) Filtros Desde/Hasta/Tipo/Sede/Anfitrión presentes con data-testids correctos (vr-from, vr-to, vr-type, vr-site, vr-host, vr-apply); (3) Grilla con 11 columnas exactas: Foto, Código, Programada, Entrada real, Salida real, Sede, Tipo, Anfitrión (nombre+cédula+depto), Visitante (nombre+cédula), Clasif. (Interno/Externo), Empresa/Motivo — verificado en screenshot con datos reales (Luis Hernández/Anfitrión, Mega Soft, Data Center...); (4) Rango 2026-09-01..2026-09-30 devuelve '2 visitas · 3 visitantes' con 3 filas; (5) Botón PDF: descarga OK, 2980 bytes, magic %PDF, toast de éxito, sin errores; (6) Botón Excel: descarga OK, 5715 bytes, magic PK (zip=xlsx válido); (7) Botón Imprimir abre ventana nueva con membrete 'Reporte de Visitas Realizadas' y <table> (sin sidebar ni botones); (8) Filtro Tipo=Personal → '1 visita · 1 visitante', 1 row con badge Personal (Pedro Perez/Anna Tata/Visita personal); (9) Filtro Tipo=Laboral → '1 visita · 2 visitantes', 2 rows badge Laboral (Mega Soft); (10) Validación Desde/Hasta vacío → toast 'El rango de fechas (Desde/Hasta) es obligatorio' mostrado y no ejecuta fetch; (11) /seguridad/perfiles: perfil Administrador muestra en sección VISITAS el toggle 'Reporte de Visitas Realizadas' ACTIVO (junto a Agendar visita e Histórico de visitas); Gerente muestra '9 de 19 permisos activos' (sin este permiso), confirmando RBAC OFF en no-admins. Backend ya validado por main agent con curl (JSON 200, PDF 200 %PDF-1.4, XLSX 200, 400 sin fechas, 403 gerente sin permiso, 200 gerente con permiso). No se re-ejecutó backend.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/frontend/src/pages/ReporteVisitasRegulatorioPage.jsx",
+    "/app/backend/routes/reports_visits.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ReporteVisitasRegulatorioPage.jsx (347 líneas) es autocontenido y limpio: usa @/lib/api con getToken(), formatApiErrorDetail para toasts, filtros memoizados en URLSearchParams (útil para reproducibilidad de la exportación con los MISMOS filtros que la grilla). Buena práctica.",
+    "exportFile() usa fetch nativo con Authorization: Bearer <token> — coincide con la política JWT del backend. Manejo de blob y anchor.click() es correcto para descargas cross-browser.",
+    "printReport() abre window.open('','_blank') e inyecta HTML con <script>setTimeout(()=>window.print(),300)</script>. Adecuado para navegador; sin embargo, en algunos navegadores popup blockers pueden bloquear la ventana — considerar detectar `if(!win) toast.error('Habilita ventanas emergentes')`.",
+    "Los `data-testid` prometidos (visits-report-page, vr-from, vr-to, vr-type, vr-site, vr-host, vr-apply, vr-refresh, vr-export-pdf, vr-export-xlsx, vr-print, vr-table, vr-count) están todos presentes. Cada fila tiene `vr-row-{visit_id}-{i}` (útil para múltiples visitantes por visita).",
+    "El servidor /api/reports/visits requiere from_date y to_date (400 sin ellos) y filtra visit_type/site_id/host_user_id — coincide con la UI. RBAC vía `enriched.effective_permissions.visitas_reporte_regulatorio` está aplicado en el decorador de la ruta.",
+    "server.py línea 369 registra el permiso en la sección 'Visitas' del catálogo — se refleja correctamente en la UI de Perfiles."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (verificado por main agent con curl, no re-ejecutado)", "frontend": "100% (11/11 verificaciones UI PASS)"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / Sol*1401*1010 — login vía API + JWT en localStorage 'megasoft.token' (input UI de email es controlado y falla con Playwright, workaround indicado por main agent funcionó perfectamente).",
+  "seed_data_creation": "Ninguna. Se usó data real existente: visita laboral 'Mega Soft' (2 visitantes internos Fernandes/Anna Tata, host Luis Hernández, sede Los Chaguaramos, 14/09/2026 10:00, sin selfies) y visita personal Pedro Perez (externo, host Anna Tata, sede Torre Banco Plaza, 16/09/2026).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Módulo Reporte de Visitas Realizadas completamente funcional end-to-end. UI, exportación PDF/XLSX, impresión, filtros (Tipo, Sede, Anfitrión, rango de fechas obligatorio), RBAC (admin sí, gerente no) y visibilidad en Perfiles → sección Visitas → todo verificado. Workaround de login UI: JWT en localStorage 'megasoft.token' (input de email controlado no acepta Playwright fill directo).",
+  "rca_of_the_issue": "N/A — feature nuevo verificado sin bugs."
+}
