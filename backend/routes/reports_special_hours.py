@@ -57,7 +57,7 @@ async def reports_special_hours_xlsx(from_date: Optional[str] = Query(None),
         company_name=settings.get("company_name") or "Mega Soft",
         logo_base64=settings.get("logo_base64"),
     )
-    filename = f"horas_turnos_especiales_{from_date}_a_{to_date}.xlsx"
+    filename = f"asistencia_turnos_especiales_{from_date}_a_{to_date}.xlsx"
     return StreamingResponse(
         iter([xlsx_bytes]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

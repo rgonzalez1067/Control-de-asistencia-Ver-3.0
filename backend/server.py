@@ -443,7 +443,7 @@ MENU_CATALOG: List[Dict[str, Any]] = [
     {"key": "visitas_agendar",    "label": "Agendar visita",     "section": "Visitas"},
     {"key": "visitas_historico",  "label": "Histórico de visitas", "section": "Visitas"},
     {"key": "visitas_reporte_regulatorio", "label": "Reporte de Visitas Realizadas", "section": "Visitas"},
-    {"key": "reporte_horas_turnos_especiales", "label": "Reporte de Horas · Turnos Especiales", "section": "Reportes"},
+    {"key": "reporte_horas_turnos_especiales", "label": "Reporte de Asistencia Turnos Especiales", "section": "Reportes"},
     {"key": "auditoria_pistas", "label": "Pistas de Auditoría", "section": "Seguridad"},
     # Sección: Administración
     {"key": "empleados",          "label": "Empleados",          "section": "Administración"},

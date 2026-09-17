@@ -136,7 +136,7 @@ export default function AppLayout() {
   if (canCreateVisits) visitItems.push({ to: "/visitas/agendar", icon: UserPlus, label: "Agendar visita", permKey: "visitas_agendar" });
   if (canViewVisitLogs) visitItems.push({ to: "/visitas/historico", icon: ClipboardList, label: "Histórico de visitas", permKey: "visitas_historico" });
   if (hasPerm("visitas_reporte_regulatorio")) visitItems.push({ to: "/reportes/visitas-realizadas", icon: FileBarChart2, label: "Reporte de Visitas Realizadas", permKey: "visitas_reporte_regulatorio" });
-  if (hasPerm("reporte_horas_turnos_especiales")) visitItems.push({ to: "/reportes/horas-turnos-especiales", icon: Timer, label: "Horas · Turnos Especiales", permKey: "reporte_horas_turnos_especiales" });
+  if (hasPerm("reporte_horas_turnos_especiales")) visitItems.push({ to: "/reportes/horas-turnos-especiales", icon: Timer, label: "Asistencia Turnos Especiales", permKey: "reporte_horas_turnos_especiales" });
 
   // Para no-admin: agregamos horarios / asignar si el flag legacy los tenía. La
   // filtración final por `effective_permissions` deja pasar si están en el perfil.

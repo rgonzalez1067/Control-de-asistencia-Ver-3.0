@@ -100,7 +100,7 @@ export default function ReporteHorasTurnosEspecialesPage() {
       const blob = await r.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `horas_turnos_especiales_${filters.from_date}_a_${filters.to_date}.xlsx`;
+      a.download = `asistencia_turnos_especiales_${filters.from_date}_a_${filters.to_date}.xlsx`;
       a.click();
       toast.success("Excel descargado");
     } catch (e) { toast.error(e.message); }
@@ -127,9 +127,9 @@ export default function ReporteHorasTurnosEspecialesPage() {
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-4" data-testid="special-hours-page">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <Badge variant="secondary" className="rounded-full mb-2">Nómina · Turnos Especiales</Badge>
+          <Badge variant="secondary" className="rounded-full mb-2">Gerencia de Monitoreo · Turnos Especiales</Badge>
           <h1 className="text-3xl font-bold flex items-center gap-2">
-            <Timer className="h-7 w-7 text-primary/70" /> Reporte de Horas Trabajadas
+            <Timer className="h-7 w-7 text-primary/70" /> Reporte de Asistencia Turnos Especiales
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Consolidado de horas diurnas, nocturnas, feriadas y descansos para personal con Horario Especial (rotativos/monitoreo).

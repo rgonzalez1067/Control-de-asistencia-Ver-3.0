@@ -647,3 +647,8 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 ## 2026-09-17 (3) — FIX: Trabajo Remoto no contaba en reporte + Login dinámico
 - **Causa raíz del bug de remoto**: el reporte de Turnos Especiales solo leía la colección `novelties`, pero las novedades planificadas desde la matriz viven en `schedule_assignments` con `kind=novelty` / `novelty_type=remote`. Fix: `has_remote` ahora cubre ambas fuentes. Verificado: Christian Uzcátegui 7 turnos + 4 remotos = 11 trabajados (domingo remoto 06/09 → FerD/FerN); Daniel González 8 turnos + 5 remotos = 13 ✅
 - **Login page**: eliminados textos de "Geocerca por sede" (highlight → "Control de visitas", párrafo actualizado) y stats hardcodeados (17/15/2) ahora dinámicos vía nuevo endpoint público `GET /api/public/stats` (sin auth, solo contadores). Valores reales: 132 empleados, 16 departamentos, 2 sedes.
+
+## 2026-09-17 (4) — Rebrand: Reporte de Asistencia Turnos Especiales (Gerencia de Monitoreo)
+- Renombrado "Reporte de Horas Trabajadas" → "Reporte de Asistencia Turnos Especiales" en: título de página, badge, sidebar, catálogo RBAC (misma clave `reporte_horas_turnos_especiales`), XLSX (título, hoja y nombre de archivo `asistencia_turnos_especiales_*.xlsx`).
+- Emisor del XLSX: "Gerencia de Seguridad de la Información" → **"Gerencia de Monitoreo"** (solo este reporte; Visitas y Auditoría mantienen Seguridad de la Información).
+- Verificado: XLSX con A1/A2 correctos y filename actualizado ✅

@@ -197,7 +197,7 @@ def export_special_hours_xlsx(report: Dict[str, Any],
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Horas · Turnos Especiales"
+    ws.title = "Asistencia Turnos Especiales"
 
     thin = Side(style="thin", color="CBD5E1")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -206,13 +206,13 @@ def export_special_hours_xlsx(report: Dict[str, Any],
     ger_font = Font(bold=True, color="B45309", size=10)
 
     ws.merge_cells("A1:J1")
-    ws["A1"] = f"{company_name} · Reporte de Horas Trabajadas — Turnos Especiales"
+    ws["A1"] = f"{company_name} · Reporte de Asistencia — Turnos Especiales"
     ws["A1"].font = Font(bold=True, color="0F172A", size=14)
     ws["A1"].alignment = Alignment(vertical="center")
     ws.row_dimensions[1].height = 26
 
     ws.merge_cells("A2:J2")
-    ws["A2"] = "Gerencia de Seguridad de la Información · Unidad generadora del reporte"
+    ws["A2"] = "Gerencia de Monitoreo · Unidad generadora del reporte"
     ws["A2"].font = ger_font
     ws["A2"].alignment = Alignment(vertical="center")
 
