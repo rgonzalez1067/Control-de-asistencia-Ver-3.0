@@ -7,8 +7,9 @@ from deps import (
     LEADER_ROLES, LEADER_OR_ADMIN_ROLES,
     now_utc, new_id, strip_mongo_id, supervisor_scope_ids,
     NoveltyIn, NoveltyDecideIn, NoveltyPatchIn,
-    HTTPException, Depends,
+    HTTPException, Depends, Request,
     Any, Dict, List,
+    audit_entity,
 )
 
 
@@ -45,7 +46,7 @@ async def novelties_list(user: Dict[str, Any] = Depends(get_current_user)) -> Li
 
 
 @api.post("/novelties")
-async def novelties_create(payload: NoveltyIn,
+async def novelties_create(request: Request, payload: NoveltyIn,
                            user: Dict[str, Any] = Depends(get_current_user)) -> Any:
     target = payload.user_id or user["user_id"]
     await _validate_novelty_target(target, user)
@@ -83,6 +84,8 @@ async def novelties_create(payload: NoveltyIn,
         } for d in unique_sorted]
         if docs:
             await db.novelties.insert_many(docs)
+            for d in docs:
+                await audit_entity(request, "CREATE", "novelties", d["novelty_id"], after=d, actor=user)
         return {"created": len(docs), "novelty_ids": [d["novelty_id"] for d in docs]}
 
     # ── Modo rango clásico ────────────────────────────────────────────
@@ -105,11 +108,12 @@ async def novelties_create(payload: NoveltyIn,
         "decision_comment": None,
     }
     await db.novelties.insert_one(doc)
+    await audit_entity(request, "CREATE", "novelties", doc["novelty_id"], after=doc, actor=user)
     return strip_mongo_id(doc)
 
 
 @api.delete("/novelties/{novelty_id}")
-async def novelties_delete(novelty_id: str,
+async def novelties_delete(request: Request, novelty_id: str,
                            user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
     """Elimina una novedad con SOFT DELETE (Adenda sep-2026).
 
@@ -143,11 +147,13 @@ async def novelties_delete(novelty_id: str,
             "deleted_by": user["user_id"],
         }},
     )
+    after = await db.novelties.find_one({"novelty_id": novelty_id})
+    await audit_entity(request, "DELETE", "novelties", novelty_id, before=doc, after=after, actor=user)
     return {"ok": True}
 
 
 @api.post("/novelties/bulk-decide")
-async def novelties_decide(payload: NoveltyDecideIn,
+async def novelties_decide(request: Request, payload: NoveltyDecideIn,
                            user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> Dict[str, int]:
     updates = {
         "status": payload.decision,
@@ -156,14 +162,19 @@ async def novelties_decide(payload: NoveltyDecideIn,
         "decision_comment": payload.comment,
     }
     res = await db.novelties.update_many({"novelty_id": {"$in": payload.novelty_ids}}, {"$set": updates})
+    for nid in payload.novelty_ids:
+        after = await db.novelties.find_one({"novelty_id": nid}, {"_id": 0})
+        if after:
+            await audit_entity(request, "UPDATE", "novelties", nid, after=after, actor=user,
+                                extra={"decision": payload.decision})
     return {"modified_count": res.modified_count}
 
 
 @api.patch("/novelties/{novelty_id}")
-async def novelties_patch(novelty_id: str, payload: NoveltyPatchIn,
+async def novelties_patch(request: Request, novelty_id: str, payload: NoveltyPatchIn,
                           user: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
-    doc = await db.novelties.find_one({"novelty_id": novelty_id})
-    if not doc:
+    before = await db.novelties.find_one({"novelty_id": novelty_id})
+    if not before:
         raise HTTPException(status_code=404, detail="Novedad no encontrada")
     upd: Dict[str, Any] = {}
     for k in ("type", "start_date", "end_date", "start_time", "end_time",
@@ -176,4 +187,7 @@ async def novelties_patch(novelty_id: str, payload: NoveltyPatchIn,
         upd["updated_by"] = user["user_id"]
         await db.novelties.update_one({"novelty_id": novelty_id}, {"$set": upd})
         doc = await db.novelties.find_one({"novelty_id": novelty_id})
+        await audit_entity(request, "UPDATE", "novelties", novelty_id, before=before, after=doc, actor=user)
+    else:
+        doc = before
     return strip_mongo_id(doc)

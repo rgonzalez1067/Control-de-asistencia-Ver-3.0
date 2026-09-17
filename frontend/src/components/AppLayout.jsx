@@ -39,6 +39,7 @@ const NAV_ADMIN = [
   { to: "/novedades", icon: Bell, label: "Novedades", permKey: "novedades" },
   { to: "/seguridad/perfiles", icon: ShieldCheck, label: "Perfiles de acceso", section: "Seguridad", permKey: "seguridad_perfiles" },
   { to: "/seguridad/permisos", icon: UserCog, label: "Permisos de usuario", section: "Seguridad", permKey: "seguridad_permisos" },
+  { to: "/seguridad/auditoria", icon: ShieldCheck, label: "Pistas de auditoría", section: "Seguridad", permKey: "auditoria_pistas" },
   { to: "/festivos", icon: CalendarDays, label: "Días festivos", section: "Configuración" },
   { to: "/ajustes", icon: Settings2, label: "Ajustes", permKey: "ajustes" },
 ];

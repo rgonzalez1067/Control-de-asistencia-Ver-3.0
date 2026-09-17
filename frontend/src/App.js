@@ -29,6 +29,7 @@ import AgendarVisitaPage from "@/pages/AgendarVisitaPage";
 import HistoricoVisitasPage from "@/pages/HistoricoVisitasPage";
 import ReporteVisitasRegulatorioPage from "@/pages/ReporteVisitasRegulatorioPage";
 import ReporteHorasTurnosEspecialesPage from "@/pages/ReporteHorasTurnosEspecialesPage";
+import PistasAuditoriaPage from "@/pages/PistasAuditoriaPage";
 import KioskAutoStart from "@/pages/KioskAutoStart";
 import SecurityProfilesPage from "@/pages/SecurityProfilesPage";
 import UserPermissionsPage from "@/pages/UserPermissionsPage";
@@ -125,6 +126,11 @@ function App() {
             <Route path="reportes/horas-turnos-especiales" element={
               <ProtectedRoute permKey="reporte_horas_turnos_especiales">
                 <ReporteHorasTurnosEspecialesPage />
+              </ProtectedRoute>
+            } />
+            <Route path="seguridad/auditoria" element={
+              <ProtectedRoute permKey="auditoria_pistas">
+                <PistasAuditoriaPage />
               </ProtectedRoute>
             } />
           </Route>

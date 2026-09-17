@@ -10,8 +10,9 @@ from datetime import datetime, timezone
 from deps import (
     api, db, get_current_user,
     now_utc, new_id, strip_mongo_id,
-    HTTPException, Depends,
+    HTTPException, Depends, Request,
     Any, Dict, List, Optional,
+    audit_entity,
 )
 from pydantic import BaseModel, Field
 
@@ -56,7 +57,7 @@ async def holidays_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[D
 
 
 @api.post("/holidays")
-async def holidays_create(payload: HolidayIn,
+async def holidays_create(request: Request, payload: HolidayIn,
                           admin: Dict[str, Any] = Depends(_require_admin)) -> Dict[str, Any]:
     _validate_date(payload.date)
     # Deduplicar: mismo (mes, día) recurrente + mismo día no puede coexistir.
@@ -78,14 +79,18 @@ async def holidays_create(payload: HolidayIn,
         "created_at": now_utc(),
     }
     await db.holidays.insert_one(doc)
+    await audit_entity(request, "CREATE", "holidays", doc["holiday_id"], after=doc, actor=admin)
     return _public(doc)
 
 
 @api.put("/holidays/{holiday_id}")
-async def holidays_update(holiday_id: str, payload: HolidayIn,
+async def holidays_update(request: Request, holiday_id: str, payload: HolidayIn,
                           admin: Dict[str, Any] = Depends(_require_admin)) -> Dict[str, Any]:
     _validate_date(payload.date)
-    res = await db.holidays.update_one(
+    before = await db.holidays.find_one({"holiday_id": holiday_id})
+    if not before:
+        raise HTTPException(status_code=404, detail="Feriado no encontrado")
+    await db.holidays.update_one(
         {"holiday_id": holiday_id},
         {"$set": {
             "date": payload.date,
@@ -95,16 +100,17 @@ async def holidays_update(holiday_id: str, payload: HolidayIn,
             "updated_by": admin["user_id"],
         }},
     )
-    if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Feriado no encontrado")
     doc = await db.holidays.find_one({"holiday_id": holiday_id})
+    await audit_entity(request, "UPDATE", "holidays", holiday_id, before=before, after=doc, actor=admin)
     return _public(doc)
 
 
 @api.delete("/holidays/{holiday_id}")
-async def holidays_delete(holiday_id: str,
-                          _: Dict[str, Any] = Depends(_require_admin)) -> Dict[str, Any]:
+async def holidays_delete(request: Request, holiday_id: str,
+                          admin: Dict[str, Any] = Depends(_require_admin)) -> Dict[str, Any]:
+    before = await db.holidays.find_one({"holiday_id": holiday_id})
     res = await db.holidays.delete_one({"holiday_id": holiday_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Feriado no encontrado")
+    await audit_entity(request, "DELETE", "holidays", holiday_id, before=before, actor=admin)
     return {"ok": True}

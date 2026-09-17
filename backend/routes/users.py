@@ -12,10 +12,11 @@ from deps import (
     hash_password, normalize_role,
     LEADER_ROLES,
     UserIn, UserUpdate, SelfieIn, PinIn,
-    HTTPException, Depends, UploadFile, File,
+    HTTPException, Depends, UploadFile, File, Request,
     StreamingResponse,
     Any, Dict, List, Optional,
     _load_import_lookups,
+    audit_entity,
 )
 
 ERR_USER_NOT_FOUND = "Usuario no encontrado"
@@ -37,8 +38,8 @@ async def users_list(user: Dict[str, Any] = Depends(get_current_user)) -> List[D
 
 
 @api.post("/users")
-async def users_create(payload: UserIn,
-                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+async def users_create(request: Request, payload: UserIn,
+                       actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     email = payload.email.lower().strip()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=409, detail="Email ya registrado")
@@ -56,6 +57,7 @@ async def users_create(payload: UserIn,
         doc["pin_code_hash"] = hash_password(payload.pin)
         doc.pop("pin", None)
     await db.users.insert_one(doc)
+    await audit_entity(request, "CREATE", "users", doc["user_id"], after=doc, actor=actor)
     return sanitize_user(doc)
 
 
@@ -310,24 +312,28 @@ async def users_get(user_id: str,
 
 
 @api.put("/users/{user_id}")
-async def users_update(user_id: str, payload: UserUpdate,
-                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+async def users_update(request: Request, user_id: str, payload: UserUpdate,
+                       actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Sin cambios")
-    res = await db.users.update_one({"user_id": user_id}, {"$set": updates})
-    if res.matched_count == 0:
+    before = await db.users.find_one({"user_id": user_id})
+    if not before:
         raise HTTPException(status_code=404, detail=ERR_USER_NOT_FOUND)
+    await db.users.update_one({"user_id": user_id}, {"$set": updates})
     u = await db.users.find_one({"user_id": user_id}, {"password_hash": 0, "pin_code_hash": 0})
+    await audit_entity(request, "UPDATE", "users", user_id, before=before, after=u, actor=actor)
     return strip_mongo_id(u)
 
 
 @api.delete("/users/{user_id}")
-async def users_delete(user_id: str,
-                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+async def users_delete(request: Request, user_id: str,
+                       actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+    before = await db.users.find_one({"user_id": user_id})
     res = await db.users.delete_one({"user_id": user_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail=ERR_USER_NOT_FOUND)
+    await audit_entity(request, "DELETE", "users", user_id, before=before, actor=actor)
     return {"ok": True}
 
 

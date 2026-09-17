@@ -107,6 +107,82 @@ async def audit_log(event: str, request, *, user_id: Optional[str] = None,
         logger.exception("audit_log write failed for event=%s", event)
 
 
+# Audit entity — captura CREATE/UPDATE/DELETE de entidades del negocio con
+# before/after (sep-2026). Colección `audit_log` compartida; usa `action_type`
+# (CREATE/UPDATE/DELETE) + `module_name` para diferenciarlos de los eventos
+# clásicos (login, register, etc.). Es best-effort y no debe tumbar la petición.
+def _sanitize_for_audit(doc: Any) -> Any:
+    """Elimina/trunca campos pesados o sensibles antes de persistir en logs."""
+    if isinstance(doc, dict):
+        out = {}
+        for k, v in doc.items():
+            if k in {"password_hash", "pin_code_hash", "face_descriptor",
+                     "selfie_base64", "picture", "logo_base64", "selfies"}:
+                out[k] = "***omitido***"
+            elif k == "_id":
+                continue
+            else:
+                out[k] = _sanitize_for_audit(v)
+        return out
+    if isinstance(doc, list):
+        return [_sanitize_for_audit(x) for x in doc]
+    if isinstance(doc, datetime):
+        return doc.isoformat()
+    return doc
+
+
+def _diff_before_after(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
+    """Genera un diff compacto con solo los campos que cambiaron."""
+    b = _sanitize_for_audit(before or {})
+    a = _sanitize_for_audit(after or {})
+    changes = {}
+    for k in set(list(b.keys()) + list(a.keys())):
+        if b.get(k) != a.get(k):
+            changes[k] = {"before": b.get(k), "after": a.get(k)}
+    return changes
+
+
+async def audit_entity(request, action_type: str, module_name: str, entity_id: Optional[str],
+                        *, before: Optional[Dict[str, Any]] = None,
+                        after: Optional[Dict[str, Any]] = None,
+                        actor: Optional[Dict[str, Any]] = None,
+                        extra: Optional[Dict[str, Any]] = None) -> None:
+    """Persiste una pista de auditoría CREATE/UPDATE/DELETE. Idempotente/best-effort."""
+    try:
+        ip = request.client.host if request and request.client else None
+        fwd = request.headers.get("X-Forwarded-For", "") if request else ""
+        real_ip = (fwd.split(",")[0].strip() if fwd else ip)
+        ua = request.headers.get("User-Agent", "") if request else ""
+        detail: Dict[str, Any]
+        if action_type == "UPDATE":
+            detail = {
+                "before": _sanitize_for_audit(before or {}),
+                "after":  _sanitize_for_audit(after or {}),
+                "changed_fields": list(_diff_before_after(before or {}, after or {}).keys()),
+            }
+        else:  # CREATE / DELETE — fotografía completa
+            snapshot = after if action_type == "CREATE" else before
+            detail = {"snapshot": _sanitize_for_audit(snapshot or {})}
+        await db.audit_log.insert_one({
+            "log_id": new_id("log", 12),
+            "action_type": action_type,
+            "module_name": module_name,
+            "entity_id": entity_id,
+            "user_id": (actor or {}).get("user_id"),
+            "email":   (actor or {}).get("email"),
+            "role":    (actor or {}).get("role"),
+            "ip": real_ip,
+            "user_agent": ua[:300],
+            "path": str(request.url.path) if request else None,
+            "method": request.method if request else None,
+            "timestamp": now_utc(),
+            "change_detail": detail,
+            "extra": extra or {},
+        })
+    except Exception:  # noqa: BLE001
+        logger.exception("audit_entity write failed action=%s module=%s", action_type, module_name)
+
+
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
@@ -368,6 +444,7 @@ MENU_CATALOG: List[Dict[str, Any]] = [
     {"key": "visitas_historico",  "label": "Histórico de visitas", "section": "Visitas"},
     {"key": "visitas_reporte_regulatorio", "label": "Reporte de Visitas Realizadas", "section": "Visitas"},
     {"key": "reporte_horas_turnos_especiales", "label": "Reporte de Horas · Turnos Especiales", "section": "Reportes"},
+    {"key": "auditoria_pistas", "label": "Pistas de Auditoría", "section": "Seguridad"},
     # Sección: Administración
     {"key": "empleados",          "label": "Empleados",          "section": "Administración"},
     {"key": "departamentos",      "label": "Departamentos",      "section": "Administración"},
@@ -1116,7 +1193,7 @@ async def _load_import_lookups() -> tuple:
 from routes import (  # noqa: F401,E402
     attendance, novelties, visits, reports, matrix,
     auth, catalogs, access_profiles, schedules, kiosk, admin,
-    users, holidays, reports_visits, reports_special_hours,
+    users, holidays, reports_visits, reports_special_hours, audit_logs,
 )
 
 app.include_router(api)

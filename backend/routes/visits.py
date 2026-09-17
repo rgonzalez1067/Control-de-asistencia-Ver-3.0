@@ -7,9 +7,10 @@ from deps import (
     APP_TZ, now_utc, new_id, strip_mongo_id, supervisor_scope_ids,
     UserPermissionsIn, VisitIn, VisitorPinIn, VisitSelfieIn,
     VISIT_PURPOSE_CATALOG,
-    HTTPException, Depends, Query,
+    HTTPException, Depends, Query, Request,
     Any, Dict, List, Optional,
     datetime, timezone, timedelta,
+    audit_entity,
 )
 
 ERR_VISIT_NOT_FOUND = "Visita no encontrada"
@@ -83,7 +84,7 @@ def _validate_personal_visit(payload: VisitIn) -> None:
 
 
 @api.post("/visits")
-async def create_visit(payload: VisitIn,
+async def create_visit(request: Request, payload: VisitIn,
                        user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if not await _can_create_visits(user):
         raise HTTPException(status_code=403, detail="No tienes permiso para crear visitas")
@@ -124,6 +125,7 @@ async def create_visit(payload: VisitIn,
         "selfies": [],
     }
     await db.visits.insert_one(doc)
+    await audit_entity(request, "CREATE", "visits", visit_id, after=doc, actor=user)
     return strip_mongo_id(doc)
 
 
@@ -248,7 +250,7 @@ async def capture_visit_selfie(visit_id: str, payload: VisitSelfieIn) -> Dict[st
 
 
 @api.post("/visits/{visit_id}/close")
-async def close_visit(visit_id: str,
+async def close_visit(request: Request, visit_id: str,
                       user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     if not await _can_view_visit_logs(user):
         raise HTTPException(status_code=403, detail="No tienes permiso para cerrar visitas")
@@ -276,11 +278,14 @@ async def close_visit(visit_id: str,
             "closed_by": user["user_id"],
         }},
     )
+    after = await db.visits.find_one({"visit_id": visit_id})
+    await audit_entity(request, "UPDATE", "visits", visit_id, before=doc, after=after, actor=user,
+                        extra={"event": "close"})
     return {"ok": True, "exit_at": exit_at.isoformat(), "duration_minutes": duration_min}
 
 
 @api.delete("/visits/{visit_id}")
-async def delete_visit(visit_id: str,
+async def delete_visit(request: Request, visit_id: str,
                        user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, bool]:
     """Eliminar visita: EXCLUSIVO del Administrador del Sistema (Adenda sep-2026).
 
@@ -292,4 +297,5 @@ async def delete_visit(visit_id: str,
     if not doc:
         raise HTTPException(status_code=404, detail=ERR_VISIT_NOT_FOUND)
     await db.visits.delete_one({"visit_id": visit_id})
+    await audit_entity(request, "DELETE", "visits", visit_id, before=doc, actor=user)
     return {"ok": True}

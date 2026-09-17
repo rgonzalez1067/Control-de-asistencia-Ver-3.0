@@ -7,8 +7,9 @@ from deps import (
     now_utc, new_id, strip_mongo_id,
     MENU_CATALOG, MENU_KEYS,
     AccessProfileIn, AssignProfileIn, AssignProfileToDeptIn,
-    HTTPException, Depends,
+    HTTPException, Depends, Request,
     Any, Dict, List,
+    audit_entity,
 )
 
 ERR_PROFILE_NOT_FOUND = "Perfil no encontrado"
@@ -34,8 +35,8 @@ async def access_profiles_list(_: Dict[str, Any] = Depends(require_roles("admin"
 
 
 @api.post("/access-profiles")
-async def access_profiles_create(payload: AccessProfileIn,
-                                 _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+async def access_profiles_create(request: Request, payload: AccessProfileIn,
+                                 actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     if await db.access_profiles.find_one({"name": payload.name.strip()}):
         raise HTTPException(status_code=409, detail=f"Ya existe un perfil con el nombre '{payload.name}'")
     doc = {
@@ -48,12 +49,13 @@ async def access_profiles_create(payload: AccessProfileIn,
         "updated_at": now_utc(),
     }
     await db.access_profiles.insert_one(doc)
+    await audit_entity(request, "CREATE", "access_profiles", doc["profile_id"], after=doc, actor=actor)
     return _access_profile_to_public(doc)
 
 
 @api.put("/access-profiles/{profile_id}")
-async def access_profiles_update(profile_id: str, payload: AccessProfileIn,
-                                 _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+async def access_profiles_update(request: Request, profile_id: str, payload: AccessProfileIn,
+                                 actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     existing = await db.access_profiles.find_one({"profile_id": profile_id})
     if not existing:
         raise HTTPException(status_code=404, detail=ERR_PROFILE_NOT_FOUND)
@@ -71,12 +73,13 @@ async def access_profiles_update(profile_id: str, payload: AccessProfileIn,
     }
     await db.access_profiles.update_one({"profile_id": profile_id}, {"$set": updates})
     doc = await db.access_profiles.find_one({"profile_id": profile_id})
+    await audit_entity(request, "UPDATE", "access_profiles", profile_id, before=existing, after=doc, actor=actor)
     return _access_profile_to_public(doc)
 
 
 @api.delete("/access-profiles/{profile_id}")
-async def access_profiles_delete(profile_id: str,
-                                 _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+async def access_profiles_delete(request: Request, profile_id: str,
+                                 actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
     prof = await db.access_profiles.find_one({"profile_id": profile_id})
     if not prof:
         raise HTTPException(status_code=404, detail=ERR_PROFILE_NOT_FOUND)
@@ -89,6 +92,8 @@ async def access_profiles_delete(profile_id: str,
             {"$set": {"access_profile_id": None}},
         )
     await db.access_profiles.delete_one({"profile_id": profile_id})
+    await audit_entity(request, "DELETE", "access_profiles", profile_id, before=prof, actor=actor,
+                        extra={"users_detached": in_use})
     return {"ok": True}
 
 

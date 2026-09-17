@@ -10,8 +10,9 @@ from deps import (
     api, db, get_current_user,
     now_utc, new_id, strip_mongo_id,
     ScheduleIn,
-    HTTPException, Depends,
+    HTTPException, Depends, Request,
     Any, Dict, List,
+    audit_entity,
 )
 
 
@@ -86,34 +87,39 @@ def _validate_shift_hours(payload: ScheduleIn) -> None:
 
 
 @api.post("/schedules")
-async def schedules_create(payload: ScheduleIn,
-                           _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
+async def schedules_create(request: Request, payload: ScheduleIn,
+                           user: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
     _validate_shift_hours(payload)
     doc = payload.model_dump()
     doc["schedule_id"] = new_id("sch", 10)
     doc["created_at"] = now_utc()
     await db.schedules.insert_one(doc)
+    await audit_entity(request, "CREATE", "schedules", doc["schedule_id"], after=doc, actor=user)
     return strip_mongo_id(doc)
 
 
 @api.put("/schedules/{schedule_id}")
-async def schedules_update(schedule_id: str, payload: ScheduleIn,
-                           _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
+async def schedules_update(request: Request, schedule_id: str, payload: ScheduleIn,
+                           user: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, Any]:
     _validate_shift_hours(payload)
-    updates = payload.model_dump(exclude_unset=True)
-    res = await db.schedules.update_one({"schedule_id": schedule_id}, {"$set": updates})
-    if res.matched_count == 0:
+    before = await db.schedules.find_one({"schedule_id": schedule_id})
+    if not before:
         raise HTTPException(status_code=404, detail=ERR_SCHEDULE_NOT_FOUND)
+    updates = payload.model_dump(exclude_unset=True)
+    await db.schedules.update_one({"schedule_id": schedule_id}, {"$set": updates})
     doc = await db.schedules.find_one({"schedule_id": schedule_id})
+    await audit_entity(request, "UPDATE", "schedules", schedule_id, before=before, after=doc, actor=user)
     return strip_mongo_id(doc)
 
 
 @api.delete("/schedules/{schedule_id}")
-async def schedules_delete(schedule_id: str,
-                           _: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, bool]:
+async def schedules_delete(request: Request, schedule_id: str,
+                           user: Dict[str, Any] = Depends(_require_admin_or_schedules_manager)) -> Dict[str, bool]:
+    before = await db.schedules.find_one({"schedule_id": schedule_id})
     res = await db.schedules.delete_one({"schedule_id": schedule_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail=ERR_SCHEDULE_NOT_FOUND)
+    await audit_entity(request, "DELETE", "schedules", schedule_id, before=before, actor=user)
     return {"ok": True}
 
 
@@ -482,7 +488,7 @@ async def list_assignment_plans(_: Dict[str, Any] = Depends(_require_admin_or_as
 
 
 @api.post("/schedule-assignment-plans")
-async def create_assignment_plan(payload: AssignmentPlanIn,
+async def create_assignment_plan(request: Request, payload: AssignmentPlanIn,
                                  current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
     name = (payload.name or "").strip()
     if not name:
@@ -535,11 +541,12 @@ async def create_assignment_plan(payload: AssignmentPlanIn,
             payload.assignments, current["user_id"],
         )
     await _prune_out_of_range_assignments(payload.user_ids, payload.from_date, payload.to_date)
+    await audit_entity(request, "CREATE", "assignment_plans", doc["plan_id"], after=doc, actor=current)
     return strip_mongo_id(doc)
 
 
 @api.put("/schedule-assignment-plans/{plan_id}")
-async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
+async def update_assignment_plan(request: Request, plan_id: str, payload: AssignmentPlanIn,
                                  current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, Any]:
     name = (payload.name or "").strip()
     if not name:
@@ -599,15 +606,18 @@ async def update_assignment_plan(plan_id: str, payload: AssignmentPlanIn,
         )
     await _prune_out_of_range_assignments(payload.user_ids, payload.from_date, payload.to_date)
     doc = await db.assignment_plans.find_one({"plan_id": plan_id})
+    await audit_entity(request, "UPDATE", "assignment_plans", plan_id, before=prev, after=doc, actor=current)
     return strip_mongo_id(doc)
 
 
 @api.delete("/schedule-assignment-plans/{plan_id}")
-async def delete_assignment_plan(plan_id: str,
-                                 _: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, bool]:
+async def delete_assignment_plan(request: Request, plan_id: str,
+                                 current: Dict[str, Any] = Depends(_require_admin_or_assigner)) -> Dict[str, bool]:
+    before = await db.assignment_plans.find_one({"plan_id": plan_id})
     res = await db.assignment_plans.delete_one({"plan_id": plan_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Planificación no encontrada")
+    await audit_entity(request, "DELETE", "assignment_plans", plan_id, before=before, actor=current)
     return {"ok": True}
 
 

@@ -6,9 +6,10 @@ from deps import (
     api, db, get_current_user, require_roles,
     now_utc, new_id, strip_mongo_id,
     SettingsIn, SiteIn, SiteResolveIn, DepartmentIn,
-    HTTPException, Depends,
+    HTTPException, Depends, Request,
     Any, Dict, List,
     FileResponse,
+    audit_entity,
 )
 
 
@@ -23,12 +24,14 @@ async def settings_get() -> Dict[str, Any]:
 
 
 @api.put("/settings")
-async def settings_put(payload: SettingsIn,
-                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+async def settings_put(request: Request, payload: SettingsIn,
+                       actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     updates = {k: v for k, v in payload.model_dump().items() if v is not None}
     updates["updated_at"] = now_utc()
+    before = await db.settings.find_one({"_id": "company"}) or {}
     await db.settings.update_one({"_id": "company"}, {"$set": updates}, upsert=True)
     doc = await db.settings.find_one({"_id": "company"})
+    await audit_entity(request, "UPDATE", "settings", "company", before=before, after=doc, actor=actor)
     doc["id"] = str(doc.pop("_id"))
     return doc
 
@@ -76,34 +79,39 @@ async def sites_list(_: Dict[str, Any] = Depends(get_current_user)) -> List[Dict
 
 
 @api.post("/sites")
-async def sites_create(payload: SiteIn,
-                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+async def sites_create(request: Request, payload: SiteIn,
+                       actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     doc = payload.model_dump()
     doc["site_id"] = new_id("site")
     doc["created_at"] = now_utc()
     await db.sites.insert_one(doc)
+    await audit_entity(request, "CREATE", "sites", doc["site_id"], after=doc, actor=actor)
     return strip_mongo_id(doc)
 
 
 @api.put("/sites/{site_id}")
-async def sites_update(site_id: str, payload: SiteIn,
-                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+async def sites_update(request: Request, site_id: str, payload: SiteIn,
+                       actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     updates = payload.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="Sin cambios")
-    res = await db.sites.update_one({"site_id": site_id}, {"$set": updates})
-    if res.matched_count == 0:
+    before = await db.sites.find_one({"site_id": site_id})
+    if not before:
         raise HTTPException(status_code=404, detail="Sede no encontrada")
+    await db.sites.update_one({"site_id": site_id}, {"$set": updates})
     doc = await db.sites.find_one({"site_id": site_id})
+    await audit_entity(request, "UPDATE", "sites", site_id, before=before, after=doc, actor=actor)
     return strip_mongo_id(doc)
 
 
 @api.delete("/sites/{site_id}")
-async def sites_delete(site_id: str,
-                       _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+async def sites_delete(request: Request, site_id: str,
+                       actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+    before = await db.sites.find_one({"site_id": site_id})
     res = await db.sites.delete_one({"site_id": site_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Sede no encontrada")
+    await audit_entity(request, "DELETE", "sites", site_id, before=before, actor=actor)
     return {"ok": True}
 
 
@@ -135,30 +143,35 @@ async def departments_list(_: Dict[str, Any] = Depends(get_current_user)) -> Lis
 
 
 @api.post("/departments")
-async def departments_create(payload: DepartmentIn,
-                             _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+async def departments_create(request: Request, payload: DepartmentIn,
+                             actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     doc = payload.model_dump()
     doc["department_id"] = new_id("dept", 10)
     doc["created_at"] = now_utc()
     await db.departments.insert_one(doc)
+    await audit_entity(request, "CREATE", "departments", doc["department_id"], after=doc, actor=actor)
     return strip_mongo_id(doc)
 
 
 @api.put("/departments/{department_id}")
-async def departments_update(department_id: str, payload: DepartmentIn,
-                             _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+async def departments_update(request: Request, department_id: str, payload: DepartmentIn,
+                             actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
     updates = payload.model_dump(exclude_unset=True)
-    res = await db.departments.update_one({"department_id": department_id}, {"$set": updates})
-    if res.matched_count == 0:
+    before = await db.departments.find_one({"department_id": department_id})
+    if not before:
         raise HTTPException(status_code=404, detail="Departamento no encontrado")
+    await db.departments.update_one({"department_id": department_id}, {"$set": updates})
     doc = await db.departments.find_one({"department_id": department_id})
+    await audit_entity(request, "UPDATE", "departments", department_id, before=before, after=doc, actor=actor)
     return strip_mongo_id(doc)
 
 
 @api.delete("/departments/{department_id}")
-async def departments_delete(department_id: str,
-                             _: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+async def departments_delete(request: Request, department_id: str,
+                             actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, bool]:
+    before = await db.departments.find_one({"department_id": department_id})
     res = await db.departments.delete_one({"department_id": department_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Departamento no encontrado")
+    await audit_entity(request, "DELETE", "departments", department_id, before=before, actor=actor)
     return {"ok": True}

@@ -41,7 +41,7 @@ from server import (  # noqa: F401
     _parse_date_range,
     _load_import_lookups,
     # Security
-    limiter, audit_log,
+    limiter, audit_log, audit_entity,
 )
 
 from datetime import datetime, timezone, timedelta  # noqa: F401
