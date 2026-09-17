@@ -26,6 +26,7 @@ from server import (  # noqa: F401
     haversine_m, normalize_role, validate_password_policy,
     password_is_reused, password_expired,
     PASSWORD_HISTORY_SIZE, LOGIN_MAX_FAILED, LOGIN_LOCKOUT_MINUTES, SESSION_IDLE_MINUTES,
+    PASSWORD_MIN_LENGTH, PASSWORD_MAX_AGE_DAYS,
     # Pydantic models (moved as they get referenced by routers)
     LoginIn, RegisterIn, ChangePasswordIn, ChangePinIn, ResetPasswordIn,
     AttendanceCheckIn, JustifyIn, JustifyDecideIn,

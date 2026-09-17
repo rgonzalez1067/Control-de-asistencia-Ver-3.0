@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound, MonitorSmartphone, Unlock, MapPin, Clock, BookText, FileText, Shield, Copy, CheckCircle2, ShieldAlert } from "lucide-react";
+import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound, MonitorSmartphone, Unlock, MapPin, Clock, BookText, FileText, Shield, Copy, CheckCircle2, ShieldAlert, Lock, Mail, Hash } from "lucide-react";
 
 const TIMEZONES = [
   "America/Caracas", "America/Bogota", "America/Mexico_City", "America/Buenos_Aires",
@@ -194,6 +194,7 @@ export default function SettingsPage() {
       <BackupCard />
       <KioskSessionsCard />
       <ManualsCard />
+      <SecurityParamsCard />
       <ResetAllPasswordsCard />
       <SecurityBootstrapCard />
 
@@ -511,6 +512,230 @@ function BackupCard() {
         </div>
         </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// =====================================================================
+// Parámetros de seguridad — solo admin. Configura política de contraseñas,
+// bloqueo por intentos fallidos y 2FA por correo.
+// =====================================================================
+function SecurityParamsCard() {
+  const { user } = useAuth();
+  const [state, setState] = useState({ config: null, defaults: null, bounds: null });
+  const [form, setForm] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    (async () => {
+      try {
+        const { data } = await api.get("/security-settings");
+        setState(data);
+        setForm(data.config);
+      } catch (e) {
+        toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+      } finally { setLoading(false); }
+    })();
+  }, [user?.role]);
+
+  if (user?.role !== "admin") return null;
+  if (loading || !form) return null;
+
+  const { bounds } = state;
+  const setNum = (k) => (e) => setForm((f) => ({ ...f, [k]: Number(e.target.value) }));
+  const toggle = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const clampErr = (k) => {
+    const b = bounds?.[k];
+    if (!b) return null;
+    const v = Number(form[k]);
+    if (Number.isNaN(v) || v < b.min || v > b.max)
+      return `Debe estar entre ${b.min} y ${b.max}`;
+    return null;
+  };
+
+  const anyErr = ["password_expiration_days", "password_expiration_warning_days",
+                  "max_login_attempts", "lockout_minutes", "password_history_size",
+                  "otp_expiration_minutes", "otp_max_attempts"].some((k) => clampErr(k));
+  const warnGeErr = form.password_expiration_warning_days >= form.password_expiration_days
+    ? "Los días de aviso deben ser menores que la expiración." : null;
+
+  async function save() {
+    if (anyErr || warnGeErr) { toast.error("Corrige los campos marcados en rojo"); return; }
+    setSaving(true);
+    try {
+      const { data } = await api.put("/security-settings", form);
+      setState((s) => ({ ...s, config: data.config }));
+      setForm(data.config);
+      toast.success("Parámetros de seguridad actualizados");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    } finally { setSaving(false); }
+  }
+
+  const restoreDefaults = () => setForm(state.defaults);
+
+  return (
+    <Card className="border-primary/30 bg-primary/5" data-testid="security-params-card">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Lock className="h-5 w-5 text-primary" />
+          <CardTitle className="text-foreground">Parámetros de seguridad y 2FA</CardTitle>
+        </div>
+        <CardDescription>
+          Configura la política dinámica de contraseñas, el bloqueo automático por intentos fallidos
+          y la autenticación de dos factores por correo electrónico.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {/* Política de contraseñas */}
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary/70 flex items-center gap-1.5">
+            <KeyRound className="h-3.5 w-3.5" /> Contraseñas
+          </p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Vigencia (días)</Label>
+              <Input
+                type="number" min={bounds.password_expiration_days.min} max={bounds.password_expiration_days.max}
+                value={form.password_expiration_days} onChange={setNum("password_expiration_days")}
+                data-testid="sec-password-expiration-days"
+                className={clampErr("password_expiration_days") ? "border-red-500" : ""}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                {bounds.password_expiration_days.min}-{bounds.password_expiration_days.max} días.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Aviso previo (días)</Label>
+              <Input
+                type="number" min={bounds.password_expiration_warning_days.min} max={bounds.password_expiration_warning_days.max}
+                value={form.password_expiration_warning_days} onChange={setNum("password_expiration_warning_days")}
+                data-testid="sec-password-warning-days"
+                className={(clampErr("password_expiration_warning_days") || warnGeErr) ? "border-red-500" : ""}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Antes de que expire la contraseña.
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Historial (últimas N)</Label>
+              <Input
+                type="number" min={bounds.password_history_size.min} max={bounds.password_history_size.max}
+                value={form.password_history_size} onChange={setNum("password_history_size")}
+                data-testid="sec-password-history-size"
+                className={clampErr("password_history_size") ? "border-red-500" : ""}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Sin poder reutilizar.
+              </p>
+            </div>
+          </div>
+          {warnGeErr && <p className="text-xs text-red-600">{warnGeErr}</p>}
+        </div>
+
+        {/* Bloqueo de cuenta */}
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary/70 flex items-center gap-1.5">
+            <Hash className="h-3.5 w-3.5" /> Bloqueo automático de cuenta
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label className="text-xs">Intentos fallidos permitidos</Label>
+              <Input
+                type="number" min={bounds.max_login_attempts.min} max={bounds.max_login_attempts.max}
+                value={form.max_login_attempts} onChange={setNum("max_login_attempts")}
+                data-testid="sec-max-login-attempts"
+                className={clampErr("max_login_attempts") ? "border-red-500" : ""}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Antes de bloquear temporalmente ({bounds.max_login_attempts.min}-{bounds.max_login_attempts.max}).
+              </p>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Duración del bloqueo (min)</Label>
+              <Input
+                type="number" min={bounds.lockout_minutes.min} max={bounds.lockout_minutes.max}
+                value={form.lockout_minutes} onChange={setNum("lockout_minutes")}
+                data-testid="sec-lockout-minutes"
+                className={clampErr("lockout_minutes") ? "border-red-500" : ""}
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Tras exceder el límite ({bounds.lockout_minutes.min}-{bounds.lockout_minutes.max} min).
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* 2FA */}
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary/70 flex items-center gap-1.5">
+            <Mail className="h-3.5 w-3.5" /> Autenticación de dos factores (2FA)
+          </p>
+          <div className="flex items-center justify-between rounded-xl bg-white/70 dark:bg-card/60 border border-border/60 px-4 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">Exigir código por correo al iniciar sesión</p>
+              <p className="text-[11px] text-muted-foreground">
+                Al activarlo, cada login válido enviará un OTP de 6 dígitos al correo del usuario.
+                Los kioscos quedan exentos (autenticación mecánica).
+              </p>
+            </div>
+            <Switch
+              checked={!!form.enable_email_2fa}
+              onCheckedChange={toggle("enable_email_2fa")}
+              data-testid="sec-enable-2fa"
+            />
+          </div>
+          {form.enable_email_2fa && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Vigencia del código OTP (min)</Label>
+                <Input
+                  type="number" min={bounds.otp_expiration_minutes.min} max={bounds.otp_expiration_minutes.max}
+                  value={form.otp_expiration_minutes} onChange={setNum("otp_expiration_minutes")}
+                  data-testid="sec-otp-expiration-minutes"
+                  className={clampErr("otp_expiration_minutes") ? "border-red-500" : ""}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  {bounds.otp_expiration_minutes.min}-{bounds.otp_expiration_minutes.max} min. Recomendado: 5.
+                </p>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Intentos permitidos por código</Label>
+                <Input
+                  type="number" min={bounds.otp_max_attempts.min} max={bounds.otp_max_attempts.max}
+                  value={form.otp_max_attempts} onChange={setNum("otp_max_attempts")}
+                  data-testid="sec-otp-max-attempts"
+                  className={clampErr("otp_max_attempts") ? "border-red-500" : ""}
+                />
+                <p className="text-[10px] text-muted-foreground">
+                  Antes de invalidar el OTP ({bounds.otp_max_attempts.min}-{bounds.otp_max_attempts.max}).
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-2 justify-end pt-2 border-t border-border/60">
+          <Button
+            variant="ghost" onClick={restoreDefaults}
+            className="rounded-full text-muted-foreground"
+            data-testid="sec-restore-defaults"
+          >
+            <RefreshCw className="h-4 w-4 mr-1.5" /> Restaurar valores por defecto
+          </Button>
+          <Button
+            onClick={save} disabled={saving || anyErr || !!warnGeErr}
+            className="rounded-full bg-primary hover:bg-primary/90 text-primary-foreground"
+            data-testid="sec-save"
+          >
+            <Save className="h-4 w-4 mr-1.5" /> {saving ? "Guardando…" : "Guardar parámetros"}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );

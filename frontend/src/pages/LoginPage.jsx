@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import useCompanyBranding from "@/hooks/useCompanyBranding";
@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Fingerprint, Eye, EyeOff, ShieldCheck, ArrowRight } from "lucide-react";
+import { Fingerprint, Eye, EyeOff, ShieldCheck, ArrowRight, MailCheck, KeyRound, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 
 const HIGHLIGHTS = [
@@ -17,7 +17,7 @@ const HIGHLIGHTS = [
 ];
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, verifyOtp } = useAuth();
   const branding = useCompanyBranding();
   const logo = branding?.logo_base64;
   const [email, setEmail] = useState("");
@@ -26,6 +26,16 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(new Date());
   const [stats, setStats] = useState(null);
+  // 2FA challenge state
+  const [otp, setOtp] = useState({
+    active: false,
+    token: null,
+    emailMasked: "",
+    expiresInMinutes: 5,
+    delivery: null,
+  });
+  const [otpCode, setOtpCode] = useState("");
+  const otpInputRef = useRef(null);
   const nav = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || "/";
@@ -39,6 +49,16 @@ export default function LoginPage() {
     api.get("/public/stats").then(({ data }) => setStats(data)).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (otp.active && otpInputRef.current) otpInputRef.current.focus();
+  }, [otp.active]);
+
+  function handleSuccess(res) {
+    toast.success(`Bienvenido, ${res.user.name.split(" ")[0]}`, { duration: 1800 });
+    if (res.user.role === "kiosk") nav("/kiosk/auto", { replace: true });
+    else nav(from, { replace: true });
+  }
+
   async function onSubmit(e) {
     e.preventDefault();
     if (!email || !password) return;
@@ -46,17 +66,48 @@ export default function LoginPage() {
     const res = await login(email.trim(), password);
     setBusy(false);
     if (res.ok) {
-      toast.success(`Bienvenido, ${res.user.name.split(" ")[0]}`, { duration: 1800 });
-      // Los usuarios operativos del Kiosco entran directo al modo Kiosco
-      // (sin pasar por el panel administrativo ni por el selector de sede).
-      if (res.user.role === "kiosk") {
-        nav("/kiosk/auto", { replace: true });
+      handleSuccess(res);
+    } else if (res.requiresOtp) {
+      setOtp({
+        active: true,
+        token: res.otpToken,
+        emailMasked: res.emailMasked,
+        expiresInMinutes: res.expiresInMinutes,
+        delivery: res.delivery,
+      });
+      setOtpCode("");
+      if (res.delivery?.sent === false) {
+        toast.warning("El servidor SMTP no está configurado. Contacta a tu administrador.");
       } else {
-        nav(from, { replace: true });
+        toast.success(`Enviamos un código a ${res.emailMasked}`, { duration: 2600 });
       }
     } else {
       toast.error(res.error);
     }
+  }
+
+  async function onSubmitOtp(e) {
+    e.preventDefault();
+    if (!otpCode || otpCode.length !== 6) {
+      toast.error("Ingresa el código de 6 dígitos");
+      return;
+    }
+    setBusy(true);
+    const res = await verifyOtp(otp.token, otpCode);
+    setBusy(false);
+    if (res.ok) {
+      handleSuccess(res);
+    } else {
+      toast.error(res.error);
+      setOtpCode("");
+      if (otpInputRef.current) otpInputRef.current.focus();
+    }
+  }
+
+  function cancelOtp() {
+    setOtp({ active: false, token: null, emailMasked: "", expiresInMinutes: 5, delivery: null });
+    setOtpCode("");
+    setPassword("");
   }
 
   const clock = tick.toLocaleTimeString("es-VE", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "America/Caracas" });
@@ -169,15 +220,20 @@ export default function LoginPage() {
           <div className="w-full max-w-md">
             <div className="mb-8">
               <p className="text-xs uppercase tracking-[0.25em] text-muted-foreground mb-3">
-                Acceso corporativo
+                {otp.active ? "Verificación en dos pasos" : "Acceso corporativo"}
               </p>
-              <h2 className="text-3xl font-bold text-foreground">Inicia sesión</h2>
+              <h2 className="text-3xl font-bold text-foreground">
+                {otp.active ? "Ingresa el código" : "Inicia sesión"}
+              </h2>
               <p className="text-sm text-muted-foreground mt-1.5">
-                Usa el correo y contraseña de tu cuenta de empleado.
+                {otp.active
+                  ? <>Enviamos un código de 6 dígitos a <b className="text-foreground">{otp.emailMasked}</b>. Es válido por {otp.expiresInMinutes} minutos.</>
+                  : "Usa el correo y contraseña de tu cuenta de empleado."}
               </p>
             </div>
 
-            <form onSubmit={onSubmit} className="space-y-5" data-testid="login-form">
+            {!otp.active ? (
+              <form onSubmit={onSubmit} className="space-y-5" data-testid="login-form">
               <div className="space-y-1.5">
                 <Label htmlFor="email" className="text-xs font-medium text-primary/80">
                   Correo electrónico
@@ -262,6 +318,77 @@ export default function LoginPage() {
                 ¿Problemas para acceder? Contacta a tu administrador de RRHH.
               </p>
             </form>
+            ) : (
+              <form onSubmit={onSubmitOtp} className="space-y-5" data-testid="login-otp-form">
+                <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-muted/40 px-4 py-3">
+                  <div className="h-10 w-10 rounded-xl bg-primary/10 grid place-items-center shrink-0">
+                    <MailCheck className="h-5 w-5 text-primary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground truncate" data-testid="login-otp-email">
+                      {otp.emailMasked}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Revisa tu bandeja de entrada — el código expira en {otp.expiresInMinutes} min.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="otp-code" className="text-xs font-medium text-primary/80">
+                    Código de verificación (6 dígitos)
+                  </Label>
+                  <Input
+                    id="otp-code"
+                    ref={otpInputRef}
+                    data-testid="login-otp-input"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    autoComplete="one-time-code"
+                    placeholder="000000"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="h-14 text-2xl font-mono tracking-[0.6em] text-center border-border/70 focus-visible:ring-primary/40"
+                    required
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  data-testid="login-otp-submit-btn"
+                  disabled={busy || otpCode.length !== 6}
+                  className="group w-full h-12 text-base font-semibold rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_18px_40px_-15px_hsl(var(--primary)/0.6)] hover:-translate-y-0.5 transition-[transform,box-shadow] duration-200"
+                >
+                  {busy ? (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
+                      Verificando código…
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2">
+                      <KeyRound className="h-4 w-4 text-accent" />
+                      Verificar y acceder
+                      <ArrowRight className="h-4 w-4 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                    </span>
+                  )}
+                </Button>
+
+                <button
+                  type="button"
+                  onClick={cancelOtp}
+                  data-testid="login-otp-cancel"
+                  className="w-full flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" /> Usar otra cuenta
+                </button>
+
+                <p className="text-[11px] text-center text-muted-foreground">
+                  ¿No recibiste el código? Revisa tu carpeta de spam o vuelve a intentarlo desde el inicio.
+                </p>
+              </form>
+            )}
           </div>
 
           <p className="absolute bottom-4 right-6 text-[11px] text-muted-foreground/70">

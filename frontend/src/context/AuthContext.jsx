@@ -24,12 +24,36 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     try {
       const { data } = await api.post("/auth/login", { email, password });
+      // Flujo 2FA (2 pasos): backend indica que se envió un OTP y devuelve
+      // un token temporal para el segundo paso. No autenticamos aún.
+      if (data?.requires_otp) {
+        return {
+          ok: false,
+          requiresOtp: true,
+          otpToken: data.otp_token,
+          emailMasked: data.email_masked,
+          expiresInMinutes: data.expires_in_minutes,
+          delivery: data.delivery,
+        };
+      }
       setToken(data.token);
       setUser({ ...data.user, must_change_password: !!data.must_change_password });
       return { ok: true, user: data.user, must_change_password: !!data.must_change_password };
     } catch (e) {
       return { ok: false, error: formatApiErrorDetail(e.response?.data?.detail) || e.message,
                locked: e.response?.status === 423 };
+    }
+  }, []);
+
+  const verifyOtp = useCallback(async (otpToken, code) => {
+    try {
+      const { data } = await api.post("/auth/verify-otp", { otp_token: otpToken, code });
+      setToken(data.token);
+      setUser({ ...data.user, must_change_password: !!data.must_change_password });
+      return { ok: true, user: data.user, must_change_password: !!data.must_change_password };
+    } catch (e) {
+      return { ok: false, error: formatApiErrorDetail(e.response?.data?.detail) || e.message,
+               expired: e.response?.status === 401 };
     }
   }, []);
 
@@ -40,7 +64,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthCtx.Provider value={{ user, login, logout, refresh }}>
+    <AuthCtx.Provider value={{ user, login, verifyOtp, logout, refresh }}>
       {children}
     </AuthCtx.Provider>
   );

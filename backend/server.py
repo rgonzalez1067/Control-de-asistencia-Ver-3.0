@@ -234,9 +234,10 @@ def validate_password_policy(pw: str) -> None:
         raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
 
 
-def password_is_reused(new_pw: str, history: List[str]) -> bool:
+def password_is_reused(new_pw: str, history: List[str], history_size: Optional[int] = None) -> bool:
     """True si la nueva clave coincide con alguno de los últimos hashes del historial."""
-    for h in (history or [])[:PASSWORD_HISTORY_SIZE]:
+    size = int(history_size) if history_size is not None else PASSWORD_HISTORY_SIZE
+    for h in (history or [])[:size]:
         try:
             if verify_password(new_pw, h):
                 return True
@@ -245,13 +246,14 @@ def password_is_reused(new_pw: str, history: List[str]) -> bool:
     return False
 
 
-def password_expired(user: Dict[str, Any]) -> bool:
+def password_expired(user: Dict[str, Any], max_days: Optional[int] = None) -> bool:
     changed = user.get("password_updated_at")
     if not isinstance(changed, datetime):
         return False
     if changed.tzinfo is None:
         changed = changed.replace(tzinfo=timezone.utc)
-    return (now_utc() - changed).days >= PASSWORD_MAX_AGE_DAYS
+    limit = int(max_days) if max_days is not None else PASSWORD_MAX_AGE_DAYS
+    return (now_utc() - changed).days >= limit
 
 
 def create_access_token(user_id: str, role: str) -> str:

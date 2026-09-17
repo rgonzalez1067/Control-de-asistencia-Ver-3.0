@@ -188,15 +188,53 @@ async def public_stats() -> Dict[str, int]:
 
 @api.get("/public/security-policy")
 async def public_security_policy() -> Dict[str, Any]:
-    """Constantes de política de seguridad para consumo del frontend (sin auth)."""
-    from server import (PASSWORD_MIN_LENGTH, PASSWORD_MAX_AGE_DAYS,
-                        PASSWORD_HISTORY_SIZE, LOGIN_MAX_FAILED,
-                        LOGIN_LOCKOUT_MINUTES, SESSION_IDLE_MINUTES)
+    """Constantes de política de seguridad para consumo del frontend (sin auth).
+    Combina las constantes de complejidad (fijas) con los parámetros
+    dinámicos que administra el admin desde Ajustes."""
+    from server import PASSWORD_MIN_LENGTH, SESSION_IDLE_MINUTES
+    from security_config import get_security_config
+    cfg = await get_security_config(db)
     return {
         "password_min_length": PASSWORD_MIN_LENGTH,
-        "password_max_age_days": PASSWORD_MAX_AGE_DAYS,
-        "password_history_size": PASSWORD_HISTORY_SIZE,
-        "login_max_failed": LOGIN_MAX_FAILED,
-        "login_lockout_minutes": LOGIN_LOCKOUT_MINUTES,
+        "password_max_age_days": cfg["password_expiration_days"],
+        "password_expiration_warning_days": cfg["password_expiration_warning_days"],
+        "password_history_size": cfg["password_history_size"],
+        "login_max_failed": cfg["max_login_attempts"],
+        "login_lockout_minutes": cfg["lockout_minutes"],
         "session_idle_minutes": SESSION_IDLE_MINUTES,
+        "enable_email_2fa": cfg["enable_email_2fa"],
     }
+
+
+# ==================================================================
+# SECURITY SETTINGS · admin-only
+# ==================================================================
+@api.get("/security-settings")
+async def security_settings_get(
+    _: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
+    from security_config import get_security_config, DEFAULTS, BOUNDS
+    cfg = await get_security_config(db)
+    return {
+        "config": cfg,
+        "defaults": DEFAULTS,
+        "bounds": {k: {"min": v[0], "max": v[1]} for k, v in BOUNDS.items()},
+    }
+
+
+@api.put("/security-settings")
+async def security_settings_put(
+    request: Request, payload: Dict[str, Any],
+    actor: Dict[str, Any] = Depends(require_roles("admin")),
+) -> Dict[str, Any]:
+    from security_config import coerce_payload, get_security_config
+    updates = coerce_payload(payload or {})
+    if not updates:
+        raise HTTPException(status_code=400, detail="Sin cambios")
+    updates["updated_at"] = now_utc()
+    before = await db.settings.find_one({"_id": "security"}) or {}
+    await db.settings.update_one({"_id": "security"}, {"$set": updates}, upsert=True)
+    cfg = await get_security_config(db)
+    await audit_entity(request, "UPDATE", "settings", "security",
+                       before=before, after={**before, **updates}, actor=actor)
+    return {"config": cfg}
