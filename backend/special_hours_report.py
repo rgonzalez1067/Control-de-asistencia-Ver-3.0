@@ -152,7 +152,9 @@ async def build_special_hours_report(db, from_date: str, to_date: str,
                 horas_nocturnas += night_h
 
         dias_libres = days_total - dias_trabajados
-        horas_descanso = dias_libres * top_day_h
+        # Descanso = días libres × total de horas del turno (diurnas + nocturnas
+        # sin diferenciar). Turno base = el más frecuente asignado en el periodo.
+        horas_descanso = dias_libres * (top_day_h + top_night_h)
 
         rows.append({
             "user_id": uid,
