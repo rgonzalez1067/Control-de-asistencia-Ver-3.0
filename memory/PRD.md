@@ -623,3 +623,10 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **UI**: nueva sección "Parámetros operacionales del turno" en el dialog; tarjetas muestran línea Diurnas/Nocturnas (☀/🌙). Fix de alineación: labels de Tolerancia/Justif./Sede con altura uniforme (`min-h-8 flex items-end`).
 - Base lista para el próximo requerimiento: Reporte de Horas Trabajadas para Turnos Especiales (acumulará D/N de turnos con marcaje válido o justificado).
 - **Verificado**: PUT 200 con sumas correctas (incl. overnight), 400 con suma incorrecta, creación e2e desde UI, tarjetas actualizadas ✅
+
+## 2026-09-16 (8) — Módulo: Reporte Consolidado de Horas · Turnos Especiales
+- **RBAC**: nueva clave `reporte_horas_turnos_especiales` (sección "Reportes" en Perfiles de Acceso). Activada ON solo en perfil Administrador.
+- **Backend**: `special_hours_report.py` (motor) y `routes/reports_special_hours.py` con `GET /api/reports/special-hours` (JSON) y `.../export.xlsx` (openpyxl, membrete institucional + Gerencia + logo + totales). Población: empleados sin schedule_id fijo (Horario Especial). Filtros: rango obligatorio, `department_ids[]`, `user_ids[]`.
+- **Reglas confirmadas con el usuario**: días trabajados = shift asignado O novedad `remote` aprobada · horas del día = las del turno del día (para remote sin turno usa el turno más frecuente del periodo) · feriadas D/N = domingo OR festivo del calendario (recurrentes incluidos) · descanso = (dias_total - dias_trabajados) × diurnas del turno más frecuente del periodo (vacaciones/reposos/permisos SÍ cuentan como libres).
+- **Frontend**: `/reportes/horas-turnos-especiales` con panel de filtros (multi-select empleados vía popover), grilla con 10 columnas + fila TOTAL amber, botón "Exportar a Excel". Ítem en sidebar (Timer icon).
+- **Verificado con datos reales**: Angela Martínez (Monitoreo, Turno PM D=5/N=2) — 11 días trabajados en rango 2026-08-16..09-16, 1 domingo → **50 D + 20 N + 5 FerD + 2 FerN + 105 Desc** (calculado a mano y por el motor idéntico) ✅. XLSX 200 con 17 filas y totales, JSON 200, 400 sin fechas, 403 sin permiso.

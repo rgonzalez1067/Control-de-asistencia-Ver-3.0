@@ -367,6 +367,7 @@ MENU_CATALOG: List[Dict[str, Any]] = [
     {"key": "visitas_agendar",    "label": "Agendar visita",     "section": "Visitas"},
     {"key": "visitas_historico",  "label": "Histórico de visitas", "section": "Visitas"},
     {"key": "visitas_reporte_regulatorio", "label": "Reporte de Visitas Realizadas", "section": "Visitas"},
+    {"key": "reporte_horas_turnos_especiales", "label": "Reporte de Horas · Turnos Especiales", "section": "Reportes"},
     # Sección: Administración
     {"key": "empleados",          "label": "Empleados",          "section": "Administración"},
     {"key": "departamentos",      "label": "Departamentos",      "section": "Administración"},
@@ -1115,7 +1116,7 @@ async def _load_import_lookups() -> tuple:
 from routes import (  # noqa: F401,E402
     attendance, novelties, visits, reports, matrix,
     auth, catalogs, access_profiles, schedules, kiosk, admin,
-    users, holidays, reports_visits,
+    users, holidays, reports_visits, reports_special_hours,
 )
 
 app.include_router(api)
