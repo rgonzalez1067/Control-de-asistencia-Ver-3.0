@@ -184,3 +184,19 @@ async def public_stats() -> Dict[str, int]:
     departments = await db.departments.count_documents({})
     sites = await db.sites.count_documents({})
     return {"employees": employees, "departments": departments, "sites": sites}
+
+
+@api.get("/public/security-policy")
+async def public_security_policy() -> Dict[str, Any]:
+    """Constantes de política de seguridad para consumo del frontend (sin auth)."""
+    from server import (PASSWORD_MIN_LENGTH, PASSWORD_MAX_AGE_DAYS,
+                        PASSWORD_HISTORY_SIZE, LOGIN_MAX_FAILED,
+                        LOGIN_LOCKOUT_MINUTES, SESSION_IDLE_MINUTES)
+    return {
+        "password_min_length": PASSWORD_MIN_LENGTH,
+        "password_max_age_days": PASSWORD_MAX_AGE_DAYS,
+        "password_history_size": PASSWORD_HISTORY_SIZE,
+        "login_max_failed": LOGIN_MAX_FAILED,
+        "login_lockout_minutes": LOGIN_LOCKOUT_MINUTES,
+        "session_idle_minutes": SESSION_IDLE_MINUTES,
+    }

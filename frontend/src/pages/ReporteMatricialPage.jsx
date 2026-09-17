@@ -260,7 +260,7 @@ export default function ReporteMatricialPage() {
             <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 italic">Ámbar cursiva = salida auto-imputada 23:59</span>
             <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">Vacaciones / Reposo / Trabajo Remoto = día completo</span>
             <span className="px-2 py-0.5 rounded bg-red-100 text-red-800">Falta = día laboral sin marcaje</span>
-            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">Sub-fila = Cita médica / Permiso / Visita</span>
+            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">● Badge azul = Novedad parcial (pasa el cursor para ver detalle)</span>
           </div>
         </CardContent>
       </Card>
@@ -361,6 +361,11 @@ export default function ReporteMatricialPage() {
                           }
                           const blocks = c.blocks || [];
                           const cells = [];
+                          // Novedades parciales del día → badge + tooltip nativo
+                          const dayPartials = partials[day] || [];
+                          const partialTip = dayPartials.length
+                            ? dayPartials.map((pn) => `${pn.label}: ${pn.start_time || "?"}–${pn.end_time || "?"}${pn.reason ? " · " + pn.reason : ""}`).join("\n")
+                            : "";
                           for (let i = 0; i < bpd; i++) {
                             const b = blocks[i] || {};
                             const inRed = b.in_late || b.break_over;
@@ -376,10 +381,17 @@ export default function ReporteMatricialPage() {
                             const outCls = b.out_site_mismatch
                               ? "bg-orange-100 text-orange-800 font-semibold"
                               : b.auto_closed ? "text-amber-700 italic" : "text-slate-900";
+                            const showBadge = i === 0 && dayPartials.length > 0;
                             cells.push(
                               <td key={day + "in" + i} title={inTitle}
-                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${inCls}`}>
+                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 relative ${inCls}`}>
                                 {b.in || "–"}
+                                {showBadge && (
+                                  <span data-testid={`partial-badge-${r.user_id}-${day}`}
+                                        title={partialTip}
+                                        className="absolute top-0.5 right-0.5 h-2.5 w-2.5 rounded-full bg-indigo-500 ring-2 ring-white cursor-help"
+                                        aria-label={`Novedad parcial: ${partialTip}`} />
+                                )}
                               </td>
                             );
                             cells.push(
@@ -397,21 +409,6 @@ export default function ReporteMatricialPage() {
                         <td className="px-1 py-1 text-center bg-slate-50">{novTotal}</td>
                         <td className="px-1 py-1 text-center bg-slate-50 font-semibold text-red-700">{r.totals.absent_days}</td>
                       </tr>
-                      {hasPartials && (
-                        <tr className="bg-indigo-50/60" data-testid={`matrix-partial-${r.user_id}`}>
-                          <td className="sticky left-0 bg-indigo-50/60 px-3 py-1 text-[11px] italic text-indigo-700 whitespace-nowrap border-r border-border/50" colSpan={3}>
-                            ↳ Novedades parciales
-                          </td>
-                          {data.days.map((day) => (
-                            <td key={day + "p"} colSpan={perDay} className="px-1 py-1 text-[11px] text-indigo-800 text-center whitespace-nowrap border-r border-border/40 italic">
-                              {(partials[day] || []).map((pn, i) => (
-                                <div key={i}>{pn.label}: {pn.start_time || "?"}–{pn.end_time || "?"}</div>
-                              ))}
-                            </td>
-                          ))}
-                          <td className="bg-slate-50" colSpan={5}></td>
-                        </tr>
-                      )}
                     </>
                   );
                 })}

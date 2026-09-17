@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import useIdleTimeout from "@/hooks/useIdleTimeout";
 import useCompanyBranding from "@/hooks/useCompanyBranding";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
@@ -158,6 +159,18 @@ export default function AppLayout() {
     nav("/login", { replace: true });
   }
 
+  // Cierre automático por inactividad (15 min con aviso 60s antes)
+  const idleLogout = async () => {
+    toast.error("Sesión cerrada por inactividad", { duration: 3500 });
+    await logout();
+    nav("/login", { replace: true });
+  };
+  const { warningLeft, stayActive } = useIdleTimeout({
+    idleMs: 15 * 60 * 1000,
+    warnMs: 60 * 1000,
+    onLogout: user ? idleLogout : null,
+  });
+
   function openKiosk() {
     // Modo kiosco vive en /kiosk (login público con credenciales admin). Abrimos
     // en la misma pestaña porque en iOS PWA abrir nueva pestaña puede fallar.
@@ -167,6 +180,21 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen bg-soft-grid flex">
+      {warningLeft !== null && (
+        <div className="fixed top-4 inset-x-4 z-[100] flex justify-center pointer-events-none">
+          <div className="pointer-events-auto max-w-md w-full bg-amber-50 border border-amber-300 text-amber-900 rounded-2xl shadow-xl px-4 py-3 flex items-center gap-3"
+               data-testid="idle-warning-banner">
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Tu sesión se cerrará por inactividad</p>
+              <p className="text-xs">Se cerrará automáticamente en <b>{warningLeft}s</b> por motivos de seguridad.</p>
+            </div>
+            <button onClick={stayActive} data-testid="idle-warning-stay"
+                    className="text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white rounded-full px-3 py-1.5">
+              Sigo aquí
+            </button>
+          </div>
+        </div>
+      )}
       {/* Sidebar (desktop) */}
       <aside className="hidden lg:flex w-64 shrink-0 flex-col bg-primary text-primary-foreground">
         <div className="px-6 py-6 flex items-center gap-3 border-b border-white/10">

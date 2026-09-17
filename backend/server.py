@@ -206,15 +206,23 @@ def verify_password(pw: str, hashed: str) -> bool:
 
 
 PASSWORD_POLICY_MSG = (
-    "La contraseña debe tener al menos 8 caracteres, "
+    "La contraseña debe tener al menos 12 caracteres e incluir "
     "una mayúscula, una minúscula, un número y un carácter especial."
 )
 
+# Políticas corporativas (sep-2026).
+PASSWORD_MIN_LENGTH = 12
+PASSWORD_MAX_AGE_DAYS = 90
+PASSWORD_HISTORY_SIZE = 5
+LOGIN_MAX_FAILED = 5
+LOGIN_LOCKOUT_MINUTES = 30
+SESSION_IDLE_MINUTES = 15
+
 
 def validate_password_policy(pw: str) -> None:
-    """Lanza HTTPException 400 si la contraseña no cumple la política."""
+    """Lanza HTTPException 400 si la contraseña no cumple la política corporativa."""
     import re as _re
-    if not pw or len(pw) < 8:
+    if not pw or len(pw) < PASSWORD_MIN_LENGTH:
         raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
     if not _re.search(r"[A-Z]", pw):
         raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
@@ -224,6 +232,26 @@ def validate_password_policy(pw: str) -> None:
         raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
     if not _re.search(r"[^A-Za-z0-9]", pw):
         raise HTTPException(status_code=400, detail=PASSWORD_POLICY_MSG)
+
+
+def password_is_reused(new_pw: str, history: List[str]) -> bool:
+    """True si la nueva clave coincide con alguno de los últimos hashes del historial."""
+    for h in (history or [])[:PASSWORD_HISTORY_SIZE]:
+        try:
+            if verify_password(new_pw, h):
+                return True
+        except Exception:  # noqa: BLE001
+            continue
+    return False
+
+
+def password_expired(user: Dict[str, Any]) -> bool:
+    changed = user.get("password_updated_at")
+    if not isinstance(changed, datetime):
+        return False
+    if changed.tzinfo is None:
+        changed = changed.replace(tzinfo=timezone.utc)
+    return (now_utc() - changed).days >= PASSWORD_MAX_AGE_DAYS
 
 
 def create_access_token(user_id: str, role: str) -> str:

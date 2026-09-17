@@ -7,10 +7,13 @@ from deps import (
     now_utc, new_id,
     hash_password, verify_password, create_access_token,
     enrich_user_with_permissions, validate_password_policy,
+    password_is_reused, password_expired,
+    PASSWORD_HISTORY_SIZE, LOGIN_MAX_FAILED, LOGIN_LOCKOUT_MINUTES,
     LoginIn, RegisterIn, ChangePasswordIn, ChangePinIn, ResetPasswordIn,
     HTTPException, Depends, Response, Request,
     Any, Dict,
     limiter, audit_log,
+    datetime, timezone, timedelta,
 )
 
 
@@ -53,13 +56,62 @@ async def auth_register(request: Request, payload: RegisterIn, response: Respons
 async def auth_login(request: Request, payload: LoginIn, response: Response) -> Dict[str, Any]:
     email = payload.email.lower().strip()
     user = await db.users.find_one({"email": email})
+
+    # 1) Cuenta bloqueada por intentos fallidos consecutivos
+    if user:
+        locked_until = user.get("locked_until")
+        if isinstance(locked_until, datetime):
+            if locked_until.tzinfo is None:
+                locked_until = locked_until.replace(tzinfo=timezone.utc)
+            if locked_until > now_utc():
+                remaining = int((locked_until - now_utc()).total_seconds() / 60) + 1
+                await audit_log("login_locked", request, email=email, extra={"minutes_remaining": remaining})
+                raise HTTPException(
+                    status_code=423,
+                    detail=f"Cuenta bloqueada por intentos fallidos. Intenta de nuevo en {remaining} minuto(s) o contacta al Administrador.",
+                )
+
+    # 2) Verificación de credenciales
     if not user or not verify_password(payload.password, user.get("password_hash", "")):
-        await audit_log("login_failed", request, email=email)
+        if user:
+            fails = int(user.get("failed_login_attempts", 0)) + 1
+            upd: Dict[str, Any] = {"failed_login_attempts": fails}
+            if fails >= LOGIN_MAX_FAILED:
+                upd["locked_until"] = now_utc() + timedelta(minutes=LOGIN_LOCKOUT_MINUTES)
+                upd["failed_login_attempts"] = 0
+            await db.users.update_one({"user_id": user["user_id"]}, {"$set": upd})
+            if "locked_until" in upd:
+                await audit_log("login_locked_out", request, email=email,
+                                extra={"lockout_minutes": LOGIN_LOCKOUT_MINUTES})
+                raise HTTPException(
+                    status_code=423,
+                    detail=f"Cuenta bloqueada por {LOGIN_MAX_FAILED} intentos fallidos. Espera {LOGIN_LOCKOUT_MINUTES} minutos o contacta al Administrador.",
+                )
+            await audit_log("login_failed", request, email=email,
+                            extra={"failed_attempts": fails})
+        else:
+            await audit_log("login_failed", request, email=email)
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    # 3) Credenciales OK — reset counters
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"failed_login_attempts": 0, "locked_until": None, "last_login_at": now_utc()}},
+    )
+    user["failed_login_attempts"] = 0
+    user["locked_until"] = None
+
+    # 4) Expiración de contraseña (90 días) → forzar cambio en el próximo login
+    must_change = bool(user.get("must_change_password")) or password_expired(user)
+    if password_expired(user) and not user.get("must_change_password"):
+        await db.users.update_one({"user_id": user["user_id"]}, {"$set": {"must_change_password": True}})
+        user["must_change_password"] = True
+
     token = create_access_token(user["user_id"], user["role"])
     await audit_log("login_success", request, user_id=user["user_id"], email=email,
-                    extra={"role": user.get("role")})
-    return {"token": token, "user": await enrich_user_with_permissions(user)}
+                    extra={"role": user.get("role"), "must_change_password": must_change})
+    return {"token": token, "user": await enrich_user_with_permissions(user),
+            "must_change_password": must_change}
 
 
 @api.get("/auth/me")
@@ -81,10 +133,22 @@ async def auth_change_password(payload: ChangePasswordIn,
     if payload.old_password == payload.new_password:
         raise HTTPException(status_code=400, detail="La nueva contraseña debe ser distinta a la actual")
     validate_password_policy(payload.new_password)
+    # Historial: incluir la clave actual + últimas N. Rechazar reutilización.
+    history = [user.get("password_hash", "")] + list(user.get("password_history") or [])
+    if password_is_reused(payload.new_password, history):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No puedes reutilizar tus últimas {PASSWORD_HISTORY_SIZE} contraseñas.",
+        )
+    new_hash = hash_password(payload.new_password)
+    new_history = ([user.get("password_hash", "")] + list(user.get("password_history") or []))[:PASSWORD_HISTORY_SIZE]
     await db.users.update_one({"_id": user["_id"]},
-                              {"$set": {"password_hash": hash_password(payload.new_password),
+                              {"$set": {"password_hash": new_hash,
                                         "password_updated_at": now_utc(),
-                                        "must_change_password": False}})
+                                        "password_history": new_history,
+                                        "must_change_password": False,
+                                        "failed_login_attempts": 0,
+                                        "locked_until": None}})
     return {"ok": True}
 
 
@@ -159,7 +223,6 @@ async def admin_reset_all_passwords(
 # --------------------------------------------------------------------------
 import os
 import secrets
-from datetime import timedelta
 from email_service import send_email, render_reset_email, is_configured as smtp_configured
 
 RESET_TOKEN_TTL_MIN = 30
@@ -224,12 +287,20 @@ async def auth_reset_password_with_token(request: Request, payload: Dict[str, An
     user = await db.users.find_one({"user_id": doc["user_id"]})
     if not user or user.get("active") is False:
         raise HTTPException(status_code=400, detail="Usuario no válido")
+    history = [user.get("password_hash", "")] + list(user.get("password_history") or [])
+    if password_is_reused(new_password, history):
+        raise HTTPException(
+            status_code=400,
+            detail=f"No puedes reutilizar tus últimas {PASSWORD_HISTORY_SIZE} contraseñas.",
+        )
+    new_history = ([user.get("password_hash", "")] + list(user.get("password_history") or []))[:PASSWORD_HISTORY_SIZE]
     await db.users.update_one(
         {"user_id": doc["user_id"]},
         {"$set": {
             "password_hash": hash_password(new_password),
             "password_updated_at": now_utc(),
             "password_updated_by_user": True,
+            "password_history": new_history,
             "must_change_password": False,
             "failed_login_attempts": 0,
             "locked_until": None,

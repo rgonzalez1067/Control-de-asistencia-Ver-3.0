@@ -652,3 +652,13 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - Renombrado "Reporte de Horas Trabajadas" → "Reporte de Asistencia Turnos Especiales" en: título de página, badge, sidebar, catálogo RBAC (misma clave `reporte_horas_turnos_especiales`), XLSX (título, hoja y nombre de archivo `asistencia_turnos_especiales_*.xlsx`).
 - Emisor del XLSX: "Gerencia de Seguridad de la Información" → **"Gerencia de Monitoreo"** (solo este reporte; Visitas y Auditoría mantienen Seguridad de la Información).
 - Verificado: XLSX con A1/A2 correctos y filename actualizado ✅
+
+## 2026-09-18 — Módulo: Políticas de Seguridad de Credenciales + Novedades Parciales en Matriz
+- **Complejidad**: `validate_password_policy` ahora exige 12+ caracteres (antes 8) + mayús/minús/dígito/símbolo. Aplicado en create user, change-password, reset por email.
+- **Historial últimas 5**: campo `password_history` en `users`. Nuevo helper `password_is_reused` rechaza reutilización en change-password y reset-password-with-token. Se guarda el hash actual antes de rotar.
+- **Expiración 90 días**: helper `password_expired` compara `password_updated_at` con `now - 90d`. En login exitoso, si expira → set `must_change_password=true` y respuesta expone flag. `ProtectedRoute` ya lo redirige a `MandatoryPasswordChange`.
+- **Bloqueo por intentos fallidos**: contador `failed_login_attempts` + `locked_until`. 5 intentos → 30 min de lock (HTTP 423) con mensaje claro. Login exitoso resetea contadores. Nuevo endpoint admin `POST /api/users/{id}/unlock` (audit log) + botón "Desbloquear cuenta" en el menú de UsersPage cuando `locked_until > now`.
+- **Idle timeout 15 min**: nuevo hook `useIdleTimeout` en frontend con listeners de mouse/keyboard/touch/scroll y aviso a 60s del vencimiento. `AppLayout` renderiza banner ámbar con botón "Sigo aquí" y hace logout automático al vencer.
+- **Endpoint público `/api/public/security-policy`**: expone constantes de política para consumo del frontend.
+- **Novedades parciales en Matriz**: eliminada la sub-fila indigo debajo del empleado. Ahora aparece un badge circular azul en la esquina superior derecha de la celda del día con tooltip nativo (tipo · hora · motivo).
+- **Verificado**: policy pública OK · login normal OK · 5 intentos fallidos → 423 · unlock endpoint OK · complejidad rechaza 12 chars · misma clave rechazada · UI Matriz sin sub-fila y compila sin errores ✅

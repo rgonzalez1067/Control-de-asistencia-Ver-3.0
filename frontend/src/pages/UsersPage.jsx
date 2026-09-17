@@ -211,6 +211,16 @@ function generateSecureTempPassword() {
     }
   }
 
+  async function unlockAccount(u) {
+    try {
+      await api.post(`/users/${u.user_id}/unlock`);
+      toast.success(`Cuenta de ${u.name} desbloqueada`);
+      loadAll();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+    }
+  }
+
   async function handleImport(file) {
     if (!file) return;
     setImporting(true);
@@ -480,6 +490,12 @@ function generateSecureTempPassword() {
                           <DropdownMenuItem onClick={() => setResetTarget(u)}>
                             <KeyRound className="h-4 w-4 mr-2" /> Resetear contraseña
                           </DropdownMenuItem>
+                          {u.locked_until && new Date(u.locked_until) > new Date() ? (
+                            <DropdownMenuItem onClick={() => unlockAccount(u)} className="text-amber-700 focus:text-amber-800"
+                                              data-testid={`user-unlock-${u.user_id}`}>
+                              <KeyRound className="h-4 w-4 mr-2" /> Desbloquear cuenta
+                            </DropdownMenuItem>
+                          ) : null}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => setDeleteTarget(u)}>
                             <Trash2 className="h-4 w-4 mr-2" /> Eliminar

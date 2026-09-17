@@ -49,7 +49,11 @@ async def users_create(request: Request, payload: UserIn,
     doc["onboarded"] = False
     doc["created_at"] = now_utc()
     if payload.password:
+        from server import validate_password_policy
+        validate_password_policy(payload.password)
         doc["password_hash"] = hash_password(payload.password)
+        doc["password_updated_at"] = now_utc()
+        doc["password_history"] = []
         doc.pop("password", None)
     if payload.pin:
         if not payload.pin.isdigit() or not (4 <= len(payload.pin) <= 8):
@@ -324,6 +328,24 @@ async def users_update(request: Request, user_id: str, payload: UserUpdate,
     u = await db.users.find_one({"user_id": user_id}, {"password_hash": 0, "pin_code_hash": 0})
     await audit_entity(request, "UPDATE", "users", user_id, before=before, after=u, actor=actor)
     return strip_mongo_id(u)
+
+
+@api.post("/users/{user_id}/unlock")
+async def users_unlock(request: Request, user_id: str,
+                       actor: Dict[str, Any] = Depends(require_roles("admin"))) -> Dict[str, Any]:
+    """Admin: desbloqueo manual e inmediato de una cuenta bloqueada por intentos fallidos."""
+    before = await db.users.find_one({"user_id": user_id})
+    if not before:
+        raise HTTPException(status_code=404, detail=ERR_USER_NOT_FOUND)
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"failed_login_attempts": 0, "locked_until": None,
+                  "unlocked_at": now_utc(), "unlocked_by": actor["user_id"]}},
+    )
+    after = await db.users.find_one({"user_id": user_id})
+    await audit_entity(request, "UPDATE", "users", user_id, before=before, after=after, actor=actor,
+                        extra={"action": "unlock_account"})
+    return {"ok": True, "user_id": user_id, "unlocked_at": now_utc().isoformat()}
 
 
 @api.delete("/users/{user_id}")

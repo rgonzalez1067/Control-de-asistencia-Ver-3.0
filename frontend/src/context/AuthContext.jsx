@@ -25,10 +25,11 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       setToken(data.token);
-      setUser(data.user);
-      return { ok: true, user: data.user };
+      setUser({ ...data.user, must_change_password: !!data.must_change_password });
+      return { ok: true, user: data.user, must_change_password: !!data.must_change_password };
     } catch (e) {
-      return { ok: false, error: formatApiErrorDetail(e.response?.data?.detail) || e.message };
+      return { ok: false, error: formatApiErrorDetail(e.response?.data?.detail) || e.message,
+               locked: e.response?.status === 423 };
     }
   }, []);
 
