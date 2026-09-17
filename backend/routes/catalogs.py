@@ -175,3 +175,12 @@ async def departments_delete(request: Request, department_id: str,
         raise HTTPException(status_code=404, detail="Departamento no encontrado")
     await audit_entity(request, "DELETE", "departments", department_id, before=before, actor=actor)
     return {"ok": True}
+
+
+# --- Stats públicos para la pantalla de login (sin auth, solo contadores) ---
+@api.get("/public/stats")
+async def public_stats() -> Dict[str, int]:
+    employees = await db.users.count_documents({"role": {"$nin": ["kiosk"]}})
+    departments = await db.departments.count_documents({})
+    sites = await db.sites.count_documents({})
+    return {"employees": employees, "departments": departments, "sites": sites}

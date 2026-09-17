@@ -643,3 +643,7 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **Descanso**: ahora = días libres × **(diurnas + nocturnas)** del turno base (antes solo diurnas). Ej.: Turno PM (5D+2N) → 7h por día libre; Turno Nocturno → 10h. Verificado: Angela 21 libres × 7 = 147 ✅
 - **Trabajo Remoto**: confirmado que cuenta como día trabajado con las horas del turno del día o, sin turno, el más frecuente del periodo. Validado con novedad remota sintética aprobada para Angela (12 trabajados, +5D/+2N) ✅
 - **Población confirmada por el usuario**: SOLO empleados de Horario Especial (sin horario fijo). Nota: las novedades remotas actuales en BD pertenecen a empleados con horario fijo (Día Completo) → no aparecen en este reporte por diseño.
+
+## 2026-09-17 (3) — FIX: Trabajo Remoto no contaba en reporte + Login dinámico
+- **Causa raíz del bug de remoto**: el reporte de Turnos Especiales solo leía la colección `novelties`, pero las novedades planificadas desde la matriz viven en `schedule_assignments` con `kind=novelty` / `novelty_type=remote`. Fix: `has_remote` ahora cubre ambas fuentes. Verificado: Christian Uzcátegui 7 turnos + 4 remotos = 11 trabajados (domingo remoto 06/09 → FerD/FerN); Daniel González 8 turnos + 5 remotos = 13 ✅
+- **Login page**: eliminados textos de "Geocerca por sede" (highlight → "Control de visitas", párrafo actualizado) y stats hardcodeados (17/15/2) ahora dinámicos vía nuevo endpoint público `GET /api/public/stats` (sin auth, solo contadores). Valores reales: 132 empleados, 16 departamentos, 2 sedes.

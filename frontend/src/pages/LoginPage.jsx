@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import useCompanyBranding from "@/hooks/useCompanyBranding";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,9 +11,9 @@ import { toast } from "sonner";
 
 const HIGHLIGHTS = [
   { k: "Reconocimiento facial", v: "face-api en el navegador, sin instalar apps" },
-  { k: "Geocerca por sede", v: "valida ubicación en tiempo real al marcar" },
+  { k: "Control de visitas", v: "registro biométrico de visitantes en el kiosco" },
   { k: "Kiosco compartido", v: "una sola pantalla para toda la oficina" },
-  { k: "Reportes exportables", v: "CSV listos para RRHH y nómina" },
+  { k: "Reportes exportables", v: "Excel y PDF listos para RRHH y nómina" },
 ];
 
 export default function LoginPage() {
@@ -24,6 +25,7 @@ export default function LoginPage() {
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [tick, setTick] = useState(new Date());
+  const [stats, setStats] = useState(null);
   const nav = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || "/";
@@ -31,6 +33,10 @@ export default function LoginPage() {
   useEffect(() => {
     const t = setInterval(() => setTick(new Date()), 1000);
     return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    api.get("/public/stats").then(({ data }) => setStats(data)).catch(() => {});
   }, []);
 
   async function onSubmit(e) {
@@ -109,7 +115,7 @@ export default function LoginPage() {
             </h1>
             <p className="mt-8 text-white/70 text-base max-w-md leading-relaxed">
               Una única URL productiva que reemplaza al app móvil: instalable como PWA,
-              con reconocimiento facial en el kiosco, geocerca por sede y reportes en vivo.
+              con reconocimiento facial en el kiosco, control de visitas y reportes en vivo.
             </p>
 
             <ul className="mt-10 grid grid-cols-2 gap-x-6 gap-y-4 max-w-lg">
@@ -128,17 +134,17 @@ export default function LoginPage() {
           {/* footer stats */}
           <div className="relative flex items-center gap-8 text-sm">
             <div>
-              <p className="text-3xl font-bold leading-none">17</p>
+              <p className="text-3xl font-bold leading-none" data-testid="login-stats-employees">{stats ? stats.employees : "—"}</p>
               <p className="text-xs text-white/50 mt-1">empleados activos</p>
             </div>
             <div className="h-10 w-px bg-white/10" />
             <div>
-              <p className="text-3xl font-bold leading-none">15</p>
+              <p className="text-3xl font-bold leading-none" data-testid="login-stats-departments">{stats ? stats.departments : "—"}</p>
               <p className="text-xs text-white/50 mt-1">departamentos</p>
             </div>
             <div className="h-10 w-px bg-white/10" />
             <div>
-              <p className="text-3xl font-bold leading-none">2</p>
+              <p className="text-3xl font-bold leading-none" data-testid="login-stats-sites">{stats ? stats.sites : "—"}</p>
               <p className="text-xs text-white/50 mt-1">sedes activas</p>
             </div>
           </div>

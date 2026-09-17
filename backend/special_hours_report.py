@@ -128,7 +128,13 @@ async def build_special_hours_report(db, from_date: str, to_date: str,
 
             asg = asg_map.get(day)
             has_shift = bool(asg and asg.get("kind") == "shift" and asg.get("schedule_id"))
-            has_remote = any(_in_range(day, n.get("start_date"), n.get("end_date")) for n in remotes)
+            # Trabajo Remoto llega por dos vías: novedad aprobada (colección
+            # `novelties`) o asignación planificada en la matriz
+            # (`schedule_assignments` con kind=novelty / novelty_type=remote).
+            has_remote = (
+                any(_in_range(day, n.get("start_date"), n.get("end_date")) for n in remotes)
+                or bool(asg and asg.get("kind") == "novelty" and asg.get("novelty_type") == "remote")
+            )
 
             if not has_shift and not has_remote:
                 continue  # día libre → contribuye a Descanso más abajo
