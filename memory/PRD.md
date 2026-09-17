@@ -662,3 +662,15 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **Endpoint público `/api/public/security-policy`**: expone constantes de política para consumo del frontend.
 - **Novedades parciales en Matriz**: eliminada la sub-fila indigo debajo del empleado. Ahora aparece un badge circular azul en la esquina superior derecha de la celda del día con tooltip nativo (tipo · hora · motivo).
 - **Verificado**: policy pública OK · login normal OK · 5 intentos fallidos → 423 · unlock endpoint OK · complejidad rechaza 12 chars · misma clave rechazada · UI Matriz sin sub-fila y compila sin errores ✅
+
+
+## 2026-09-18 (2) — Ajustes Globales de Seguridad + 2FA por Correo (iter 21)
+- **Nueva colección `settings/_id="security"`**: guarda `password_expiration_days`, `password_expiration_warning_days`, `max_login_attempts`, `lockout_minutes`, `password_history_size`, `enable_email_2fa`, `otp_expiration_minutes`, `otp_max_attempts`. Módulo `security_config.py` centraliza DEFAULTS + BOUNDS y `coerce_payload` valida rangos y coherencia (aviso < expiración).
+- **Endpoints admin**: `GET /api/security-settings`, `PUT /api/security-settings` (auditado en `audit_log/module=settings/entity=security`).
+- **Endpoint público**: `/api/public/security-policy` ahora refleja los valores dinámicos + `enable_email_2fa`.
+- **Login dinámico**: `routes/auth.py` lee `max_login_attempts`, `lockout_minutes`, `password_expiration_days`, `password_history_size` desde la BD. Cambios en la UI aplican al siguiente login (sin restart).
+- **2FA por correo (obligatorio global cuando se activa)**: al validar credenciales, si `enable_email_2fa=true` y el usuario NO es `kiosk`, se genera un OTP de 6 dígitos (sha256 en BD), se envía por SMTP con plantilla propia y se emite un JWT temporal (`type="otp_challenge"`, `cid` del reto). El frontend muestra pantalla dedicada con email enmascarado y campo de 6 dígitos. `/api/auth/verify-otp` intercambia `{otp_token, code}` por el JWT final.
+- **Colección `otp_challenges`**: `{challenge_id, user_id, email, otp_hash, attempts, max_attempts, expires_at, consumed_at, invalidated_reason}`. Al exceder N intentos se marca `invalidated_reason="max_attempts"` y el reto queda consumido.
+- **Auditoría**: eventos `otp_challenge_issued`, `otp_verify_failed`, `otp_verify_locked`, `otp_verify_success` persisten en `audit_log`.
+- **Frontend**: `SettingsPage → SecurityParamsCard` con validación cliente (bounds + coherencia). `LoginPage` renderiza pantalla OTP con "Usar otra cuenta" y submit de 6 dígitos.
+- **Testing**: iter 21 → 14/14 backend PASS + E2E Playwright OK. Estado final en BD: `enable_email_2fa=false` (limpio).

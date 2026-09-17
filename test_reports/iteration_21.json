@@ -1,0 +1,28 @@
+{
+  "summary": "Iteración 21 — Módulo Ajustes globales de seguridad + 2FA por correo. Backend: 14/14 pytest PASS (test_iter21_2fa_security.py). Cubre GET/PUT /api/security-settings (admin-only, bounds, coherencia warning<expiration), GET /api/public/security-policy sin auth exponiendo enable_email_2fa, login directo con 2FA off, login con 2FA on devolviendo {requires_otp, otp_token, email_masked, expires_in_minutes, delivery} y creando registro en db.otp_challenges, verify-otp con código incorrecto que decrementa intentos hasta invalidar (invalidated_reason=max_attempts), verify-otp éxito consume el reto y emite {token,user,must_change_password}, verify-otp con token inválido devuelve 401, kiosk (kiosco.tbp) bypass 2FA (login directo con JWT aunque 2FA esté on), y max_login_attempts dinámico (con 3 intentos y lockout=1min efectivamente bloquea con 423). Frontend E2E con Playwright: (a) SecurityParamsCard visible en /ajustes con todos los data-testid (security-params-card, sec-password-expiration-days, sec-password-warning-days, sec-password-history-size, sec-max-login-attempts, sec-lockout-minutes, sec-enable-2fa, sec-save, sec-restore-defaults); (b) validación cliente: max_login_attempts=999 marca input en rojo (border-red-500) y deshabilita botón sec-save; (c) LoginPage con 2FA activo muestra pantalla OTP con email enmascarado (r*******z@megasoft.com.ve), input de 6 dígitos [data-testid=login-otp-input], botón 'Verificar y acceder' [login-otp-submit-btn] y 'Usar otra cuenta' [login-otp-cancel]; (d) OTP correcto crackeado desde db.otp_challenges se envía por UI y redirige al dashboard '/' con sesión válida. Estado final: enable_email_2fa=false (limpio).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter21_2fa_security.py",
+    "/app/test_reports/pytest/iter21_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "security_config.py DEFAULTS/BOUNDS bien diseñado; coerce_payload valida rango y coherencia (warning<expiration). Punto para observar: password_expiration_warning_days bound min=0 pero coherencia exige warn<exp — considerar bound alto acorde a expiration_days.max (365) para no aceptar aviso=60 cuando expiration=30 (actualmente ya lo rechaza el chequeo cruzado, OK).",
+    "routes/auth.py: helper _finalize_login reutilizado en /auth/login (sin 2FA) y /auth/verify-otp — buena DRY. audit_log registra otp_challenge_issued, otp_verify_failed, otp_verify_locked, otp_verify_success — completo para forense.",
+    "El OTP se guarda como sha256 (rápido/reversible por brute-force en 6 dígitos ~2s). En producción no cambia riesgo real porque el reto expira y el token JWT temporal firma cid+sub, pero podría usarse bcrypt(cost bajo) o HMAC con secreto. Mejora, no bug.",
+    "verify-otp: al superar max_attempts marca consumed_at=now (correcto para evitar reutilización) e invalidated_reason='max_attempts' — buena trazabilidad. El próximo /verify-otp con ese cid caerá en 'Este código ya fue utilizado' (401). Perfecto.",
+    "auth_login rate-limit '5/minute' + limiter combinado con lockout dinámico funciona bien; sin embargo el mensaje del 429 del middleware no distingue de lockout 423 — sólo comentario UX menor.",
+    "kiosk bypass verificado: cfg.enable_email_2fa=true + role=kiosk → devuelve JWT directo. Correcto.",
+    "SettingsPage SecurityParamsCard (1388 líneas totales del archivo) — el archivo está grande, considerar dividir en cards separados por dominio en próxima iteración (SecurityParamsCard, BackupCard, etc.). No bloquea funcionalidad.",
+    "LoginPage OTP UI ofrece 'Usar otra cuenta' que reinicia el estado — buena UX. La pantalla muestra 'expira en 5 min' basado en expires_in_minutes del backend."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter21_2fa_security.py"],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "100% (todas las verificaciones UI + E2E OTP PASS)"},
+  "test_credentials": "Admin: rgonzalez@megasoft.com.ve / Sol*1401*1010 (OK). Kiosk: kiosco.tbp@megasoft.com.ve / Mega2026* (OK). Employee jgil@megasoft.com.ve / NewJgil!234 → NO FUNCIONA (bcrypt no verifica); test_credentials.md necesita actualización o el usuario fue re-seteado. Los tests migraron a usar ADMIN para OTP flow.",
+  "seed_data_creation": "Ninguna. Se toggleó settings/_id=security en Mongo durante pruebas y se restauró enable_email_2fa=false al terminar.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "2FA feature 100% funcional end-to-end. Al terminar la iteración enable_email_2fa=false (verificado). ADVERTENCIA: la contraseña de jgil@megasoft.com.ve en test_credentials.md ('NewJgil!234') NO coincide con el hash bcrypt en Mongo — pedir al main agent que actualice test_credentials.md o resetee ese usuario. Para probar OTP flujo desde db.otp_challenges: brute-force sha256(000000-999999) tarda ~2s. El campo delivery.sent puede ser false sin SMTP; el OTP siempre queda persistido.",
+  "rca_of_the_issue": "N/A — feature nueva sin bugs. Falla inicial de tests fue por (1) rate-limit 5/min en /api/auth/login (fixado con helper _login que espacia 13s) y (2) password de jgil obsoleta en test_credentials.md (workaround: usar ADMIN para el flujo OTP)."
+}
