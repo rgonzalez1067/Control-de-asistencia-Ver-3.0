@@ -674,3 +674,12 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **Auditoría**: eventos `otp_challenge_issued`, `otp_verify_failed`, `otp_verify_locked`, `otp_verify_success` persisten en `audit_log`.
 - **Frontend**: `SettingsPage → SecurityParamsCard` con validación cliente (bounds + coherencia). `LoginPage` renderiza pantalla OTP con "Usar otra cuenta" y submit de 6 dígitos.
 - **Testing**: iter 21 → 14/14 backend PASS + E2E Playwright OK. Estado final en BD: `enable_email_2fa=false` (limpio).
+
+
+## 2026-09-18 (3) — Reorganización del menú por secciones (sidebar + catálogo RBAC)
+- **Catálogos** (nueva sección): Empleados, Departamentos, Sedes, Horarios.
+- **Control de Visitas** (nueva sección): Agendar visita, Histórico de visitas, Reporte de Visitas Realizadas.
+- **Configuración**: Ajustes + "Días festivos" renombrado a "Calendario de días festivos" + "Modo Kiosco" (antes botón suelto al final del sidebar; ahora es un item de nav con permKey `kiosco_activar`, visible también para no-admin con ese permiso).
+- **Frontend** (`AppLayout.jsx`): `NAV_ADMIN` dividido en `NAV_ADMIN` (Operación + Catálogos), `NAV_ADMIN_SECURITY` y `NAV_ADMIN_CONFIG`; items de visitas/reportes dinámicos llevan `section` para que el render agrupe con encabezados. Orden admin: Operación → Catálogos → Control de Visitas → Seguridad → Configuración. Eliminados los botones standalone `sidebar-kiosk-btn` y `mobile-kiosk-btn` (el acceso del dropdown de usuario se mantiene).
+- **Backend** (`server.py` → `MENU_CATALOG`): secciones actualizadas (`Catálogos`, `Control de Visitas`, `Configuración`), `kiosco_activar` renombrado a "Modo Kiosco" y `asignar_horarios` movido a Operación; la grilla de SecurityProfilesPage se reagrupa sola porque consume el catálogo dinámicamente.
+- **Verificado**: catálogo RBAC vía curl (21 claves, secciones correctas) · screenshot sidebar admin con las 5 secciones · grilla de perfiles reagrupada · sidebar de gerente (no-admin) filtra por permisos y muestra Control de Visitas sin Modo Kiosco.

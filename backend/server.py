@@ -464,28 +464,30 @@ MENU_CATALOG: List[Dict[str, Any]] = [
     {"key": "mi_carnet",          "label": "Mi carnet",          "section": "Personal"},
     {"key": "historial",          "label": "Historial personal", "section": "Personal"},
     # Sección: Operación
-    {"key": "kiosco_activar",     "label": "Activar Kiosco",     "section": SECTION_OPERACION},
+    {"key": "dashboard",          "label": "Dashboard",          "section": SECTION_OPERACION},
     {"key": "matriz",             "label": "Reporte matricial",  "section": SECTION_OPERACION},
     {"key": "novedades",          "label": "Novedades",          "section": SECTION_OPERACION},
     {"key": "equipo",             "label": "Mi equipo",          "section": SECTION_OPERACION},
-    {"key": "dashboard",          "label": "Dashboard",          "section": SECTION_OPERACION},
-    # Sección: Visitas
-    {"key": "visitas_agendar",    "label": "Agendar visita",     "section": "Visitas"},
-    {"key": "visitas_historico",  "label": "Histórico de visitas", "section": "Visitas"},
-    {"key": "visitas_reporte_regulatorio", "label": "Reporte de Visitas Realizadas", "section": "Visitas"},
+    {"key": "asignar_horarios",   "label": "Asignación de horarios", "section": SECTION_OPERACION},
+    # Sección: Catálogos (sep-2026)
+    {"key": "empleados",          "label": "Empleados",          "section": "Catálogos"},
+    {"key": "departamentos",      "label": "Departamentos",      "section": "Catálogos"},
+    {"key": "sedes",              "label": "Sedes",              "section": "Catálogos"},
+    {"key": "horarios",           "label": "Horarios",           "section": "Catálogos"},
+    # Sección: Control de Visitas (sep-2026)
+    {"key": "visitas_agendar",    "label": "Agendar visita",     "section": "Control de Visitas"},
+    {"key": "visitas_historico",  "label": "Histórico de visitas", "section": "Control de Visitas"},
+    {"key": "visitas_reporte_regulatorio", "label": "Reporte de Visitas Realizadas", "section": "Control de Visitas"},
+    # Sección: Reportes
+    {"key": "reportes",           "label": "Reportes",           "section": "Reportes"},
     {"key": "reporte_horas_turnos_especiales", "label": "Reporte de Asistencia Turnos Especiales", "section": "Reportes"},
-    {"key": "auditoria_pistas", "label": "Pistas de Auditoría", "section": "Seguridad"},
-    # Sección: Administración
-    {"key": "empleados",          "label": "Empleados",          "section": "Administración"},
-    {"key": "departamentos",      "label": "Departamentos",      "section": "Administración"},
-    {"key": "sedes",              "label": "Sedes",              "section": "Administración"},
-    {"key": "horarios",           "label": "Horarios",           "section": "Administración"},
-    {"key": "asignar_horarios",   "label": "Asignación de horarios", "section": "Administración"},
-    {"key": "reportes",           "label": "Reportes",           "section": "Administración"},
-    {"key": "ajustes",            "label": "Ajustes",            "section": "Administración"},
+    # Sección: Configuración (sep-2026)
+    {"key": "ajustes",            "label": "Ajustes",            "section": "Configuración"},
+    {"key": "kiosco_activar",     "label": "Modo Kiosco",        "section": "Configuración"},
     # Sección: Seguridad
     {"key": "seguridad_perfiles", "label": "Creación de perfiles de acceso", "section": "Seguridad"},
     {"key": "seguridad_permisos", "label": "Permisos de usuario", "section": "Seguridad"},
+    {"key": "auditoria_pistas", "label": "Pistas de Auditoría", "section": "Seguridad"},
 ]
 MENU_KEYS: List[str] = [x["key"] for x in MENU_CATALOG]
 

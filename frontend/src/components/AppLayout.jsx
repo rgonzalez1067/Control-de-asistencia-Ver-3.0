@@ -27,22 +27,32 @@ import {
   LayoutGrid, CalendarCog, Hash, UserCog, CalendarDays,
 } from "lucide-react";
 
+const KIOSK_NAV_ITEM = { to: "/kiosk", icon: ScanFace, label: "Modo Kiosco", section: "Configuración", permKey: "kiosco_activar" };
+
 const NAV_ADMIN = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard", permKey: "dashboard" },
-  { to: "/usuarios", icon: Users, label: "Empleados", permKey: "empleados" },
   { to: "/equipo", icon: Users, label: "Mi equipo", permKey: "equipo" },
-  { to: "/sedes", icon: MapPin, label: "Sedes", permKey: "sedes" },
-  { to: "/departamentos", icon: Building2, label: "Departamentos", permKey: "departamentos" },
-  { to: "/horarios", icon: CalendarClock, label: "Horarios", permKey: "horarios" },
   { to: "/reportes", icon: FileBarChart2, label: "Reportes", permKey: "reportes" },
   { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz de asistencia", permKey: "matriz" },
+  { to: "/reportes/horas-turnos-especiales", icon: Timer, label: "Asistencia Turnos Especiales", permKey: "reporte_horas_turnos_especiales" },
   { to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios", permKey: "asignar_horarios" },
   { to: "/novedades", icon: Bell, label: "Novedades", permKey: "novedades" },
+  { to: "/usuarios", icon: Users, label: "Empleados", section: "Catálogos", permKey: "empleados" },
+  { to: "/departamentos", icon: Building2, label: "Departamentos", section: "Catálogos", permKey: "departamentos" },
+  { to: "/sedes", icon: MapPin, label: "Sedes", section: "Catálogos", permKey: "sedes" },
+  { to: "/horarios", icon: CalendarClock, label: "Horarios", section: "Catálogos", permKey: "horarios" },
+];
+
+const NAV_ADMIN_SECURITY = [
   { to: "/seguridad/perfiles", icon: ShieldCheck, label: "Perfiles de acceso", section: "Seguridad", permKey: "seguridad_perfiles" },
   { to: "/seguridad/permisos", icon: UserCog, label: "Permisos de usuario", section: "Seguridad", permKey: "seguridad_permisos" },
   { to: "/seguridad/auditoria", icon: ShieldCheck, label: "Pistas de auditoría", section: "Seguridad", permKey: "auditoria_pistas" },
-  { to: "/festivos", icon: CalendarDays, label: "Días festivos", section: "Configuración" },
-  { to: "/ajustes", icon: Settings2, label: "Ajustes", permKey: "ajustes" },
+];
+
+const NAV_ADMIN_CONFIG = [
+  { to: "/ajustes", icon: Settings2, label: "Ajustes", section: "Configuración", permKey: "ajustes" },
+  { to: "/festivos", icon: CalendarDays, label: "Calendario de días festivos", section: "Configuración" },
+  KIOSK_NAV_ITEM,
 ];
 
 const NAV_EMPLOYEE = [
@@ -134,23 +144,38 @@ export default function AppLayout() {
     (user?.role && LEADER_ROLES_SET.has(user.role)) ? NAV_SUPERVISOR : NAV_EMPLOYEE;
 
   const visitItems = [];
-  if (canCreateVisits) visitItems.push({ to: "/visitas/agendar", icon: UserPlus, label: "Agendar visita", permKey: "visitas_agendar" });
-  if (canViewVisitLogs) visitItems.push({ to: "/visitas/historico", icon: ClipboardList, label: "Histórico de visitas", permKey: "visitas_historico" });
-  if (hasPerm("visitas_reporte_regulatorio")) visitItems.push({ to: "/reportes/visitas-realizadas", icon: FileBarChart2, label: "Reporte de Visitas Realizadas", permKey: "visitas_reporte_regulatorio" });
-  if (hasPerm("reporte_horas_turnos_especiales")) visitItems.push({ to: "/reportes/horas-turnos-especiales", icon: Timer, label: "Asistencia Turnos Especiales", permKey: "reporte_horas_turnos_especiales" });
+  if (canCreateVisits) visitItems.push({ to: "/visitas/agendar", icon: UserPlus, label: "Agendar visita", section: "Control de Visitas", permKey: "visitas_agendar" });
+  if (canViewVisitLogs) visitItems.push({ to: "/visitas/historico", icon: ClipboardList, label: "Histórico de visitas", section: "Control de Visitas", permKey: "visitas_historico" });
+  if (hasPerm("visitas_reporte_regulatorio")) visitItems.push({ to: "/reportes/visitas-realizadas", icon: FileBarChart2, label: "Reporte de Visitas Realizadas", section: "Control de Visitas", permKey: "visitas_reporte_regulatorio" });
+
+  // Reporte de turnos especiales para roles no-admin (admin ya lo trae en NAV_ADMIN).
+  const reportItems = [];
+  if (hasPerm("reporte_horas_turnos_especiales") && user?.role !== "admin") {
+    reportItems.push({ to: "/reportes/horas-turnos-especiales", icon: Timer, label: "Asistencia Turnos Especiales", permKey: "reporte_horas_turnos_especiales" });
+  }
 
   // Para no-admin: agregamos horarios / asignar si el flag legacy los tenía. La
   // filtración final por `effective_permissions` deja pasar si están en el perfil.
   const extraItems = [];
-  if (canManageSchedules && user?.role !== "admin") {
-    extraItems.push({ to: "/horarios", icon: CalendarClock, label: "Horarios", permKey: "horarios" });
-  }
   if (canAssignSchedules && user?.role !== "admin") {
     extraItems.push({ to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios", permKey: "asignar_horarios" });
   }
+  if (canManageSchedules && user?.role !== "admin") {
+    extraItems.push({ to: "/horarios", icon: CalendarClock, label: "Horarios", section: "Catálogos", permKey: "horarios" });
+  }
+
+  // Modo Kiosco vive dentro de la sección Configuración del menú (antes era un
+  // botón suelto al final del sidebar). En admin forma parte de NAV_ADMIN_CONFIG.
+  const isAdminRole = user?.role === "admin";
+  const tailItems = isAdminRole
+    ? [...NAV_ADMIN_SECURITY, ...NAV_ADMIN_CONFIG]
+    : [KIOSK_NAV_ITEM];
 
   // Filtramos toda la lista final por `effective_permissions` (admin pasa siempre).
-  const items = filterNavByPermissions([...baseItems, ...extraItems, ...visitItems], user);
+  const items = filterNavByPermissions(
+    [...baseItems, ...reportItems, ...extraItems, ...visitItems, ...tailItems],
+    user,
+  );
   const isAdmin = user?.role === "admin";
   const canActivateKiosk = hasPerm("kiosco_activar");
 
@@ -219,19 +244,8 @@ export default function AppLayout() {
             </>
           )}
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-0.5" data-testid="sidebar-nav">
+        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto" data-testid="sidebar-nav">
           {renderNavWithSections(items)}
-          {canActivateKiosk && (
-            <button
-              type="button"
-              onClick={openKiosk}
-              data-testid="sidebar-kiosk-btn"
-              className="w-full mt-2 flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/70 hover:bg-white/5 hover:text-white transition-colors"
-            >
-              <ScanFace className="h-4 w-4 opacity-80" />
-              <span>Modo kiosco</span>
-            </button>
-          )}
         </nav>
         <div className="p-4 border-t border-white/10 text-[11px] text-white/50">
           v1.0 · Producción
@@ -280,20 +294,6 @@ export default function AppLayout() {
                   </SheetHeader>
                   <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto" data-testid="mobile-nav">
                     {renderNavWithSections(items, () => setDrawerOpen(false))}
-                    {canActivateKiosk && (
-                      <button
-                        type="button"
-                        onClick={openKiosk}
-                        data-testid="mobile-kiosk-btn"
-                        className="w-full mt-3 flex items-center gap-3 px-3 py-3 rounded-xl bg-accent/15 text-accent hover:bg-accent/25 transition-colors"
-                      >
-                        <ScanFace className="h-5 w-5" />
-                        <div className="text-left">
-                          <p className="text-sm font-semibold">Activar modo kiosco</p>
-                          <p className="text-[11px] opacity-80">Marca compartida con rostro o PIN</p>
-                        </div>
-                      </button>
-                    )}
                   </nav>
                   <div className="px-5 py-4 border-t border-white/10 text-[11px] text-white/50">
                     {user?.email}
