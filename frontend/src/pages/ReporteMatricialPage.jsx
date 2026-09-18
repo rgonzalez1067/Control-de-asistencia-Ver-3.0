@@ -254,13 +254,14 @@ export default function ReporteMatricialPage() {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+          <div className="mt-4 flex flex-wrap gap-2 text-[11px]" data-testid="matrix-legend">
             <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700">Hora <b className="text-black">negro</b> = dentro de tolerancia</span>
             <span className="px-2 py-0.5 rounded bg-red-100 text-red-800"><b>Rojo</b> = tardanza o descanso &gt; 60 min</span>
             <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 italic">Ámbar cursiva = salida auto-imputada 23:59</span>
             <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800">Vacaciones / Reposo / Trabajo Remoto = día completo</span>
             <span className="px-2 py-0.5 rounded bg-red-100 text-red-800">Falta = día laboral sin marcaje</span>
-            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800">● Badge azul = Novedad parcial (pasa el cursor para ver detalle)</span>
+            <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-800" data-testid="matrix-legend-partial">Celda E1 sombreada = Novedad parcial (pasa el cursor sobre E1 para ver detalle)</span>
+            <span className="px-2 py-0.5 rounded bg-orange-100 text-orange-800 font-semibold" data-testid="matrix-legend-site-mismatch">Marcaje en Sede Distinta = marcó en un kiosco fuera de su sede asignada en ficha</span>
           </div>
         </CardContent>
       </Card>
@@ -369,11 +370,17 @@ export default function ReporteMatricialPage() {
                           for (let i = 0; i < bpd; i++) {
                             const b = blocks[i] || {};
                             const inRed = b.in_late || b.break_over;
-                            const inTitle = b.break_over
-                              ? `Exceso de descanso: +${b.break_excess_minutes} min sumados a Min. perdidos`
-                              : b.in_site_mismatch ? "Marcaje en sede distinta a la asignada" : undefined;
+                            // Novedad parcial: la celda E1 se sombrea con el tono índigo
+                            // de la leyenda (ya no se usa badge independiente).
+                            const isPartialCell = i === 0 && dayPartials.length > 0;
+                            const inTitle = [
+                              b.break_over ? `Exceso de descanso: +${b.break_excess_minutes} min sumados a Min. perdidos` : null,
+                              b.in_site_mismatch ? "Marcaje en sede distinta a la asignada" : null,
+                              isPartialCell ? `Novedad parcial — ${partialTip}` : null,
+                            ].filter(Boolean).join("\n") || undefined;
                             const inCls = b.in_site_mismatch
                               ? "bg-orange-100 text-orange-800 font-semibold"
+                              : isPartialCell ? "bg-indigo-100 text-indigo-800 font-semibold"
                               : inRed ? "text-red-700 font-bold" : "text-slate-900";
                             const outTitle = b.auto_closed
                               ? "Salida imputada automáticamente al cierre del día (23:59)"
@@ -381,17 +388,11 @@ export default function ReporteMatricialPage() {
                             const outCls = b.out_site_mismatch
                               ? "bg-orange-100 text-orange-800 font-semibold"
                               : b.auto_closed ? "text-amber-700 italic" : "text-slate-900";
-                            const showBadge = i === 0 && dayPartials.length > 0;
                             cells.push(
                               <td key={day + "in" + i} title={inTitle}
-                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 relative ${inCls}`}>
+                                data-testid={isPartialCell ? `partial-cell-${r.user_id}-${day}` : undefined}
+                                className={`px-1 py-1 text-center whitespace-nowrap border-r border-border/40 ${inCls} ${isPartialCell ? "cursor-help" : ""}`}>
                                 {b.in || "–"}
-                                {showBadge && (
-                                  <span data-testid={`partial-badge-${r.user_id}-${day}`}
-                                        title={partialTip}
-                                        className="absolute top-0.5 right-0.5 h-2.5 w-2.5 rounded-full bg-indigo-500 ring-2 ring-white cursor-help"
-                                        aria-label={`Novedad parcial: ${partialTip}`} />
-                                )}
                               </td>
                             );
                             cells.push(

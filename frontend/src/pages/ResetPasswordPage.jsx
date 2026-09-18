@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { PASSWORD_POLICY_HINT, passwordMeetsPolicy } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,7 +22,7 @@ export default function ResetPasswordPage() {
   async function onSubmit(e) {
     e.preventDefault();
     if (!token) { toast.error("Enlace inválido"); return; }
-    if (pwd.length < 8) { toast.error("La contraseña debe tener al menos 8 caracteres"); return; }
+    if (!passwordMeetsPolicy(pwd)) { toast.error(PASSWORD_POLICY_HINT); return; }
     if (pwd !== confirm) { toast.error("Las contraseñas no coinciden"); return; }
     setBusy(true);
     try {
@@ -31,6 +32,9 @@ export default function ResetPasswordPage() {
       toast.error(formatApiErrorDetail(err.response?.data?.detail) || err.message);
     } finally { setBusy(false); }
   }
+
+  const policyOk = passwordMeetsPolicy(pwd);
+  const canSubmit = !busy && policyOk && pwd === confirm;
 
   return (
     <div className="min-h-screen w-full bg-primary text-primary-foreground grid place-items-center p-6">
@@ -54,8 +58,8 @@ export default function ResetPasswordPage() {
                   <KeyRound className="h-5 w-5 text-primary" />
                 </div>
                 <h1 className="text-xl font-semibold">Elige una nueva contraseña</h1>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Mínimo 8 caracteres. Elige una robusta — te recomendamos mezclar mayúsculas, minúsculas, números y símbolos.
+                <p className="text-sm text-muted-foreground mt-1" data-testid="reset-policy-hint">
+                  {PASSWORD_POLICY_HINT}
                 </p>
               </div>
               <form onSubmit={onSubmit} className="space-y-4">
@@ -78,7 +82,12 @@ export default function ResetPasswordPage() {
                          value={confirm} onChange={(e) => setConfirm(e.target.value)}
                          className="h-12" required data-testid="reset-confirm" />
                 </div>
-                <Button type="submit" disabled={busy || !pwd || !confirm}
+                {pwd && !policyOk && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-testid="reset-policy-warning">
+                    {PASSWORD_POLICY_HINT}
+                  </p>
+                )}
+                <Button type="submit" disabled={!canSubmit}
                         className="w-full h-12 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold"
                         data-testid="reset-submit">
                   {busy ? "Guardando…" : "Cambiar contraseña"}

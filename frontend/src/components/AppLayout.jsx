@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import useIdleTimeout from "@/hooks/useIdleTimeout";
 import useCompanyBranding from "@/hooks/useCompanyBranding";
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { PASSWORD_POLICY_HINT, passwordMeetsPolicy } from "@/lib/utils";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -435,8 +436,8 @@ function ChangePasswordDialog({ open, onOpenChange, userEmail }) {
 
   async function submit(e) {
     e.preventDefault();
-    if (newPw.length < 8) {
-      toast.error("La nueva contraseña debe tener al menos 8 caracteres");
+    if (!passwordMeetsPolicy(newPw)) {
+      toast.error(PASSWORD_POLICY_HINT);
       return;
     }
     if (newPw !== confirmPw) {
@@ -461,6 +462,9 @@ function ChangePasswordDialog({ open, onOpenChange, userEmail }) {
   }
 
   const strength = passwordStrength(newPw);
+  const pwPolicyOk = passwordMeetsPolicy(newPw);
+  const pwMatches = newPw !== "" && newPw === confirmPw;
+  const canSubmit = !saving && oldPw && pwPolicyOk && pwMatches && newPw !== oldPw;
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -506,9 +510,9 @@ function ChangePasswordDialog({ open, onOpenChange, userEmail }) {
                 type={showNew ? "text" : "password"}
                 value={newPw}
                 onChange={(e) => setNewPw(e.target.value)}
-                placeholder="Mínimo 8 caracteres"
+                placeholder="Mínimo 12 caracteres"
                 required
-                minLength={8}
+                minLength={12}
                 className="h-11 pr-10"
                 data-testid="change-pw-new"
               />
@@ -542,16 +546,23 @@ function ChangePasswordDialog({ open, onOpenChange, userEmail }) {
               onChange={(e) => setConfirmPw(e.target.value)}
               placeholder="Repite la nueva contraseña"
               required
-              minLength={8}
+              minLength={12}
               className="h-11"
               data-testid="change-pw-confirm"
             />
           </div>
+          {confirmPw && !pwMatches && (
+            <p className="text-xs text-red-600" data-testid="change-pw-mismatch">Las contraseñas no coinciden</p>
+          )}
+          {newPw && !pwPolicyOk && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2" data-testid="change-pw-policy-hint">
+              {PASSWORD_POLICY_HINT}
+            </p>
+          )}
 
           <ul className="text-[11px] text-muted-foreground space-y-0.5 pt-1">
-            <li>• Mínimo 8 caracteres</li>
-            <li>• Distinta a la contraseña actual</li>
-            <li>• Se recomiendan mayúsculas, números y símbolos</li>
+            <li>• {PASSWORD_POLICY_HINT}</li>
+            <li>• Distinta a la contraseña actual y a tus últimas 5 claves</li>
           </ul>
 
           <DialogFooter className="flex-row gap-2 sm:justify-stretch pt-2">
@@ -559,7 +570,7 @@ function ChangePasswordDialog({ open, onOpenChange, userEmail }) {
               className="rounded-full flex-1" data-testid="change-pw-cancel">
               Cancelar
             </Button>
-            <Button type="submit" disabled={saving}
+            <Button type="submit" disabled={!canSubmit}
               className="rounded-full flex-1 bg-primary hover:bg-primary/90 font-semibold"
               data-testid="change-pw-submit">
               {saving ? "Guardando…" : "Actualizar"}
@@ -574,8 +585,8 @@ function ChangePasswordDialog({ open, onOpenChange, userEmail }) {
 function passwordStrength(pw) {
   const p = pw || "";
   let score = 0;
-  if (p.length >= 8) score++;
   if (p.length >= 12) score++;
+  if (p.length >= 16) score++;
   if (/[A-Z]/.test(p) && /[a-z]/.test(p)) score++;
   if (/\d/.test(p)) score++;
   if (/[^A-Za-z0-9]/.test(p)) score++;

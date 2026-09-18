@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
+import { PASSWORD_POLICY_HINT } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +10,7 @@ import { toast } from "sonner";
 
 // Reglas de política — coinciden con backend `validate_password_policy`.
 const RULES = [
-  { key: "len",  label: "Al menos 8 caracteres",       test: (p) => p.length >= 8 },
+  { key: "len",  label: "Al menos 12 caracteres",       test: (p) => p.length >= 12 },
   { key: "up",   label: "Al menos una letra MAYÚSCULA", test: (p) => /[A-Z]/.test(p) },
   { key: "lo",   label: "Al menos una letra minúscula", test: (p) => /[a-z]/.test(p) },
   { key: "num",  label: "Al menos un número",           test: (p) => /\d/.test(p) },
@@ -58,7 +59,7 @@ export default function MandatoryPasswordChange() {
             <p className="text-xs uppercase tracking-[0.2em] text-amber-700 font-semibold">Acción obligatoria</p>
             <h1 className="text-xl font-bold text-amber-900 mt-1">Debes cambiar tu contraseña</h1>
             <p className="text-sm text-amber-900/80 mt-1">
-              Por seguridad, la clave temporal debe reemplazarse antes de continuar. Elige una nueva contraseña que cumpla la política corporativa.
+              Por seguridad, la clave temporal debe reemplazarse antes de continuar. {PASSWORD_POLICY_HINT}
             </p>
           </div>
         </div>

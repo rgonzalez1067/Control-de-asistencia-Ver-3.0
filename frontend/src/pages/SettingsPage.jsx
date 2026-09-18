@@ -12,6 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { PASSWORD_POLICY_HINT } from "@/lib/utils";
 import { Settings2, Save, Image as ImageIcon, RefreshCw, ShieldCheck, ScanFace, ExternalLink, Database, Download, Upload, AlertTriangle, KeyRound, MonitorSmartphone, Unlock, MapPin, Clock, BookText, FileText, Shield, Copy, CheckCircle2, ShieldAlert, Lock, Mail, Hash } from "lucide-react";
 
 const TIMEZONES = [
@@ -825,7 +826,7 @@ function ResetAllPasswordsCard() {
                 data-testid="reset-all-passwords-input"
               />
               <p className="text-[11px] text-muted-foreground">
-                Los usuarios deberán cambiarla al primer login (política: 8+ caracteres, mayúscula, minúscula, número y especial).
+                Los usuarios deberán cambiarla al primer login. {PASSWORD_POLICY_HINT}
               </p>
             </div>
             <div className="flex gap-2 flex-wrap">

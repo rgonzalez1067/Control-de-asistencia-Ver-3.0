@@ -690,3 +690,10 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **Renombre**: opción "Reportes" → "Reporte de Asistencias" (sidebar admin y employee; el título de la página /reportes ya decía "Reportes de asistencia", sin cambio). Etiqueta del catálogo RBAC actualizada igual.
 - Backend `MENU_CATALOG`: `asignar_horarios` y `reporte_horas_turnos_especiales` movidos a sección "Turnos Especiales"; `reportes` queda solo en sección "Reportes".
 - Verificado: catálogo vía curl (secciones correctas) + screenshot del sidebar admin con las 6 secciones.
+
+
+## 2026-09-18 (5) — Matriz: leyendas/celdas + microcopy de política de clave
+- **Matriz E1**: eliminado el badge azul flotante; ahora la celda E1 completa se sombrea en índigo (`bg-indigo-100 text-indigo-800`, mismo tono de la leyenda) cuando hay novedad parcial, con tooltip nativo en la celda (`partial-cell-{user}-{day}`). Precedencia: naranja (sede distinta) > índigo (novedad parcial) > rojo (tardanza).
+- **Nueva leyenda**: "Marcaje en Sede Distinta" con swatch naranja (`matrix-legend-site-mismatch`) — explica el tono `bg-orange-100` que ya se aplicaba a entradas/salidas fuera de la sede asignada. Leyenda de novedad parcial actualizada a "Celda E1 sombreada".
+- **Microcopy unificado de clave** (`lib/utils.js`: `PASSWORD_POLICY_HINT` + `passwordMeetsPolicy`): "La contraseña debe tener un mínimo de 12 caracteres e incluir al menos una letra mayúscula, una letra minúscula, un número y un símbolo especial." Aplicado en: diálogo Cambiar contraseña (AppLayout), Cambio obligatorio (MandatoryPasswordChange, regla len 8→12), Restauración por correo (ResetPasswordPage) y nota del Reset masivo en Ajustes. Botón de envío queda inhabilitado en vivo hasta cumplir la política (y que confirmación coincida). Medidor de fortaleza: umbrales 12/16.
+- **Verificado**: matriz con ambas leyendas visibles · diálogo con hint ámbar en vivo, submit bloqueado con clave débil y habilitado con clave válida ("NuevaClave#2026" no se envió, solo validación local).
