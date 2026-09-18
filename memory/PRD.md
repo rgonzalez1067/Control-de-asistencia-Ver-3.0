@@ -683,3 +683,10 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **Frontend** (`AppLayout.jsx`): `NAV_ADMIN` dividido en `NAV_ADMIN` (Operación + Catálogos), `NAV_ADMIN_SECURITY` y `NAV_ADMIN_CONFIG`; items de visitas/reportes dinámicos llevan `section` para que el render agrupe con encabezados. Orden admin: Operación → Catálogos → Control de Visitas → Seguridad → Configuración. Eliminados los botones standalone `sidebar-kiosk-btn` y `mobile-kiosk-btn` (el acceso del dropdown de usuario se mantiene).
 - **Backend** (`server.py` → `MENU_CATALOG`): secciones actualizadas (`Catálogos`, `Control de Visitas`, `Configuración`), `kiosco_activar` renombrado a "Modo Kiosco" y `asignar_horarios` movido a Operación; la grilla de SecurityProfilesPage se reagrupa sola porque consume el catálogo dinámicamente.
 - **Verificado**: catálogo RBAC vía curl (21 claves, secciones correctas) · screenshot sidebar admin con las 5 secciones · grilla de perfiles reagrupada · sidebar de gerente (no-admin) filtra por permisos y muestra Control de Visitas sin Modo Kiosco.
+
+
+## 2026-09-18 (4) — Sección Turnos Especiales + renombres de menú
+- **Turnos Especiales** (nueva sección del sidebar y del catálogo RBAC): "Asignación de horarios" + "Reporte Turnos Especiales" (antes "Asistencia Turnos Especiales"). Aplica también a roles no-admin con esos permisos (items dinámicos llevan la sección).
+- **Renombre**: opción "Reportes" → "Reporte de Asistencias" (sidebar admin y employee; el título de la página /reportes ya decía "Reportes de asistencia", sin cambio). Etiqueta del catálogo RBAC actualizada igual.
+- Backend `MENU_CATALOG`: `asignar_horarios` y `reporte_horas_turnos_especiales` movidos a sección "Turnos Especiales"; `reportes` queda solo en sección "Reportes".
+- Verificado: catálogo vía curl (secciones correctas) + screenshot del sidebar admin con las 6 secciones.

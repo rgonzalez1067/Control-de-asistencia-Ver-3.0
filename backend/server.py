@@ -468,19 +468,20 @@ MENU_CATALOG: List[Dict[str, Any]] = [
     {"key": "matriz",             "label": "Reporte matricial",  "section": SECTION_OPERACION},
     {"key": "novedades",          "label": "Novedades",          "section": SECTION_OPERACION},
     {"key": "equipo",             "label": "Mi equipo",          "section": SECTION_OPERACION},
-    {"key": "asignar_horarios",   "label": "Asignación de horarios", "section": SECTION_OPERACION},
     # Sección: Catálogos (sep-2026)
     {"key": "empleados",          "label": "Empleados",          "section": "Catálogos"},
     {"key": "departamentos",      "label": "Departamentos",      "section": "Catálogos"},
     {"key": "sedes",              "label": "Sedes",              "section": "Catálogos"},
     {"key": "horarios",           "label": "Horarios",           "section": "Catálogos"},
+    # Sección: Turnos Especiales (sep-2026)
+    {"key": "asignar_horarios",   "label": "Asignación de horarios", "section": "Turnos Especiales"},
+    {"key": "reporte_horas_turnos_especiales", "label": "Reporte Turnos Especiales", "section": "Turnos Especiales"},
     # Sección: Control de Visitas (sep-2026)
     {"key": "visitas_agendar",    "label": "Agendar visita",     "section": "Control de Visitas"},
     {"key": "visitas_historico",  "label": "Histórico de visitas", "section": "Control de Visitas"},
     {"key": "visitas_reporte_regulatorio", "label": "Reporte de Visitas Realizadas", "section": "Control de Visitas"},
     # Sección: Reportes
-    {"key": "reportes",           "label": "Reportes",           "section": "Reportes"},
-    {"key": "reporte_horas_turnos_especiales", "label": "Reporte de Asistencia Turnos Especiales", "section": "Reportes"},
+    {"key": "reportes",           "label": "Reporte de Asistencias", "section": "Reportes"},
     # Sección: Configuración (sep-2026)
     {"key": "ajustes",            "label": "Ajustes",            "section": "Configuración"},
     {"key": "kiosco_activar",     "label": "Modo Kiosco",        "section": "Configuración"},

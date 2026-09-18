@@ -32,11 +32,11 @@ const KIOSK_NAV_ITEM = { to: "/kiosk", icon: ScanFace, label: "Modo Kiosco", sec
 const NAV_ADMIN = [
   { to: "/", icon: LayoutDashboard, label: "Dashboard", permKey: "dashboard" },
   { to: "/equipo", icon: Users, label: "Mi equipo", permKey: "equipo" },
-  { to: "/reportes", icon: FileBarChart2, label: "Reportes", permKey: "reportes" },
+  { to: "/reportes", icon: FileBarChart2, label: "Reporte de Asistencias", permKey: "reportes" },
   { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz de asistencia", permKey: "matriz" },
-  { to: "/reportes/horas-turnos-especiales", icon: Timer, label: "Asistencia Turnos Especiales", permKey: "reporte_horas_turnos_especiales" },
-  { to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios", permKey: "asignar_horarios" },
   { to: "/novedades", icon: Bell, label: "Novedades", permKey: "novedades" },
+  { to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios", section: "Turnos Especiales", permKey: "asignar_horarios" },
+  { to: "/reportes/horas-turnos-especiales", icon: Timer, label: "Reporte Turnos Especiales", section: "Turnos Especiales", permKey: "reporte_horas_turnos_especiales" },
   { to: "/usuarios", icon: Users, label: "Empleados", section: "Catálogos", permKey: "empleados" },
   { to: "/departamentos", icon: Building2, label: "Departamentos", section: "Catálogos", permKey: "departamentos" },
   { to: "/sedes", icon: MapPin, label: "Sedes", section: "Catálogos", permKey: "sedes" },
@@ -58,7 +58,7 @@ const NAV_ADMIN_CONFIG = [
 const NAV_EMPLOYEE = [
   { to: "/carnet", icon: IdCard, label: "Mi carnet", permKey: "mi_carnet" },
   { to: "/historial", icon: HistoryIcon, label: "Historial", permKey: "historial" },
-  { to: "/reportes", icon: FileBarChart2, label: "Reportes", permKey: "reportes" },
+  { to: "/reportes", icon: FileBarChart2, label: "Reporte de Asistencias", permKey: "reportes" },
   { to: "/reporte-matricial", icon: LayoutGrid, label: "Matriz", permKey: "matriz" },
   { to: "/novedades", icon: Bell, label: "Novedades", permKey: "novedades" },
 ];
@@ -151,17 +151,17 @@ export default function AppLayout() {
   // Reporte de turnos especiales para roles no-admin (admin ya lo trae en NAV_ADMIN).
   const reportItems = [];
   if (hasPerm("reporte_horas_turnos_especiales") && user?.role !== "admin") {
-    reportItems.push({ to: "/reportes/horas-turnos-especiales", icon: Timer, label: "Asistencia Turnos Especiales", permKey: "reporte_horas_turnos_especiales" });
+    reportItems.push({ to: "/reportes/horas-turnos-especiales", icon: Timer, label: "Reporte Turnos Especiales", section: "Turnos Especiales", permKey: "reporte_horas_turnos_especiales" });
   }
 
   // Para no-admin: agregamos horarios / asignar si el flag legacy los tenía. La
   // filtración final por `effective_permissions` deja pasar si están en el perfil.
   const extraItems = [];
-  if (canAssignSchedules && user?.role !== "admin") {
-    extraItems.push({ to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios", permKey: "asignar_horarios" });
-  }
   if (canManageSchedules && user?.role !== "admin") {
     extraItems.push({ to: "/horarios", icon: CalendarClock, label: "Horarios", section: "Catálogos", permKey: "horarios" });
+  }
+  if (canAssignSchedules && user?.role !== "admin") {
+    extraItems.push({ to: "/asignar-horarios", icon: CalendarCog, label: "Asignación de horarios", section: "Turnos Especiales", permKey: "asignar_horarios" });
   }
 
   // Modo Kiosco vive dentro de la sección Configuración del menú (antes era un
@@ -173,7 +173,7 @@ export default function AppLayout() {
 
   // Filtramos toda la lista final por `effective_permissions` (admin pasa siempre).
   const items = filterNavByPermissions(
-    [...baseItems, ...reportItems, ...extraItems, ...visitItems, ...tailItems],
+    [...baseItems, ...extraItems, ...reportItems, ...visitItems, ...tailItems],
     user,
   );
   const isAdmin = user?.role === "admin";
