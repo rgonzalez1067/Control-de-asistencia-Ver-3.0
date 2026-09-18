@@ -8,8 +8,11 @@ Conceptos:
   ordinarios (NO domingo ni festivo)
 - feriadas_diurnas / feriadas_nocturnas = horas del turno del día en días
   trabajados que sean domingo o festivo del calendario
-- horas_descanso = (dias_total - dias_trabajados) × horas_diurnas del turno
-  más frecuente asignado al empleado en el periodo (0 si nunca tuvo turno)
+- dias_vacaciones = días con vacaciones aprobadas (NO cuentan como trabajados
+  NI como descanso — quedan fuera de ambos conceptos)
+- horas_descanso = (dias_total - dias_trabajados - dias_vacaciones) × 7 horas
+  (regla fija sep-2026: SIEMPRE 7h por día de descanso, sin importar si el
+  turno del empleado es nocturno)
 
 Salida: matriz JSON + XLSX oficial.
 """
@@ -20,6 +23,9 @@ from io import BytesIO
 from typing import Any, Dict, List, Optional
 
 from deps import APP_TZ, now_utc
+
+# Regla fija de negocio (sep-2026): cada día de descanso vale SIEMPRE 7 horas.
+REST_DAY_HOURS = 7.0
 
 
 def _iter_dates(from_date: str, to_date: str) -> List[str]:
@@ -76,14 +82,18 @@ async def build_special_hours_report(db, from_date: str, to_date: str,
 
     nov_docs = await db.novelties.find({
         "user_id": {"$in": uid_list},
-        "type": "remote",
+        "type": {"$in": ["remote", "vacation"]},
         "status": "approved",
         "start_date": {"$lte": to_date},
         "end_date": {"$gte": from_date},
     }).to_list(10000)
     remote_by_user: Dict[str, List[Dict[str, Any]]] = {}
+    vacation_by_user: Dict[str, List[Dict[str, Any]]] = {}
     for n in nov_docs:
-        remote_by_user.setdefault(n["user_id"], []).append(n)
+        if n.get("type") == "remote":
+            remote_by_user.setdefault(n["user_id"], []).append(n)
+        elif n.get("type") == "vacation":
+            vacation_by_user.setdefault(n["user_id"], []).append(n)
 
     holiday_docs = await db.holidays.find({}, {"date_str": 1, "is_recurrent": 1, "_id": 0}).to_list(5000)
     holiday_days = set()
@@ -104,9 +114,11 @@ async def build_special_hours_report(db, from_date: str, to_date: str,
         uid = u["user_id"]
         asg_map = asg_by_user.get(uid, {})
         remotes = remote_by_user.get(uid, [])
+        vacations = vacation_by_user.get(uid, [])
 
         # Turno más frecuente del empleado en el periodo (solo shifts) — base
-        # para el cálculo de Descanso y para días remote sin turno del día.
+        # para días remote sin turno del día. (Ya no se usa para Descanso: los
+        # días de descanso valen siempre REST_DAY_HOURS.)
         shift_ids = [a.get("schedule_id") for d, a in asg_map.items()
                      if a.get("kind") == "shift" and a.get("schedule_id")]
         top_sid = Counter(shift_ids).most_common(1)[0][0] if shift_ids else None
@@ -115,6 +127,7 @@ async def build_special_hours_report(db, from_date: str, to_date: str,
         top_night_h = float((top_sch or {}).get("nighttime_hours") or 0)
 
         dias_trabajados = 0
+        dias_vacaciones = 0
         horas_diurnas = 0.0
         horas_nocturnas = 0.0
         feriadas_diurnas = 0.0
@@ -137,7 +150,15 @@ async def build_special_hours_report(db, from_date: str, to_date: str,
             )
 
             if not has_shift and not has_remote:
-                continue  # día libre → contribuye a Descanso más abajo
+                # Día sin turno ni remoto: si hay vacaciones aprobadas (novedad
+                # o planificación en matriz), NO cuenta como descanso.
+                has_vacation = (
+                    any(_in_range(day, n.get("start_date"), n.get("end_date")) for n in vacations)
+                    or bool(asg and asg.get("kind") == "novelty" and asg.get("novelty_type") == "vacation")
+                )
+                if has_vacation:
+                    dias_vacaciones += 1
+                continue  # el resto sí contribuye a Descanso más abajo
 
             dias_trabajados += 1
 
@@ -157,10 +178,10 @@ async def build_special_hours_report(db, from_date: str, to_date: str,
                 horas_diurnas += day_h
                 horas_nocturnas += night_h
 
-        dias_libres = days_total - dias_trabajados
-        # Descanso = días libres × total de horas del turno (diurnas + nocturnas
-        # sin diferenciar). Turno base = el más frecuente asignado en el periodo.
-        horas_descanso = dias_libres * (top_day_h + top_night_h)
+        # Descanso = días de descanso × 7h fijas (siempre 7, aunque el turno
+        # sea nocturno). Las vacaciones NO suman horas de descanso.
+        dias_descanso = max(0, days_total - dias_trabajados - dias_vacaciones)
+        horas_descanso = dias_descanso * REST_DAY_HOURS
 
         rows.append({
             "user_id": uid,
@@ -169,6 +190,8 @@ async def build_special_hours_report(db, from_date: str, to_date: str,
             "departamento": depts.get(u.get("department_id") or "", "—"),
             "dias_total": days_total,
             "dias_trabajados": dias_trabajados,
+            "dias_vacaciones": dias_vacaciones,
+            "dias_descanso": dias_descanso,
             "horas_diurnas": round(horas_diurnas, 2),
             "horas_nocturnas": round(horas_nocturnas, 2),
             "feriadas_diurnas": round(feriadas_diurnas, 2),
