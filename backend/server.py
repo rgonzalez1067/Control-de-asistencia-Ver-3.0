@@ -497,6 +497,7 @@ MENU_CATALOG: List[Dict[str, Any]] = [
     {"key": "visitas_agendar",    "label": "Agendar visita",     "section": "Control de Visitas"},
     {"key": "visitas_historico",  "label": "Histórico de visitas", "section": "Control de Visitas"},
     {"key": "visitas_reporte_regulatorio", "label": "Reporte de Visitas Realizadas", "section": "Control de Visitas"},
+    {"key": "reporte_general_accesos", "label": "Reporte General de Accesos", "section": "Control de Visitas"},
     # Sección: Reportes
     {"key": "reportes",           "label": "Reporte de Asistencias", "section": "Reportes"},
     # Sección: Configuración (sep-2026)
@@ -1244,6 +1245,7 @@ from routes import (  # noqa: F401,E402
     attendance, novelties, visits, reports, matrix,
     auth, catalogs, access_profiles, schedules, kiosk, admin,
     users, holidays, reports_visits, reports_special_hours, audit_logs,
+    reports_general_access,
 )
 
 app.include_router(api)

@@ -148,6 +148,7 @@ export default function AppLayout() {
   if (canCreateVisits) visitItems.push({ to: "/visitas/agendar", icon: UserPlus, label: "Agendar visita", section: "Control de Visitas", permKey: "visitas_agendar" });
   if (canViewVisitLogs) visitItems.push({ to: "/visitas/historico", icon: ClipboardList, label: "Histórico de visitas", section: "Control de Visitas", permKey: "visitas_historico" });
   if (hasPerm("visitas_reporte_regulatorio")) visitItems.push({ to: "/reportes/visitas-realizadas", icon: FileBarChart2, label: "Reporte de Visitas Realizadas", section: "Control de Visitas", permKey: "visitas_reporte_regulatorio" });
+  if (hasPerm("reporte_general_accesos")) visitItems.push({ to: "/reportes/general-accesos", icon: Fingerprint, label: "Reporte General de Accesos", section: "Control de Visitas", permKey: "reporte_general_accesos" });
 
   // Reporte de turnos especiales para roles no-admin (admin ya lo trae en NAV_ADMIN).
   const reportItems = [];
