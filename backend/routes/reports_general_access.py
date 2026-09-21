@@ -41,6 +41,8 @@ async def _apply_scope(user: Dict[str, Any]) -> Optional[List[str]]:
 def _validate_range(from_date: Optional[str], to_date: Optional[str]) -> None:
     if not from_date or not to_date:
         raise HTTPException(status_code=400, detail="El rango de fechas (Desde/Hasta) es obligatorio")
+    if from_date > to_date:
+        raise HTTPException(status_code=400, detail="La fecha Desde no puede ser mayor que la fecha Hasta")
 
 
 @api.get("/reports/general-access")

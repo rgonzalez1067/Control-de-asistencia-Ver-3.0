@@ -1,0 +1,27 @@
+{
+  "summary": "Iteración 22 — Reporte General de Accesos (relación diaria). Backend: 10/10 pytest PASS (test_iter22_general_access.py). Cubre: catálogo RBAC incluye 'reporte_general_accesos' en sección 'Control de Visitas'; GET /api/reports/general-access exige from_date+to_date (400 sin ellos); admin recibe 200 con rows ordenadas por (fecha,nombre) y columnas cedula/nombre/departamento/cargo/fecha/e1/s1/e2/s2; filtro site_id devuelve site_name; filtro department_ids restringe filas al departamento; RBAC 403 para empleado jgil sin permiso; jerarquía verificada — director acastro ve 95 empleados (nómina completa, ≥ que admin), gerente adasilva ve menos que admin (scope de equipo), coordinador lalvarez ve subconjunto ≤ admin; export.pdf devuelve %PDF válido de 9 páginas para rango 14-21 sep con título 'Reporte General de Accesos', subtítulo 'Periodo: 2026-09-14 - 2026-09-21' y paginador n/m en TODAS las páginas (verificado en p1..p3). Frontend E2E: (a) admin — /reportes/general-accesos carga con data-testid rga-page; header muestra logo Mega Soft + contador '2/20' arriba-derecha + título centrado + subtítulo 'Periodo: 14/09/2026 - 21/09/2026' + meta 'Todas las Sedes · 95 empleados · 295 registros'; tabla con las 9 columnas y 15 filas por página; filtros funcionan (Aplicar cambia datos); botón Siguiente avanza de 1/20 a 2/20; Exportar PDF descarga 'reporte_general_accesos_2026-09-14_a_2026-09-21.pdf'. (b) RBAC — jgil (sin permiso) NO ve el item en el menú (Historial, Mi carnet, Reporte de Asistencias, Novedades) y /reportes/general-accesos redirige a /historial (bloqueado por ProtectedRoute). Al cerrar la iteración: perfil Administrador queda con reporte_general_accesos=true; los demás perfiles restaurados sin la clave.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter22_general_access.py",
+    "/app/test_reports/pytest/iter22_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "general_access_report.py: cálculo de _day_bounds_utc convierte APP_TZ→local→UTC vía astimezone(tz=None); funciona pero es más simple usar .astimezone(timezone.utc) directo. No es bug, sólo legibilidad.",
+    "NumberedCanvas: implementación 2-pass estándar y correcta; drawImage con preserveAspectRatio y mask='auto' para el logo — bien.",
+    "routes/reports_general_access.py: _apply_scope devuelve None para admin (sin límite) y [user_id] para roles no líder — coherente con la jerarquía global. LEADER_ROLES importado desde deps, buena centralización.",
+    "build_general_access_report: uq excluye role='kiosk' correctamente para no ensuciar la nómina. La consulta a attendance filtra por user_id ∈ visible_uids + rango + site_id opcional — eficiente. Puede considerar índice compuesto (user_id, timestamp) si aún no existe.",
+    "ReporteGeneralAccesosPage (data-testid rga-*): buen contract de testids; paginación client-side de 15 filas coherente con lo especificado. El contador n/m del PDF es por página física — correcto (verificado 9 páginas con rango 14-21 sep).",
+    "MENU_CATALOG en server.py:500 tiene la clave al final de 'Control de Visitas' — cumple requisito de orden.",
+    "Sugerencia menor: agregar assert de coherencia de fechas (from_date ≤ to_date) en _validate_range para evitar rangos invertidos que hoy devolverían 0 filas silenciosamente."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter22_general_access.py", "/app/test_reports/iteration_22.json"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "100% (admin flow + RBAC bloqueo verificados)"},
+  "test_credentials": "Admin rgonzalez OK; Director acastro OK; Gerente adasilva OK; Coordinador lalvarez OK; Empleado jgil/NewJgil!234 OK (login por API y por UI verificados). CUIDADO rate-limit login 5/min por IP — espaciar 15s.",
+  "seed_data_creation": "Se activó temporalmente permissions.reporte_general_accesos=true en perfiles Director, Gerente, Coordinador, Coordinador de Monitoreo, Gerente de Monitoreo y Gerente de GSI para probar la jerarquía. Al finalizar se restauraron TODOS a su estado previo (unset), dejando SOLO el perfil Administrador con el permiso activo (según instrucción). Verificado post-cierre: Administrador → reporte_general_accesos=true; Director/Gerente/Coordinador → sin la clave.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Feature Reporte General de Accesos 100% funcional end-to-end. El backend requiere que el perfil del usuario tenga permissions.reporte_general_accesos=true (admin bypass por role). Rango con datos: 2026-09-14 a 2026-09-21 (295 marcajes, 95 empleados, PDF 9 páginas). El menú Frontend muestra el item al final de la sección 'Control de Visitas' con etiqueta 'Reporte General de Accesos' e icono Fingerprint. ProtectedRoute con permKey='reporte_general_accesos' bloquea /reportes/general-accesos y redirige (jgil → /historial). Los data-testid clave son rga-page, rga-from, rga-to, rga-departments-trigger, rga-site, rga-apply, rga-export-pdf, rga-table, rga-page-info (formato n/m), rga-prev, rga-next.",
+  "rca_of_the_issue": "N/A — sin bugs. Único ajuste operativo: activar la clave en perfiles no-admin para poder probar la jerarquía (ver seed_data_creation)."
+}

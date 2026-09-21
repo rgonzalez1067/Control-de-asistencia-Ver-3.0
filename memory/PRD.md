@@ -713,3 +713,12 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - Permiso `reporte_horas_turnos_especiales` habilitado en perfiles Director, Gerente y Coordinador de Monitoreo (antes solo Administrador lo tenía activo).
 - Credenciales de prueba nuevas en `test_credentials.md` (sección jerarquía).
 
+
+## 2026-09-21 — Reporte General de Accesos (iter 22)
+- **Nuevo informe**: relación diaria de marcajes de todo el personal — una fila por (empleado, fecha) con columnas Cédula, Nombre y Apellido, Departamento, Cargo, Fecha, E1, S1, E2, S2. Módulo `general_access_report.py` + rutas `routes/reports_general_access.py` (`GET /api/reports/general-access` JSON + `GET .../export.pdf`).
+- **RBAC**: nueva clave `reporte_general_accesos` en MENU_CATALOG, al final de la sección "Control de Visitas" (grilla de Perfiles + menú). Estado actual: solo perfil Administrador la tiene activa (los demás perfiles la activan desde Seguridad → Perfiles).
+- **Filtros**: Desde/Hasta obligatorios (400 si faltan o si están invertidos), Departamentos multi-select (vacío = todos), Sede dropdown (acota marcajes por site_id del registro).
+- **Maquetación**: PDF con NumberedCanvas de 2 pasadas — logo arriba-izquierda, paginador "n/m" arriba-derecha, título centrado y subtítulo "Periodo: ..." en TODAS las páginas; vista previa en pantalla replica el encabezado con paginación client-side de 15 filas (rga-page-info).
+- **Jerarquía de visualización aplicada** (misma regla global): admin/director toda la nómina; gerente/coordinador equipo a 2 niveles; otros roles solo sí mismos.
+- **Testing iter 22**: 10/10 pytest PASS (test_iter22_general_access.py con fixture que habilita/restaura el permiso en perfiles) + E2E Playwright (admin completo, RBAC bloqueo jgil, paginación, export PDF 9 páginas). Bug previo corregido por el agente: ninguno; sugerencia aplicada: validación from_date ≤ to_date.
+
