@@ -411,10 +411,27 @@ def require_roles(*roles: str):
 
 
 async def supervisor_scope_ids(user: Dict[str, Any]) -> List[str]:
-    """Devuelve la lista de user_ids sobre los que un supervisor puede operar:
-    su propio user_id + los de su equipo directo (users.supervisor_id == user_id)."""
-    team = await db.users.find({"supervisor_id": user["user_id"]}, {"user_id": 1}).to_list(1000)
-    return [t["user_id"] for t in team] + [user["user_id"]]
+    """Jerarquía de visualización (sep-2026):
+      - director: ve TODA la nómina (sin límite; excluye cuentas de servicio kiosk).
+      - gerente / coordinador: 2 niveles — sus supervisados directos Y los
+        supervisados de sus supervisados.
+      - otros roles: su propio user_id + sus supervisados directos (si los tiene).
+    """
+    role = user.get("role")
+    uid = user["user_id"]
+    if role == "director":
+        all_users = await db.users.find({"role": {"$ne": "kiosk"}}, {"user_id": 1, "_id": 0}).to_list(10000)
+        ids = {u["user_id"] for u in all_users}
+        ids.add(uid)
+        return list(ids)
+    lvl1 = await db.users.find({"supervisor_id": uid}, {"user_id": 1, "_id": 0}).to_list(2000)
+    ids1 = [t["user_id"] for t in lvl1]
+    ids = set(ids1)
+    if role in ("gerente", "coordinador") and ids1:
+        lvl2 = await db.users.find({"supervisor_id": {"$in": ids1}}, {"user_id": 1, "_id": 0}).to_list(5000)
+        ids.update(t["user_id"] for t in lvl2)
+    ids.add(uid)
+    return list(ids)
 
 
 # ------------------------------------------------------------------

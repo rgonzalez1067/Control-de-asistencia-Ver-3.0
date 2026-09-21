@@ -78,15 +78,12 @@ export default function NoveltiesPage() {
   useEffect(() => { load(); }, []);
 
   const userMap = useMemo(() => Object.fromEntries(users.map((u) => [u.user_id, u])), [users]);
-  // IDs del equipo directo del líder actual — se usa para mostrar "Eliminar"
-  // sólo en novedades de miembros del equipo (Adenda sep-2026).
+  // IDs del equipo del líder según jerarquía de visualización (director: toda
+  // la nómina · gerente/coordinador: 2 niveles). /users ya viene recortado por
+  // el backend — se usa para mostrar "Eliminar" sólo en novedades del equipo.
   const teamIds = useMemo(() => {
     if (!user?.user_id) return new Set();
-    const set = new Set([user.user_id]);
-    users.forEach((u) => {
-      if (u.supervisor_id === user.user_id) set.add(u.user_id);
-    });
-    return set;
+    return new Set([user.user_id, ...users.map((u) => u.user_id)]);
   }, [users, user]);
 
   const filtered = useMemo(() => {

@@ -152,8 +152,10 @@ async def attendance_team(days: int = 7,
                           user: Dict[str, Any] = Depends(require_roles("admin", "coordinador", "gerente", "director"))) -> List[Dict[str, Any]]:
     query: Dict[str, Any] = {"timestamp": {"$gte": now_utc() - timedelta(days=days)}}
     if user["role"] in LEADER_ROLES:
-        team = await db.users.find({"supervisor_id": user["user_id"]}, {"user_id": 1}).to_list(1000)
-        team_ids = [t["user_id"] for t in team]
+        # Jerarquía de visualización: director = toda la nómina; gerente/
+        # coordinador = 2 niveles. Excluye al propio líder (es vista de equipo).
+        scope = await supervisor_scope_ids(user)
+        team_ids = [uid for uid in scope if uid != user["user_id"]]
         query["user_id"] = {"$in": team_ids}
     docs = await db.attendance.find(query, {"selfie_base64": 0}).sort("timestamp", -1).limit(1000).to_list(1000)
     return [strip_mongo_id(d) for d in docs]

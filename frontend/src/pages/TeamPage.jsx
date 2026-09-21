@@ -95,7 +95,10 @@ export default function TeamPage() {
   }
   const teamMembers = useMemo(() => {
     if (isAdmin) return users.filter((u) => u.role !== "admin");
-    return users.filter((u) => u.supervisor_id === user?.user_id);
+    // El backend ya devuelve /users recortado por jerarquía de visualización
+    // (director: toda la nómina · gerente/coordinador: 2 niveles). Sólo hay
+    // que excluir al propio líder y las cuentas de servicio.
+    return users.filter((u) => u.user_id !== user?.user_id && u.role !== "kiosk");
   }, [users, user, isAdmin]);
   const teamIds = useMemo(() => new Set(teamMembers.map((m) => m.user_id)), [teamMembers]);
   const teamRecords = useMemo(() => records.filter((r) => teamIds.has(r.user_id)), [records, teamIds]);
@@ -403,7 +406,11 @@ export default function TeamPage() {
 
       <p className="text-[11px] text-muted-foreground text-center">
         <UserCircle2 className="h-3 w-3 inline mr-1" />
-        {isAdmin ? "Vista global (todos los empleados no-admin)." : "Vista limitada a empleados con supervisor_id = tu ID."}
+        {isAdmin
+          ? "Vista global (todos los empleados no-admin)."
+          : user?.role === "director"
+            ? "Vista de Director: toda la nómina."
+            : "Vista según jerarquía: tus supervisados y los supervisados de tus supervisados."}
       </p>
 
       {/* Dialog de revisión de justificación */}

@@ -53,7 +53,8 @@ async def build_special_hours_report(db, from_date: str, to_date: str,
     uq: Dict[str, Any] = {
         "$or": [{"schedule_id": None}, {"schedule_id": ""}, {"schedule_id": {"$exists": False}}],
     }
-    if user_ids:
+    # None = sin filtro (admin/director); [] = scope vacío → cero resultados.
+    if user_ids is not None:
         uq["user_id"] = {"$in": user_ids}
     if department_ids:
         uq["department_id"] = {"$in": department_ids}

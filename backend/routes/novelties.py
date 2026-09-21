@@ -38,9 +38,7 @@ async def novelties_list(user: Dict[str, Any] = Depends(get_current_user)) -> Li
     if user["role"] == "employee":
         q["user_id"] = user["user_id"]
     elif user["role"] in LEADER_ROLES:
-        team = await db.users.find({"supervisor_id": user["user_id"]}, {"user_id": 1}).to_list(1000)
-        team_ids = [t["user_id"] for t in team] + [user["user_id"]]
-        q["user_id"] = {"$in": team_ids}
+        q["user_id"] = {"$in": await supervisor_scope_ids(user)}
     docs = await db.novelties.find(q).sort("created_at", -1).to_list(1000)
     return [strip_mongo_id(d) for d in docs]
 
@@ -119,8 +117,9 @@ async def novelties_delete(request: Request, novelty_id: str,
 
     Permisos:
       - Admin: siempre puede.
-      - Rol de liderazgo (supervisor/coordinador/gerente/director): sólo sobre
-        empleados de su equipo directo (`users.supervisor_id == user_id` o él mismo).
+      - Rol de liderazgo (coordinador/gerente/director): según jerarquía de
+        visualización — director sobre toda la nómina; gerente/coordinador
+        sobre su equipo a 2 niveles (vía `supervisor_scope_ids`).
       - Cualquier usuario: sobre las novedades creadas por él mismo.
     """
     doc = await db.novelties.find_one({"novelty_id": novelty_id})

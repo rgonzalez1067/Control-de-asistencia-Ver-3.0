@@ -704,3 +704,12 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - Filas del JSON ahora exponen `dias_vacaciones` y `dias_descanso` (trazabilidad; la UI sigue mostrando las mismas columnas).
 - **Verificado con data real (01–18 sep)**: Keduar/Yhossua (Turno Nocturno) → 9 desc × 7 = 63h (antes 90h) ✅ · Andrés Moreno con 16 días de vacaciones → descanso 0h ✅ · invariante `total = trabajados + vacaciones + descanso` cumplida en las 16 filas ✅ · XLSX exporta con los nuevos valores ✅
 
+
+## 2026-09-18 (7) — Jerarquía de Visualización (Director sin límite · Gerente/Coordinador 2 niveles)
+- **Regla aprobada por el usuario**: Director → ve TODA la nómina. Gerente y Coordinador → sus supervisados + los supervisados de sus supervisados (2 niveles). Aplica a Mi equipo, Novedades, Matriz, Reporte de Asistencias y Reporte Turnos Especiales.
+- **Backend**: `supervisor_scope_ids` (server.py) reescrito con la jerarquía por rol. Corregidos dos endpoints que hacían scope inline de 1 nivel: `GET /attendance/team` y `GET /novelties`. Reporte Turnos Especiales (`reports_special_hours.py`) ahora aplica scope: admin/director sin límite, gerente/coordinador su equipo, otros roles solo sí mismos; intersecta con el filtro `user_ids`. Fix de borde en `special_hours_report.py`: `user_ids=[]` (scope vacío) devuelve 0 filas en lugar de toda la nómina.
+- **Frontend**: TeamPage ya no filtra `supervisor_id === user` en cliente — confía en el scope del backend y nota al pie según rol. NoveltiesPage: botón "Eliminar" habilitado sobre todo el equipo visible (el endpoint delete ya valida con el helper).
+- **Verificado**: Director acastro → /users 132, Mi equipo 131 miembros, Turnos Especiales 16 filas, novedades de 26 empleados. Gerente adasilva → 9 usuarios (5+3+él), reporte 0 (su equipo no tiene horario especial), user fuera de scope → 0 filas. Coordinador lalvarez (Monitoreo) → 15 filas (14 supervisados + él), fuera de scope → 0.
+- Permiso `reporte_horas_turnos_especiales` habilitado en perfiles Director, Gerente y Coordinador de Monitoreo (antes solo Administrador lo tenía activo).
+- Credenciales de prueba nuevas en `test_credentials.md` (sección jerarquía).
+
