@@ -35,6 +35,7 @@ def _hm(ts: Optional[datetime]) -> str:
 async def build_general_access_report(db, from_date: str, to_date: str,
                                       department_ids: Optional[List[str]] = None,
                                       site_id: Optional[str] = None,
+                                      user_ids: Optional[List[str]] = None,
                                       scope_user_ids: Optional[List[str]] = None) -> Dict[str, Any]:
     start_utc, end_utc = _day_bounds_utc(from_date, to_date)
 
@@ -44,6 +45,13 @@ async def build_general_access_report(db, from_date: str, to_date: str,
         uq["user_id"] = {"$in": scope_user_ids}
     if department_ids:
         uq["department_id"] = {"$in": department_ids}
+    if user_ids:
+        # Intersecta con el scope si ya lo hay.
+        existing = uq.get("user_id", {}).get("$in") if isinstance(uq.get("user_id"), dict) else None
+        if existing is not None:
+            uq["user_id"] = {"$in": [uid for uid in user_ids if uid in existing]}
+        else:
+            uq["user_id"] = {"$in": user_ids}
     users = await db.users.find(uq, {
         "user_id": 1, "cedula": 1, "name": 1, "first_name": 1, "last_name": 1,
         "department_id": 1, "position": 1, "_id": 0,

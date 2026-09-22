@@ -31,6 +31,7 @@ import {
   Search, Plus, MoreVertical, Pencil, Trash2, KeyRound, Upload,
   Download, ShieldCheck, BadgeCheck, CircleUserRound, Image as ImageIcon, UserCircle2, Camera,
   FileSpreadsheet, AlertTriangle, CheckCircle2, XCircle, ArrowRight, RefreshCw, ClipboardList,
+  ImageOff,
 } from "lucide-react";
 import SelfieCaptureDialog from "@/components/SelfieCaptureDialog";
 import SetPinDialog from "@/components/SetPinDialog";
@@ -77,6 +78,7 @@ export default function UsersPage() {
   const [q, setQ] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [deptFilter, setDeptFilter] = useState("all");
+  const [pendingPhoto, setPendingPhoto] = useState(false);
   const [departments, setDepartments] = useState([]);
   const [sites, setSites] = useState([]);
   const [schedules, setSchedules] = useState([]);
@@ -132,6 +134,12 @@ export default function UsersPage() {
           return false;
         }
       }
+      // Empleados pendientes de foto: `has_photo` viene del backend
+      // (aggregate en /users). Excluye cuentas kiosk que no capturan selfie.
+      if (pendingPhoto) {
+        if (u.role === "kiosk") return false;
+        if (u.has_photo) return false;
+      }
       if (!needle) return true;
       return (
         (u.name || "").toLowerCase().includes(needle) ||
@@ -139,7 +147,12 @@ export default function UsersPage() {
         (u.cedula || "").toLowerCase().includes(needle)
       );
     }).sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }));
-  }, [users, q, roleFilter, deptFilter]);
+  }, [users, q, roleFilter, deptFilter, pendingPhoto]);
+
+  const pendingPhotoCount = useMemo(
+    () => users.filter((u) => u.role !== "kiosk" && !u.has_photo).length,
+    [users],
+  );
 
 function generateSecureTempPassword() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$";
@@ -394,6 +407,21 @@ function generateSecureTempPassword() {
               ))}
             </SelectContent>
           </Select>
+          <Button
+            type="button"
+            variant={pendingPhoto ? "default" : "outline"}
+            onClick={() => setPendingPhoto((v) => !v)}
+            data-testid="users-pending-photo-btn"
+            className={`h-10 rounded-full ${pendingPhoto ? "bg-amber-500 hover:bg-amber-500/90 text-white" : ""}`}
+            title={pendingPhoto ? "Mostrando solo empleados sin foto" : "Mostrar empleados pendientes de registrar foto"}
+          >
+            <ImageOff className="h-4 w-4 mr-1.5" />
+            Pendientes de foto
+            <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-white/25 px-1.5 text-[11px] font-semibold tabular-nums"
+              data-testid="users-pending-photo-count">
+              {pendingPhotoCount}
+            </span>
+          </Button>
           <p className="text-xs text-muted-foreground ml-auto">
             Mostrando {filtered.length} de {users.length}
           </p>

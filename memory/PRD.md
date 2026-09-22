@@ -722,3 +722,9 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **Jerarquía de visualización aplicada** (misma regla global): admin/director toda la nómina; gerente/coordinador equipo a 2 niveles; otros roles solo sí mismos.
 - **Testing iter 22**: 10/10 pytest PASS (test_iter22_general_access.py con fixture que habilita/restaura el permiso en perfiles) + E2E Playwright (admin completo, RBAC bloqueo jgil, paginación, export PDF 9 páginas). Bug previo corregido por el agente: ninguno; sugerencia aplicada: validación from_date ≤ to_date.
 
+
+## 2026-09-22 — Filtro por Empleado en Reporte General de Accesos + botón "Pendientes de foto" en Empleados
+- **Filtro por empleado (multi-select) en Reporte General de Accesos**: nuevo popover después del filtro Departamentos con buscador por nombre/cédula, orden alfabético, que se recorta a los departamentos ya seleccionados (si cambian los deptos, se descartan empleados fuera del nuevo scope). Backend `GET /reports/general-access` y `.../export.pdf` aceptan `user_ids` (multi) que intersecta con la jerarquía de visualización.
+- **Botón "Pendientes de foto" en Empleados**: acción con badge de contador junto a los filtros de rol/departamento; al activarlo filtra a los empleados sin selfie registrado (`has_photo=false`), excluyendo cuentas kiosk. Backend `GET /users` ahora devuelve `has_photo` (calculado con aggregate `$type` de `selfie_base64`, sin exponer la selfie).
+- Verificado: backend devuelve 9 pendientes / 123 con foto (total 132 no-kiosk); filtro user_ids en backend con 2 IDs → 2 empleados / 8 marcajes; UI muestra el toggle naranja con "9" y reduce la tabla a los 9 registros correctos; filtro de empleados en el reporte reduce el resumen a "2 empleados · 6 registros".
+

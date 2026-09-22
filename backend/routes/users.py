@@ -30,8 +30,15 @@ async def users_list(user: Dict[str, Any] = Depends(get_current_user)) -> List[D
     q: Dict[str, Any] = {}
     if user.get("role") in LEADER_ROLES:
         q["user_id"] = {"$in": await supervisor_scope_ids(user)}
-    docs = await db.users.find(q, {"password_hash": 0, "pin_code_hash": 0,
-                                    "selfie_base64": 0, "face_descriptor": 0}).to_list(1000)
+    pipeline = [
+        {"$match": q},
+        {"$addFields": {"has_photo": {"$in": [{"$type": "$selfie_base64"}, ["string", "binData"]]}}},
+        {"$project": {
+            "password_hash": 0, "pin_code_hash": 0,
+            "selfie_base64": 0, "face_descriptor": 0,
+        }},
+    ]
+    docs = await db.users.aggregate(pipeline).to_list(1000)
     for d in docs:
         strip_mongo_id(d)
     return docs

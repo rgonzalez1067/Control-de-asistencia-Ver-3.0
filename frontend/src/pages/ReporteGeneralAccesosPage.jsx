@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/popover";
 import {
   Fingerprint, RefreshCw, FileDown, Building2, MapPin, Check,
-  ChevronLeft, ChevronRight, ShieldCheck,
+  ChevronLeft, ChevronRight, ShieldCheck, Users as UsersIcon, X,
 } from "lucide-react";
 
 function todayISO(offsetDays = 0) {
@@ -42,22 +42,28 @@ export default function ReporteGeneralAccesosPage() {
   const [meta, setMeta] = useState({ rows_count: 0, employees_count: 0, site_name: null });
   const [departments, setDepartments] = useState([]);
   const [sites, setSites] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
+  const [empSearch, setEmpSearch] = useState("");
   const [filters, setFilters] = useState({
     from_date: todayISO(-7),
     to_date: todayISO(0),
     department_ids: [],
     site_id: "__all",
+    user_ids: [],
   });
 
   useEffect(() => {
     async function loadRefs() {
       try {
-        const [d, s] = await Promise.all([api.get("/departments"), api.get("/sites")]);
+        const [d, s, u] = await Promise.all([
+          api.get("/departments"), api.get("/sites"), api.get("/users"),
+        ]);
         setDepartments(d.data || []);
         setSites(s.data || []);
+        setAllUsers((u.data || []).filter((x) => x.role !== "kiosk"));
       } catch (e) {
         toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
       }
@@ -65,11 +71,28 @@ export default function ReporteGeneralAccesosPage() {
     loadRefs();
   }, []);
 
+  // Empleados disponibles en el filtro: si hay departamentos elegidos, se
+  // restringe la lista; en cualquier caso se ordena alfabéticamente.
+  const empleadosOptions = useMemo(() => {
+    let list = allUsers;
+    if (filters.department_ids.length > 0) {
+      const set = new Set(filters.department_ids);
+      list = list.filter((u) => set.has(u.department_id));
+    }
+    if (empSearch.trim()) {
+      const q = empSearch.trim().toLowerCase();
+      list = list.filter((u) => (u.name || "").toLowerCase().includes(q)
+                                || (u.cedula || "").toLowerCase().includes(q));
+    }
+    return [...list].sort((a, b) => (a.name || "").localeCompare(b.name || "", "es", { sensitivity: "base" }));
+  }, [allUsers, filters.department_ids, empSearch]);
+
   const params = useMemo(() => {
     const p = new URLSearchParams();
     if (filters.from_date) p.set("from_date", filters.from_date);
     if (filters.to_date) p.set("to_date", filters.to_date);
     filters.department_ids.forEach((d) => p.append("department_ids", d));
+    filters.user_ids.forEach((u) => p.append("user_ids", u));
     if (filters.site_id !== "__all") p.set("site_id", filters.site_id);
     return p;
   }, [filters]);
@@ -122,12 +145,34 @@ export default function ReporteGeneralAccesosPage() {
   }
 
   function toggleDept(did) {
+    setFilters((f) => {
+      const nextDepts = f.department_ids.includes(did)
+        ? f.department_ids.filter((x) => x !== did)
+        : [...f.department_ids, did];
+      // Al cambiar de departamento, se descartan los empleados que ya no
+      // pertenezcan al nuevo conjunto.
+      let nextUsers = f.user_ids;
+      if (nextDepts.length > 0 && f.user_ids.length > 0) {
+        const set = new Set(nextDepts);
+        nextUsers = f.user_ids.filter((uid) => set.has(
+          (allUsers.find((u) => u.user_id === uid) || {}).department_id,
+        ));
+      }
+      return { ...f, department_ids: nextDepts, user_ids: nextUsers };
+    });
+  }
+
+  function toggleUser(uid) {
     setFilters((f) => ({
       ...f,
-      department_ids: f.department_ids.includes(did)
-        ? f.department_ids.filter((x) => x !== did)
-        : [...f.department_ids, did],
+      user_ids: f.user_ids.includes(uid)
+        ? f.user_ids.filter((x) => x !== uid)
+        : [...f.user_ids, uid],
     }));
+  }
+
+  function clearUsers() {
+    setFilters((f) => ({ ...f, user_ids: [] }));
   }
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -160,7 +205,7 @@ export default function ReporteGeneralAccesosPage() {
       {/* Filtros */}
       <Card className="border-border/70 bg-card/70 backdrop-blur">
         <CardContent className="p-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="space-y-1">
               <Label className="text-[11px] text-muted-foreground">Desde *</Label>
               <Input type="date" value={filters.from_date}
@@ -200,6 +245,65 @@ export default function ReporteGeneralAccesosPage() {
                       );
                     })}
                     {departments.length === 0 && <p className="p-3 text-xs text-muted-foreground">Sin departamentos</p>}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[11px] text-muted-foreground">Empleados</Label>
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="h-10 w-full justify-start font-normal" data-testid="rga-employees-trigger">
+                    <UsersIcon className="h-4 w-4 mr-2 text-muted-foreground" />
+                    {filters.user_ids.length === 0
+                      ? <span className="text-muted-foreground truncate">
+                          Todos ({empleadosOptions.length})
+                        </span>
+                      : <span className="truncate">{filters.user_ids.length} seleccionado(s)</span>}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-80 p-0" align="start">
+                  <div className="p-2 border-b border-border/60 flex items-center gap-2">
+                    <Input
+                      value={empSearch}
+                      onChange={(e) => setEmpSearch(e.target.value)}
+                      placeholder="Buscar por nombre o cédula…"
+                      className="h-8 text-xs"
+                      data-testid="rga-employee-search"
+                    />
+                    {filters.user_ids.length > 0 && (
+                      <Button variant="ghost" size="sm" className="h-8 px-2 text-xs"
+                        onClick={clearUsers} data-testid="rga-employees-clear">
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                  <div className="max-h-60 overflow-y-auto" data-testid="rga-employees-list">
+                    {empleadosOptions.length === 0 && (
+                      <p className="p-3 text-xs text-muted-foreground">
+                        {filters.department_ids.length > 0
+                          ? "No hay empleados en los departamentos seleccionados."
+                          : "Sin empleados"}
+                      </p>
+                    )}
+                    {empleadosOptions.map((u) => {
+                      const on = filters.user_ids.includes(u.user_id);
+                      return (
+                        <button key={u.user_id} type="button" onClick={() => toggleUser(u.user_id)}
+                          className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted/60 text-left"
+                          data-testid={`rga-user-${u.user_id}`}>
+                          <span className={`h-4 w-4 rounded border grid place-items-center shrink-0 ${on ? "bg-primary border-primary text-primary-foreground" : "border-border"}`}>
+                            {on && <Check className="h-3 w-3" />}
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block truncate">{u.name}</span>
+                            <span className="block text-[10px] text-muted-foreground truncate">
+                              {u.cedula || "—"}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </PopoverContent>
               </Popover>

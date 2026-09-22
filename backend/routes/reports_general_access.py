@@ -50,12 +50,14 @@ async def reports_general_access(from_date: Optional[str] = Query(None),
                                  to_date: Optional[str] = Query(None),
                                  department_ids: Optional[List[str]] = Query(None),
                                  site_id: Optional[str] = Query(None),
+                                 user_ids: Optional[List[str]] = Query(None),
                                  user: Dict[str, Any] = Depends(_require_perm)) -> Dict[str, Any]:
     _validate_range(from_date, to_date)
     scope = await _apply_scope(user)
     return await build_general_access_report(db, from_date, to_date,
                                              department_ids=department_ids or None,
                                              site_id=site_id or None,
+                                             user_ids=user_ids or None,
                                              scope_user_ids=scope)
 
 
@@ -64,12 +66,14 @@ async def reports_general_access_pdf(from_date: Optional[str] = Query(None),
                                      to_date: Optional[str] = Query(None),
                                      department_ids: Optional[List[str]] = Query(None),
                                      site_id: Optional[str] = Query(None),
+                                     user_ids: Optional[List[str]] = Query(None),
                                      user: Dict[str, Any] = Depends(_require_perm)) -> StreamingResponse:
     _validate_range(from_date, to_date)
     scope = await _apply_scope(user)
     report = await build_general_access_report(db, from_date, to_date,
                                                department_ids=department_ids or None,
                                                site_id=site_id or None,
+                                               user_ids=user_ids or None,
                                                scope_user_ids=scope)
     settings = await db.settings.find_one({"_id": "company"}) or {}
     pdf_bytes = export_general_access_pdf(
