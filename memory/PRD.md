@@ -728,3 +728,9 @@ Backend curl: soft-delete OK con `deleted_at/deleted_by`, listado la oculta ✅.
 - **Botón "Pendientes de foto" en Empleados**: acción con badge de contador junto a los filtros de rol/departamento; al activarlo filtra a los empleados sin selfie registrado (`has_photo=false`), excluyendo cuentas kiosk. Backend `GET /users` ahora devuelve `has_photo` (calculado con aggregate `$type` de `selfie_base64`, sin exponer la selfie).
 - Verificado: backend devuelve 9 pendientes / 123 con foto (total 132 no-kiosk); filtro user_ids en backend con 2 IDs → 2 empleados / 8 marcajes; UI muestra el toggle naranja con "9" y reduce la tabla a los 9 registros correctos; filtro de empleados en el reporte reduce el resumen a "2 empleados · 6 registros".
 
+
+## 2026-09-22 (2) — Mi Equipo: overlay de Novedades en la matriz diaria
+- **Problema**: la consulta "Mi Equipo" solo leía `/attendance/team` (marcajes crudos); las novedades registradas (vacaciones, reposo, remoto, permiso) no se reflejaban en la matriz diaria.
+- **Fix (frontend TeamPage.jsx)**: se carga `GET /novelties` (ya recortado por jerarquía en backend) y se construye un índice `noveltiesByUserDay` por empleado/día. Días sin marcaje y con novedad → chip azul "Vacaciones / Reposo / Trabajo Remoto / Permiso" (aprobada = azul sólido, pendiente = azul con borde punteado + "(pend.)"). Días con marcaje + novedad → etiqueta azul pequeña bajo las horas. Se agregaron 2 entradas a la leyenda inferior.
+- Verificado con datos reales: Juan Gil (vacaciones 01–21 sep) muestra chips "Vacaciones" en todos sus días; Adalberto Salcedo muestra "Trabajo Remoto"; permisos aparecen junto a los marcajes. 80 celdas con novedad en la vista de 14 días del admin.
+

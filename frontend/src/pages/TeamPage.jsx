@@ -26,6 +26,15 @@ const dfTime = new Intl.DateTimeFormat("es-VE", { hour: "2-digit", minute: "2-di
 const dfDay = new Intl.DateTimeFormat("es-VE", { day: "2-digit", month: "short", timeZone: TZ });
 const dfLongDate = new Intl.DateTimeFormat("es-VE", { weekday: "long", day: "2-digit", month: "long", year: "numeric", timeZone: TZ });
 
+// Etiquetas de novedad visibles en la matriz del equipo (mismo lenguaje que
+// el Reporte Matricial).
+const NOVELTY_LABELS = {
+  vacation: "Vacaciones",
+  leave: "Reposo",
+  remote: "Trabajo Remoto",
+  permission: "Permiso",
+};
+
 function daysBackList(days) {
   const arr = [];
   for (let i = 0; i < days; i++) {
@@ -42,6 +51,7 @@ export default function TeamPage() {
   const [users, setUsers] = useState([]);
   const [depts, setDepts] = useState([]);
   const [schedules, setSchedules] = useState([]);
+  const [novelties, setNovelties] = useState([]);
   const [days, setDays] = useState("7");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,16 +64,18 @@ export default function TeamPage() {
   async function load() {
     setLoading(true);
     try {
-      const [{ data: recs }, { data: allUsers }, { data: allDepts }, { data: allSchedules }] = await Promise.all([
+      const [{ data: recs }, { data: allUsers }, { data: allDepts }, { data: allSchedules }, { data: allNovelties }] = await Promise.all([
         api.get(`/attendance/team?days=${days}`),
         api.get("/users"),
         api.get("/departments"),
         api.get("/schedules"),
+        api.get("/novelties"),
       ]);
       setRecords(recs);
       setUsers(allUsers);
       setDepts(allDepts);
       setSchedules(allSchedules);
+      setNovelties(allNovelties || []);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail) || e.message);
     } finally { setLoading(false); setRefreshing(false); }
@@ -117,6 +129,34 @@ export default function TeamPage() {
     };
   }, [teamMembers, teamRecords]);
 
+  // Novedades aprobadas/pendientes por empleado y día (YYYY-MM-DD local).
+  // Vacaciones/reposo/remoto/permiso sin horas cubren el día completo; permiso
+  // con horas es parcial y sólo se muestra si el día no tiene marcajes.
+  const noveltiesByUserDay = useMemo(() => {
+    const map = {};
+    for (const n of novelties || []) {
+      if (!n.user_id || !n.start_date || !n.end_date) continue;
+      if (n.status !== "approved" && n.status !== "pending") continue;
+      const label = NOVELTY_LABELS[n.type];
+      if (!label) continue;
+      // Los días se comparan como strings YYYY-MM-DD (fechas del negocio).
+      for (let d = n.start_date; d <= n.end_date;) {
+        const key = `${n.user_id}|${d}`;
+        (map[key] ||= []).push({
+          label,
+          status: n.status,
+          type: n.type,
+          partial: n.type === "permission" && !!(n.start_time && n.end_time),
+        });
+        // avanzar un día en UTC para evitar problemas de DST
+        const dt = new Date(d + "T12:00:00Z");
+        dt.setUTCDate(dt.getUTCDate() + 1);
+        d = dt.toISOString().slice(0, 10);
+      }
+    }
+    return map;
+  }, [novelties]);
+
   // Matrix por día (columna) y usuario (fila)
   const dayList = useMemo(() => daysBackList(Number(days)), [days]);
   const matrix = useMemo(() => {
@@ -133,6 +173,7 @@ export default function TeamPage() {
           justification_status: "none", // "none" | "pending" | "approved" | "rejected"
           just_text: null, rejection_reason: null,
           records: [],
+          novelties: noveltiesByUserDay[`${m.user_id}|${key}`] || [],
         };
       }
       const userRecs = teamRecords.filter((r) => r.user_id === m.user_id);
@@ -164,7 +205,7 @@ export default function TeamPage() {
       }
       return { user: m, days: byDay };
     });
-  }, [teamMembers, teamRecords, dayList]);
+  }, [teamMembers, teamRecords, dayList, noveltiesByUserDay]);
 
   function openReview(member, dayKey, cell) {
     // Toma el primer registro "in" del día con justification (o pending o cualquiera con texto)
@@ -326,8 +367,24 @@ export default function TeamPage() {
                       const clickable = cell.is_late && (jStatus === "pending" || cell.just_text);
                       return (
                         <TableCell key={key} className="text-center align-top py-3">
-                          {!hasAny && (
+                          {!hasAny && cell.novelties.length === 0 && (
                             <span className="inline-block h-2 w-2 rounded-full bg-muted-foreground/25" title="Sin marca" />
+                          )}
+                          {!hasAny && cell.novelties.length > 0 && (
+                            <div className="flex flex-col items-center gap-1"
+                              data-testid={`team-cell-novelty-${m.user_id}-${key}`}>
+                              {cell.novelties.slice(0, 2).map((nv, i) => (
+                                <span key={i}
+                                  title={nv.status === "pending" ? `${nv.label} — pendiente de aprobación` : nv.label}
+                                  className={`inline-block rounded-md px-2 py-0.5 text-[10px] font-medium whitespace-nowrap ${
+                                    nv.status === "pending"
+                                      ? "bg-blue-50 text-blue-700 border border-dashed border-blue-300"
+                                      : "bg-blue-100 text-blue-800"
+                                  }`}>
+                                  {nv.label}{nv.status === "pending" ? " (pend.)" : ""}
+                                </span>
+                              ))}
+                            </div>
                           )}
                           {hasAny && (() => {
                             const isMajor = cell.severity === "late_major";
@@ -369,6 +426,12 @@ export default function TeamPage() {
                                     {cell.late_minutes}m {jStatus === "pending" ? "· pendiente" : jStatus === "approved" ? "· justif." : jStatus === "rejected" ? "· injustif." : isMajor ? "· mayor" : "leve"}
                                   </div>
                                 )}
+                                {cell.novelties.length > 0 && (
+                                  <div className="text-[9px] text-blue-700 font-medium mt-0.5"
+                                    data-testid={`team-cell-novelty-mark-${m.user_id}-${key}`}>
+                                    {cell.novelties[0].label}{cell.novelties[0].status === "pending" ? " (pend.)" : ""}
+                                  </div>
+                                )}
                               </Wrapper>
                             );
                           })()}
@@ -401,6 +464,12 @@ export default function TeamPage() {
         </span>
         <span className="inline-flex items-center gap-1.5">
           <XCircle className="h-3 w-3 text-red-600" /> Injustificado
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-3 rounded-sm bg-blue-100 border border-blue-300" /> Novedad (vacaciones / reposo / remoto / permiso)
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-3 w-3 rounded-sm bg-blue-50 border border-dashed border-blue-300" /> Novedad pendiente de aprobación
         </span>
       </div>
 
